@@ -1,0 +1,27 @@
+{
+  "name": "eklenti",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "bash build.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ozankenangungor/ClearScroll.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ozankenangungor/ClearScroll/issues"
+  },
+  "homepage": "https://github.com/ozankenangungor/ClearScroll#readme",
+  "devDependencies": {
+    "@types/chrome": "^0.1.37",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}
