@@ -2,23 +2,32 @@
  * extractor.ts — Content Script (UI Thread)
  *
  * Observes DOM mutations, extracts text from newly added nodes,
- * batches them to the off-thread inference worker, and blurs
- * toxic content — all without blocking the main thread.
+ * batches them to the off-thread semantic worker, and blurs
+ * matching content — all without blocking the main thread.
  */
 
 const TAG = "[IdeaBlocker]";
 const MIN_TEXT_LENGTH = 15;
 const DEBOUNCE_MS = 150;
+const STORAGE_KEY = "ideablocker_target";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-interface ClassifyRequest {
+interface SetTargetRequest {
+  type: "SET_TARGET";
+  id: number;
+  target: string;
+}
+
+interface CompareRequest {
+  type: "COMPARE";
   id: number;
   texts: string[];
 }
 
-interface ClassifyResponse {
+interface CompareResponse {
   id: number;
+  type: "COMPARE";
   results: boolean[];
 }
 
@@ -27,7 +36,7 @@ interface ErrorResponse {
   error: string;
 }
 
-type WorkerMessage = ClassifyResponse | ErrorResponse;
+type WorkerResponse = CompareResponse | { id: number; type: "SET_TARGET"; ok: true } | ErrorResponse;
 
 // ── Ignored elements ───────────────────────────────────────────────────
 
@@ -49,11 +58,9 @@ const analyzedTexts = new Set<string>();
 let requestId = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Pending batch: texts and their corresponding parent elements
 let pendingTexts: string[] = [];
 let pendingElements: HTMLElement[] = [];
 
-// In-flight requests: id → element references for result mapping
 const inflightRequests = new Map<number, HTMLElement[]>();
 
 // ── Worker setup ───────────────────────────────────────────────────────
@@ -61,7 +68,7 @@ const inflightRequests = new Map<number, HTMLElement[]>();
 const workerURL = chrome.runtime.getURL("brain.worker.js");
 const worker = new Worker(workerURL, { type: "module" });
 
-worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
   const msg = event.data;
 
   if ("error" in msg) {
@@ -70,12 +77,17 @@ worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
     return;
   }
 
+  if (msg.type === "SET_TARGET") {
+    console.log(TAG, "Target embedding set in worker.");
+    return;
+  }
+
+  // COMPARE response
   const elements = inflightRequests.get(msg.id);
   inflightRequests.delete(msg.id);
 
   if (!elements) return;
 
-  // Apply blur to toxic elements inside rAF to avoid layout thrashing
   requestAnimationFrame(() => {
     for (let i = 0; i < msg.results.length; i++) {
       if (msg.results[i] && elements[i]) {
@@ -91,6 +103,49 @@ worker.onerror = (err) => {
   console.error(TAG, "Worker crashed:", err);
 };
 
+// ── Send target to worker ──────────────────────────────────────────────
+
+function sendTarget(target: string): void {
+  const id = ++requestId;
+  worker.postMessage({ type: "SET_TARGET", id, target } satisfies SetTargetRequest);
+  console.log(TAG, `Sent target to worker: "${target}"`);
+}
+
+// Load target from storage on startup
+chrome.storage.local.get([STORAGE_KEY], (result) => {
+  const target = result[STORAGE_KEY];
+  if (target && typeof target === "string" && target.trim().length > 0) {
+    sendTarget(target);
+  } else {
+    console.log(TAG, "No block target set. Open extension options to configure.");
+  }
+});
+
+// Listen for target changes (user updates from options page)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[STORAGE_KEY]) {
+    const newTarget = String(changes[STORAGE_KEY].newValue || "");
+    sendTarget(newTarget);
+
+    // Clear analysis cache so existing text gets re-evaluated
+    analyzedTexts.clear();
+
+    // Remove blur from all previously blurred elements
+    document.querySelectorAll<HTMLElement>('[style*="blur"]').forEach((el) => {
+      el.style.filter = "";
+      el.style.transition = "";
+    });
+
+    // Re-scan the page with the new target
+    if (document.body) {
+      extractTextsFromNode(document.body);
+      if (pendingTexts.length > 0) {
+        flushBatch();
+      }
+    }
+  }
+});
+
 console.log(TAG, "Content script loaded. Worker spawned.");
 
 // ── Text extraction ────────────────────────────────────────────────────
@@ -98,12 +153,10 @@ console.log(TAG, "Content script loaded. Worker spawned.");
 function extractTextsFromNode(root: Node): void {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node: Text): number {
-      // Skip nodes inside ignored elements
       const parent = node.parentElement;
       if (!parent || IGNORED_TAGS.has(parent.tagName)) {
         return NodeFilter.FILTER_REJECT;
       }
-      // Skip tiny text fragments
       const text = node.data.trim();
       if (text.length < MIN_TEXT_LENGTH) {
         return NodeFilter.FILTER_REJECT;
@@ -117,7 +170,6 @@ function extractTextsFromNode(root: Node): void {
     const text = textNode.data.trim();
     const parent = textNode.parentElement;
 
-    // Cache check — never send the same text twice
     if (analyzedTexts.has(text) || !parent) continue;
 
     analyzedTexts.add(text);
@@ -135,13 +187,10 @@ function flushBatch(): void {
   const texts = pendingTexts;
   const elements = pendingElements;
 
-  // Store element references for when results come back
   inflightRequests.set(id, elements);
 
-  // Send only the string array to the worker (DOM refs stay on main thread)
-  worker.postMessage({ id, texts } satisfies ClassifyRequest);
+  worker.postMessage({ type: "COMPARE", id, texts } satisfies CompareRequest);
 
-  // Reset pending batch
   pendingTexts = [];
   pendingElements = [];
 }
@@ -164,7 +213,6 @@ const observer = new MutationObserver((mutations: MutationRecord[]) => {
   for (const mutation of mutations) {
     for (const node of mutation.addedNodes) {
       if (node.nodeType === Node.TEXT_NODE) {
-        // Added text node directly — extract from its parent context
         const text = (node as Text).data.trim();
         const parent = (node as Text).parentElement;
         if (
@@ -178,7 +226,6 @@ const observer = new MutationObserver((mutations: MutationRecord[]) => {
           pendingElements.push(parent);
         }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
-        // Element added — walk its subtree for text nodes
         const el = node as HTMLElement;
         if (!IGNORED_TAGS.has(el.tagName)) {
           extractTextsFromNode(el);
@@ -195,13 +242,11 @@ const observer = new MutationObserver((mutations: MutationRecord[]) => {
 // ── Bootstrap ──────────────────────────────────────────────────────────
 
 function start(): void {
-  // Initial scan of existing page content
   extractTextsFromNode(document.body);
   if (pendingTexts.length > 0) {
     flushBatch();
   }
 
-  // Watch for future DOM changes (infinite scroll, SPAs, etc.)
   observer.observe(document.body, {
     childList: true,
     subtree: true,
@@ -210,7 +255,6 @@ function start(): void {
   console.log(TAG, "MutationObserver active. Monitoring DOM.");
 }
 
-// Ensure body is available (content script runs at document_idle, so it should be)
 if (document.body) {
   start();
 } else {

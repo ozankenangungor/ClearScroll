@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "IdeaBlocker",
-  "version": "0.1.0",
-  "description": "On-device AI text classifier — censors specific topics locally using WebGPU-accelerated inference.",
-  "permissions": ["activeTab"],
+  "version": "0.2.0",
+  "description": "On-device AI semantic filter — blurs any topic you choose using WebGPU-accelerated sentence embeddings.",
+  "permissions": ["activeTab", "storage"],
+  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

@@ -25,8 +25,17 @@ npx esbuild src/brain.worker.ts \
   --target=es2022 \
   --minify
 
-echo "==> Copying manifest.json"
+# Options page — IIFE format
+npx esbuild src/options.ts \
+  --bundle \
+  --outfile="$DIST/options.js" \
+  --format=iife \
+  --target=es2022 \
+  --minify
+
+echo "==> Copying static files"
 cp manifest.json "$DIST/"
+cp options.html "$DIST/"
 
 echo "==> Copying WASM pkg/"
 cp pkg/text_classifier_wasm.js "$DIST/pkg/"
