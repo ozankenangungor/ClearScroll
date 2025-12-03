@@ -9,6 +9,14 @@ mkdir -p "$DIST/pkg"
 
 echo "==> Compiling TypeScript → JavaScript (esbuild)"
 
+# Background service worker — ESM format (MV3)
+npx esbuild src/background.ts \
+  --bundle \
+  --outfile="$DIST/background.js" \
+  --format=esm \
+  --target=es2022 \
+  --minify
+
 # Content script — IIFE format (content scripts can't be ES modules in MV3)
 npx esbuild src/extractor.ts \
   --bundle \

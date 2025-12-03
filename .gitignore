@@ -5,5 +5,8 @@ Cargo.lock
 **/*.rs.bk
 node_modules/
 dist/
+docs/
+*.crx
+*.pem
 model/*.onnx
 model/weights.bin

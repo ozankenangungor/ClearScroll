@@ -3,15 +3,17 @@
   "name": "IdeaBlocker",
   "version": "0.2.0",
   "description": "On-device AI semantic filter — blurs any topic you choose using WebGPU-accelerated sentence embeddings.",
-  "permissions": ["activeTab", "storage"],
+  "minimum_chrome_version": "113",
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "options_page": "options.html",
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["extractor.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": [
@@ -19,7 +21,8 @@
         "pkg/text_classifier_wasm.js",
         "pkg/text_classifier_wasm_bg.wasm"
       ],
-      "matches": ["<all_urls>"]
+      "matches": ["http://*/*", "https://*/*"],
+      "use_dynamic_url": true
     }
   ]
 }
