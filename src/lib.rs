@@ -21,12 +21,13 @@ pub async fn init() -> Result<(), JsValue> {
 /// Returns a Float32Array of length 128 (L2-normalized).
 /// Use this to pre-compute the user's "block prompt" reference vector.
 #[wasm_bindgen]
-pub fn embed_text(text: String) -> Result<Float32Array, JsValue> {
+pub async fn embed_text(text: String) -> Result<Float32Array, JsValue> {
     let embedder =
         state::get().ok_or_else(|| JsValue::from_str("Not initialized. Call init() first."))?;
 
     let results = embedder
         .embed(&[text])
+        .await
         .map_err(|e| JsValue::from_str(&e))?;
 
     let embedding = &results[0];
@@ -42,8 +43,8 @@ pub fn embed_text(text: String) -> Result<Float32Array, JsValue> {
 /// - `texts`: array of strings to check
 /// - `threshold`: similarity cutoff (e.g. 0.6)
 #[wasm_bindgen]
-pub fn compare_batch(
-    reference_embedding: &Float32Array,
+pub async fn compare_batch(
+    reference_embedding: Float32Array,
     texts: Vec<String>,
     threshold: f32,
 ) -> Result<Array, JsValue> {
@@ -54,6 +55,7 @@ pub fn compare_batch(
 
     let results = embedder
         .compare(&ref_vec, &texts, threshold)
+        .await
         .map_err(|e| JsValue::from_str(&e))?;
 
     let out = Array::new_with_length(results.len() as u32);

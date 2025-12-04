@@ -8,5 +8,9 @@ dist/
 docs/
 *.crx
 *.pem
+# Markdown policy: only README should be versioned.
+*.md
+!README.md
+!readme.md
 model/*.onnx
 model/weights.bin

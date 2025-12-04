@@ -12,8 +12,17 @@ use crate::tokenizer;
 mod backend {
     pub type SelectedBackend = burn::backend::Wgpu;
 
-    pub fn default_device() -> burn::backend::wgpu::WgpuDevice {
-        burn::backend::wgpu::WgpuDevice::default()
+    pub async fn create_device() -> burn::backend::wgpu::WgpuDevice {
+        // Avoid implicit lazy init (`DeviceState::init`) on wasm, which may use
+        // synchronous future polling paths. Build a setup explicitly via async API
+        // and register it as an Existing(...) device.
+        let setup = burn::backend::wgpu::init_setup_async::<burn::backend::wgpu::graphics::WebGpu>(
+            &burn::backend::wgpu::WgpuDevice::DefaultDevice,
+            burn::backend::wgpu::RuntimeOptions::default(),
+        )
+        .await;
+
+        burn::backend::wgpu::init_device(setup, burn::backend::wgpu::RuntimeOptions::default())
     }
 }
 
@@ -21,7 +30,7 @@ mod backend {
 mod backend {
     pub type SelectedBackend = burn::backend::NdArray;
 
-    pub fn default_device() -> burn::backend::ndarray::NdArrayDevice {
+    pub async fn create_device() -> burn::backend::ndarray::NdArrayDevice {
         burn::backend::ndarray::NdArrayDevice::default()
     }
 }
@@ -38,7 +47,7 @@ pub struct Embedder {
 
 impl Embedder {
     /// Embed a batch of texts → Vec<Vec<f32>> (each inner vec is a 128-dim L2-normalized vector).
-    pub fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+    pub async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
         let (token_ids, attention_masks) =
             tokenizer::tokenize_batch(texts, self.config.max_seq_len);
         let batch_size = token_ids.len();
@@ -48,7 +57,10 @@ impl Embedder {
         let mask_tensor = self.make_mask_tensor(&attention_masks, batch_size, seq_len);
 
         let embeddings = self.model.forward(ids_tensor, mask_tensor); // [batch, hidden]
-        let data = embeddings.to_data();
+        let data = embeddings
+            .to_data_async()
+            .await
+            .map_err(|e| e.to_string())?;
         let flat: Vec<f32> = data.iter::<f32>().collect();
 
         Ok(flat
@@ -59,7 +71,7 @@ impl Embedder {
 
     /// Compare a batch of texts against a reference embedding.
     /// Returns Vec<bool> — true if cosine similarity >= threshold.
-    pub fn compare(
+    pub async fn compare(
         &self,
         reference: &[f32],
         texts: &[String],
@@ -85,7 +97,10 @@ impl Embedder {
 
         // Cosine similarity (both are L2-normalized)
         let sims = cosine_similarity_batch::<B>(ref_tensor, batch_emb); // [N]
-        let sim_data = sims.to_data();
+        let sim_data = sims
+            .to_data_async()
+            .await
+            .map_err(|e| e.to_string())?;
 
         Ok(sim_data.iter::<f32>().map(|s| s >= threshold).collect())
     }
@@ -134,7 +149,7 @@ pub async fn initialize() -> Result<(), String> {
         return Ok(());
     }
 
-    let device = backend::default_device();
+    let device = backend::create_device().await;
     let config = BertTinyConfig::default_config();
 
     // Embed pretrained weights at compile time (no filesystem in WASM).
