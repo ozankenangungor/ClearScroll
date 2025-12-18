@@ -1,4 +1,4 @@
-# IdeaBlocker
+# ClearScroll
 
 Local-first Chrome MV3 extension that blurs semantically related text using a Rust/WASM model running in a worker.
 
