@@ -1,42 +1,43 @@
 # ClearScroll
 
-Local-first Chrome MV3 extension that blurs semantically related text using a Rust/WASM model running in a worker.
+ClearScroll is a Chrome extension for blurring text about a topic you’d rather skip. Pick one topic and matching snippets blur as you browse. The extension checks both the words on the page and how closely the text relates to your topic, right in your browser.
 
-## Core Principles
+The build on `main` still appears as **IdeaBlocker** in Chrome. You can try it by building from source and loading it as an unpacked extension.
 
-1. Zero cloud processing (all inference in-browser).
-2. No UI thread ML execution.
-3. Precision-first filtering with user controls.
+![Sample news feed where the transfer story is blurred and the market and library stories remain readable](.github/filtering-demo.png)
 
-## Architecture
+*“Transfer rumours” as the block target on a sample page, captured in Chromium. This run used word and phrase matching.*
 
-1. `src/background.ts`: Dynamic content-script registration based on saved settings.
-2. `src/extractor.ts`: DOM extraction + batching + visual blur (`requestAnimationFrame`).
-3. `src/brain.worker.ts`: Semantic + lexical decision engine in worker thread.
-4. `src/lib.rs` + `src/state.rs`: Rust/WASM embedder runtime (Burn/WebGPU).
-5. `src/options.ts` + `options.html`: User controls (target, mode, exclusions, protected selectors).
-6. `src/settings.ts`: Shared settings schema and normalization.
+## Build and load it in Chrome
 
-## Modes
+You’ll need Chrome 113 or later, Node.js 20 or later, Python 3.12, and a current stable Rust toolchain installed through rustup. Install the [wasm-pack CLI](https://github.com/wasm-bindgen/wasm-pack#-prerequisites) before building.
 
-1. `precision`: Lowest false positives.
-2. `balanced`: Mid-point tradeoff.
-3. `aggressive`: Higher recall, more risk of false positives.
+Run these commands from the repository root in Bash.
 
-## Local Development
-
-```bash
+```sh
 npm ci
-npm run typecheck
-cargo check --target wasm32-unknown-unknown --release
-bash build.sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install torch transformers numpy
+python export_weights.py
+wasm-pack build --target web --release
+npm run build
 ```
 
-Load `dist/` from `chrome://extensions` -> `Load unpacked`.
+The export script downloads [BERT Tiny](https://huggingface.co/prajjwal1/bert-tiny) and writes `model/weights.bin`. The Rust build embeds those weights in the WASM file. The final build command bundles the extension into `dist/`.
 
-## Production Notes
+1. Open `chrome://extensions`, turn on **Developer mode**, and choose **Load unpacked**. Select the `dist/` folder.
+2. On the IdeaBlocker card, open **Details → Extension options**. Enter one topic in **Block Target**, leave the mode on **Precision**, and click **Save**.
+3. Reload the page you want to filter. Try **Balanced** or **Aggressive** if too much relevant text stays visible. Broader modes can blur unrelated text too.
 
-1. Content script is dynamically registered only when target is non-empty.
-2. Site exclusions are applied centrally in background script.
-3. Worker gracefully falls back to lexical-only mode if semantic engine fails.
-4. Release process checklist lives in `docs/PRODUCTION_RUNBOOK.md`.
+Use **Excluded Sites** to skip a site, or **Protected Selectors** to keep parts of a page visible. Enter one hostname or CSS selector per line. Clear **Block Target** and save to turn off filtering.
+
+## What to expect
+
+Some matches will slip through and unrelated text can get blurred by mistake. Text can also appear before the filter has finished checking it. The original text remains in the page under the blur.
+
+The topic and settings are stored in Chrome’s local extension storage. Chrome asks for access to HTTP and HTTPS pages so the content script can read and blur text. The worker compares text embeddings using Rust, WebAssembly and WebGPU. If the semantic engine fails to start, it falls back to word and phrase matching. That happened in the Chromium run shown above because the worker couldn’t load its WASM module. The [content script](src/extractor.ts) collects page text and applies the blur. The [worker](src/brain.worker.ts) decides what matches.
+
+## Report a problem
+
+If a page blurs the wrong thing, a public URL, the topic and mode you used, and what you expected to stay visible are enough to start. For build trouble, include your OS and the first error from the build. [Open an issue](https://github.com/ozankenangungor/ClearScroll/issues).
