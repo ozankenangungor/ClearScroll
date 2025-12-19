@@ -2,33 +2,157 @@ name: ci
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CLEARSCROLL_MODEL: minilm-l6
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
+  typescript:
+    name: TypeScript (typecheck + unit tests)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
 
-      - name: Install Node dependencies
-        run: npm ci
+  rust:
+    name: Rust (fmt, clippy, unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the version, components and wasm target.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --no-default-features --features cli --all-targets -- -D warnings
+      - run: cargo clippy --locked --lib --target wasm32-unknown-unknown --release -- -D warnings
+      # Model-dependent parity tests skip here (no artifacts); they run, and
+      # are required, in the build job.
+      - run: cargo test --locked --no-default-features --features cpu
 
-      - name: Typecheck TS
-        run: npm run typecheck
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+  dependencies:
+    name: Dependency licences and advisories
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          targets: wasm32-unknown-unknown
+          command: check advisories bans licenses sources
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
 
-      - name: Cargo check (wasm release profile)
-        run: cargo check --target wasm32-unknown-unknown --release
+  model:
+    name: Model artifacts (pinned download + export + sha256)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/models/${{ env.CLEARSCROLL_MODEL }}
+          key: model-${{ env.CLEARSCROLL_MODEL }}-${{ hashFiles('tools/model_lock.json', 'tools/prepare_model.py', 'tools/requirements.lock') }}
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.13"
+      - name: Prepare model (fails on any hash mismatch)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --require-hashes -r tools/requirements.lock
+          .venv/bin/python tools/prepare_model.py --model "$CLEARSCROLL_MODEL"
+      - name: Verify artifacts (also on cache hit)
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, sys
+          m = os.environ["CLEARSCROLL_MODEL"]
+          lock = json.load(open("tools/model_lock.json"))["models"][m]
+          d = f"build/models/{m}"
+          for f, want in (("weights.bin", lock["weights_sha256"]), ("vocab.txt", lock["files"]["vocab.txt"])):
+              got = hashlib.sha256(open(f"{d}/{f}", "rb").read()).hexdigest()
+              print(f, got)
+              sys.exit(1) if got != want else None
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: build/models/${{ env.CLEARSCROLL_MODEL }}
+          retention-days: 3
 
-      - name: Build extension dist
-        run: bash build.sh
+  build:
+    name: Build, validate, parity + quality gate
+    needs: [typescript, rust, model]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: model
+          path: build/models/${{ env.CLEARSCROLL_MODEL }}
+      - name: Install wasm-bindgen CLI (version from Cargo.lock)
+        run: |
+          v=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/,""); print; exit}' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$v" --locked
+      - run: npm ci
+      - run: npm run build
+      - run: npm run validate
+      - name: Rust parity against PyTorch fixtures (model required)
+        run: cargo test --locked --no-default-features --features cpu --test parity
+        env:
+          CLEARSCROLL_REQUIRE_MODEL: ${{ env.CLEARSCROLL_MODEL }}
+      - name: Semantic quality gate
+        run: |
+          cargo build --locked --release --no-default-features --features cli
+          node scripts/evaluate.ts --models "$CLEARSCROLL_MODEL" --out build/eval/ci --min-en-f1 0.60
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  browser:
+    name: Browser tests (DOM integration + extension E2E)
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: npm run test:dom
+      - run: npm run test:e2e
+      - name: Privacy check (no network requests caused by the extension)
+        run: npm run verify:privacy

@@ -1,0 +1,31 @@
+/* Injected by ClearScroll. All rules are keyed on extension-owned attributes,
+   so removing the attribute restores the page exactly. */
+
+[data-clearscroll="blurred"] {
+  filter: blur(7px) !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  transition: filter 0.15s ease-out;
+}
+
+[data-clearscroll="blurred"] * {
+  pointer-events: none !important;
+}
+
+[data-clearscroll="blurred"]:focus-visible {
+  outline: 3px solid #2563eb !important;
+  outline-offset: 3px !important;
+  filter: blur(5px) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-clearscroll] {
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  [data-clearscroll="blurred"] {
+    outline: 2px dashed CanvasText !important;
+  }
+}

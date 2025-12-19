@@ -1,34 +1,54 @@
 [package]
-name = "text-classifier-wasm"
-version = "0.1.0"
+name = "clearscroll-engine"
+version = "0.3.0"
 edition = "2021"
+rust-version = "1.85"
+license = "ISC"
 publish = false
+description = "BERT-family sentence encoder on Burn for the ClearScroll extension"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "clearscroll-embed"
+path = "src/bin/clearscroll_embed.rs"
+required-features = ["cli"]
+
 [features]
-default = ["wgpu"]
-wgpu = ["burn/wgpu", "burn/webgpu", "burn/fusion"]
-ndarray = ["burn/ndarray"]
+default = ["webgpu", "cpu"]
+# WebGPU backend (browser). Fusion merges elementwise kernels.
+webgpu = ["burn/webgpu", "burn/fusion"]
+# Portable CPU backend; used as the in-browser fallback and for native tests.
+cpu = ["burn/ndarray"]
+# Native JSON-lines CLI used by the parity and evaluation tooling.
+cli = ["cpu", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 burn = { version = "0.20", default-features = false, features = ["std"] }
+unicode-normalization = "0.1.25"
+unicode-general-category = "1.1"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde-wasm-bindgen = "0.6"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["console"] }
+console_error_panic_hook = "0.1"
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
-console_error_panic_hook = "0.1"
 
 [profile.release]
-opt-level = "s"
+opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
 
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+[dev-dependencies]
+serde_json = "1"
+
+# Optimise dependencies (Burn, ndarray) in dev/test builds: model parity tests
+# run ~10x faster while our own crate stays debuggable.
+[profile.dev.package."*"]
+opt-level = 2

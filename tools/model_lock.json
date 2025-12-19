@@ -1,0 +1,62 @@
+{
+  "default": "bert-tiny",
+  "models": {
+    "bert-tiny": {
+      "repo": "prajjwal1/bert-tiny",
+      "revision": "6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837",
+      "license": "MIT",
+      "pooling": "mean",
+      "config": {
+        "vocab_size": 30522,
+        "hidden_size": 128,
+        "num_layers": 2,
+        "num_heads": 2,
+        "intermediate_size": 512
+      },
+      "files": {
+        "config.json": "cf3179684f7c360dd6185962d480e7d426ceb8fe49f5db7b64bdc15dba0b8798",
+        "pytorch_model.bin": "dab2c2bddcfb48ea430ef63fd76d46d67d704487844d967256a50dd7d7fd0a66",
+        "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "weights_sha256": "216f05f4aa85edcde9c1a6f361c951719ee7f559174adab43b410203deec70a7"
+    },
+    "minilm-l3": {
+      "repo": "sentence-transformers/paraphrase-MiniLM-L3-v2",
+      "revision": "4ca70771034acceecb2e72475f72050fcdde4ddc",
+      "license": "Apache-2.0",
+      "pooling": "mean",
+      "config": {
+        "vocab_size": 30522,
+        "hidden_size": 384,
+        "num_layers": 3,
+        "num_heads": 12,
+        "intermediate_size": 1536
+      },
+      "files": {
+        "config.json": "fc00f0ca1c3380f17937a4050908dd2cf743c36bebe437cf448b8aa4e7ddfe4d",
+        "model.safetensors": "cf1e4e2d420c664973037c3c73125d7a8fc69952495093ef8f50596f8943a433",
+        "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "weights_sha256": "5b05903ebe91abbb8442a96b387243bb8cbd83532ad55f5aa90200f629d9dce0"
+    },
+    "minilm-l6": {
+      "repo": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "license": "Apache-2.0",
+      "pooling": "mean",
+      "config": {
+        "vocab_size": 30522,
+        "hidden_size": 384,
+        "num_layers": 6,
+        "num_heads": 12,
+        "intermediate_size": 1536
+      },
+      "files": {
+        "config.json": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+        "model.safetensors": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db",
+        "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+      },
+      "weights_sha256": "69db829922d7cd40179f647b6f5f47010ef3d44b09afc18e32bee1b5f4b0d4fa"
+    }
+  }
+}

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClearScroll settings</title>
+  <link rel="stylesheet" href="../ui/common.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div class="brand">
+        <img src="../icons/icon-48.png" alt="" width="32" height="32">
+        <div>
+          <h1>ClearScroll</h1>
+          <p class="muted small">Blur content about topics you choose. Runs entirely on this device.</p>
+        </div>
+      </div>
+      <span class="status-pill" id="engine-status" data-state="idle">Checking engine…</span>
+    </header>
+
+    <section id="migration-notes" class="card notice" role="alert" hidden>
+      <h2>Some old site rules could not be kept</h2>
+      <p class="small">Your settings were moved from IdeaBlocker. These excluded-site entries use a pattern ClearScroll does not support, so ClearScroll may now run on those sites. Add them again below in a supported form (for example <code>bank.com</code>).</p>
+      <ul id="migration-list" class="small"></ul>
+      <button type="button" class="btn" id="dismiss-migration">Dismiss</button>
+    </section>
+
+    <form id="settings-form" novalidate>
+      <section class="card" aria-labelledby="h-general">
+        <h2 id="h-general">Filtering</h2>
+        <label class="switch">
+          <input type="checkbox" id="enabled">
+          <span>Filtering enabled</span>
+        </label>
+        <p class="muted small">When off, nothing is analysed or blurred. Your topics and rules are kept.</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-topics">
+        <h2 id="h-topics">Topics to hide</h2>
+        <p class="muted small">Describe a topic in a few words, e.g. “cryptocurrency”, “movie spoilers”, “election news”. English works best — the on-device model is English-only.</p>
+        <ul id="topic-list" class="topic-list" aria-label="Topics"></ul>
+        <p id="topic-empty" class="muted small">No topics yet. Add one below to start filtering.</p>
+        <div class="add-topic">
+          <label for="new-topic" class="visually-hidden">New topic</label>
+          <input type="text" id="new-topic" placeholder="Add a topic…" maxlength="120" autocomplete="off" aria-describedby="new-topic-error">
+          <button type="button" class="btn" id="add-topic">Add topic</button>
+        </div>
+        <p id="new-topic-error" class="error-text" role="alert"></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-mode">
+        <h2 id="h-mode">Strictness</h2>
+        <fieldset class="modes">
+          <legend class="visually-hidden">Strictness</legend>
+          <label><input type="radio" name="mode" value="precision"> <strong>Precise</strong> <span class="muted small">— hides only clear matches; fewest mistakes</span></label>
+          <label><input type="radio" name="mode" value="balanced"> <strong>Balanced</strong> <span class="muted small">— a middle ground</span></label>
+          <label><input type="radio" name="mode" value="aggressive"> <strong>Thorough</strong> <span class="muted small">— catches more, but also hides more unrelated content</span></label>
+        </fieldset>
+      </section>
+
+      <section class="card" aria-labelledby="h-sites">
+        <h2 id="h-sites">Sites where ClearScroll never runs</h2>
+        <label for="excluded-sites" class="visually-hidden">Excluded sites, one per line</label>
+        <textarea id="excluded-sites" spellcheck="false" placeholder="example.com&#10;mail.google.com" aria-describedby="sites-help sites-error"></textarea>
+        <p id="sites-help" class="muted small">One domain per line. An entry also covers its subdomains (<code>example.com</code> includes <code>news.example.com</code>); a leading <code>*.</code> means the same. Paths and ports are ignored.</p>
+        <ul id="sites-error" class="error-text error-list" role="alert"></ul>
+      </section>
+
+      <details class="card advanced">
+        <summary><h2>Advanced</h2></summary>
+        <div class="field">
+          <label for="protected-selectors"><strong>Protected areas</strong> <span class="muted small">(CSS selectors, one per line)</span></label>
+          <textarea id="protected-selectors" spellcheck="false" placeholder="#sidebar&#10;.comments" aria-describedby="selectors-help selectors-error"></textarea>
+          <p id="selectors-help" class="muted small">Content inside these elements is never analysed or blurred. Navigation, forms, buttons and editable fields are always protected.</p>
+          <ul id="selectors-error" class="error-text error-list" role="alert"></ul>
+        </div>
+        <div class="field">
+          <label for="engine"><strong>Inference engine</strong></label>
+          <select id="engine" aria-describedby="engine-help">
+            <option value="auto">Automatic (GPU when available, otherwise CPU)</option>
+            <option value="cpu">CPU only</option>
+            <option value="off">Keyword matching only (no AI model)</option>
+          </select>
+          <p id="engine-help" class="muted small">Use “CPU only” if your graphics driver misbehaves. Keyword matching only hides text that literally contains your topic words.</p>
+        </div>
+        <div class="field">
+          <h3>Diagnostics</h3>
+          <dl id="diagnostics" class="diagnostics"></dl>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" id="save">Save changes</button>
+        <span id="dirty-note" class="muted small" hidden>Unsaved changes</span>
+        <p id="save-status" class="small" role="status" aria-live="polite"></p>
+      </div>
+    </form>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
