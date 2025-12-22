@@ -76,6 +76,8 @@ export interface EngineStats {
   embedMs: number;
   canaryFailures: number;
   wasmMemoryBytes: number | null;
+  /** WebAssembly memory after module instantiation, before the model loaded. */
+  wasmMemoryBeforeModelBytes: number | null;
 }
 
 export interface OffscreenStatusChanged {
@@ -119,7 +121,7 @@ export type WorkerRequest =
   | { type: "embed"; id: number; texts: string[] };
 
 export type WorkerResponse =
-  | { type: "ready"; backend: Backend; dim: number; loadMs: number; wasmMemoryBytes: number }
+  | { type: "ready"; backend: Backend; dim: number; loadMs: number; wasmMemoryBytes: number; wasmMemoryBeforeModelBytes: number }
   | { type: "init-failed"; error: string }
   | { type: "embedded"; id: number; vectors: Float32Array; ms: number; wasmMemoryBytes: number }
   | { type: "embed-failed"; id: number; error: string };

@@ -29,6 +29,9 @@ works in the browser and actually separates topics.
    with a 14 % false-positive rate; all-MiniLM-L6-v2 reaches 67.5 % / 4.4 %
    (English, held-out split). Thresholds are calibrated per model; Turkish
    was measured, found to be at chance level and documented as unsupported.
+   Adding UI strings to the dataset exposed that plain cosine similarity
+   blurs page furniture; scoring against background topics cut those false
+   positives from 17.6 % to 1.8 % (F1 63.7 % on the expanded set).
 3. *Numerical correctness.* Reimplemented the tokenizer to match Hugging Face
    exactly (the old one disagreed on 10/24 inputs) and verified embeddings to
    3 × 10⁻⁷. Found that Chrome's software WebGPU adapter returns NaN or stale
@@ -39,13 +42,16 @@ works in the browser and actually separates topics.
    offscreen-document lifecycle races and a starvation bug through
    benchmarking, each with a regression test that fails without the fix.
 5. *Performance.* WASM SIMD and length-sorted batching cut CPU inference from
-   95 to 28 ms per text; WebGPU on an RTX 3050 Mobile runs at 2.6 ms per
-   text; a 2,000-post page shows no main-thread long tasks.
+   95 to 26–29 ms per text; WebGPU on an RTX 3050 Mobile runs at ~2 ms per
+   text; half-precision weights halved the package (97 → 55 MiB); a
+   2,000-post page shows no main-thread long tasks.
 
-**Validation.** 47 unit tests, 20 DOM-integration tests in Chromium with a
+**Validation.** 59 unit tests, 26 DOM-integration tests in Chromium with a
 scripted classifier (out-of-order replies, settings changes mid-flight),
-15 end-to-end tests of the packaged extension, Rust parity tests against
-PyTorch fixtures, a network-capture privacy test, and a CI quality gate.
+25 end-to-end and axe-core accessibility tests of the packaged extension —
+passing on Chromium and on Google Chrome stable — Rust parity tests against
+PyTorch fixtures (f32 and f16), a controlled network-capture privacy test,
+CI quality gates, two independent code reviews and a security review.
 
 **Lessons.**
 * "It compiles" and "the status says active" are not evidence; a five-minute
@@ -54,3 +60,7 @@ PyTorch fixtures, a network-capture privacy test, and a CI quality gate.
   meaningless for the new model and dangerous for the old one.
 * Benchmarks double as integration tests — two races and a starvation bug
   showed up as numbers that did not add up.
+* A test that cannot fail is worse than none: a parity gate that skipped
+  silently, an async predicate that resolved instantly, a quality gate that
+  passed with no data and a privacy check without a proper control were all
+  caught by deliberately breaking things.

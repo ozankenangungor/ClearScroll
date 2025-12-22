@@ -1,7 +1,8 @@
 //! Parser for the CSWT weight container produced by `tools/prepare_model.py`.
 //!
-//! The container is a fixed 44-byte little-endian header followed by raw f32
-//! tensors. Parsing is strict: any inconsistency between the header and the
+//! The container is a fixed 44-byte little-endian header followed by raw
+//! tensors stored as f32 or IEEE-754 half precision (f16, decoded to f32 on
+//! load: computation is always f32). Parsing is strict: any inconsistency between the header and the
 //! payload size is an error, so a truncated download or a file exported for a
 //! different architecture can never be loaded as a silently-broken model.
 
@@ -11,6 +12,54 @@ pub const MAGIC: &[u8; 4] = b"CSWT";
 pub const FORMAT_VERSION: u32 = 1;
 pub const HEADER_LEN: usize = 44;
 const DTYPE_F32: u32 = 0;
+const DTYPE_F16: u32 = 1;
+
+/// Storage precision of the payload.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Dtype {
+    F32,
+    F16,
+}
+
+impl Dtype {
+    fn from_code(code: u32) -> Option<Self> {
+        match code {
+            DTYPE_F32 => Some(Self::F32),
+            DTYPE_F16 => Some(Self::F16),
+            _ => None,
+        }
+    }
+
+    pub fn size(self) -> usize {
+        match self {
+            Self::F32 => 4,
+            Self::F16 => 2,
+        }
+    }
+}
+
+/// IEEE-754 binary16 → binary32 (exact; every half value is representable).
+pub fn f16_to_f32(h: u16) -> f32 {
+    let sign = u32::from(h >> 15) << 31;
+    let exp = u32::from((h >> 10) & 0x1f);
+    let mant = u32::from(h & 0x3ff);
+    let bits = match (exp, mant) {
+        (0, 0) => sign,
+        (0, _) => {
+            // Subnormal: normalise the mantissa.
+            let mut e: u32 = 127 - 15 + 1;
+            let mut m = mant;
+            while m & 0x400 == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            sign | (e << 23) | ((m & 0x3ff) << 13)
+        }
+        (0x1f, _) => sign | 0x7f80_0000 | (mant << 13),
+        _ => sign | ((exp + 127 - 15) << 23) | (mant << 13),
+    };
+    f32::from_bits(bits)
+}
 
 /// Encoder hyper-parameters, read from the weight file header.
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +131,7 @@ impl std::error::Error for WeightError {}
 /// A validated view over a CSWT file.
 pub struct WeightFile<'a> {
     pub config: BertConfig,
+    pub dtype: Dtype,
     payload: &'a [u8],
 }
 
@@ -103,10 +153,8 @@ impl<'a> WeightFile<'a> {
         }
         let field = |i: usize| read_u32(bytes, 8 + 4 * i) as usize;
         let eps = f32::from_le_bytes([bytes[36], bytes[37], bytes[38], bytes[39]]);
-        let dtype = read_u32(bytes, 40);
-        if dtype != DTYPE_F32 {
-            return Err(WeightError::UnsupportedDtype(dtype));
-        }
+        let code = read_u32(bytes, 40);
+        let dtype = Dtype::from_code(code).ok_or(WeightError::UnsupportedDtype(code))?;
 
         let config = BertConfig {
             vocab_size: field(0),
@@ -121,20 +169,25 @@ impl<'a> WeightFile<'a> {
         validate_config(&config)?;
 
         let payload = &bytes[HEADER_LEN..];
-        let expected = config.param_count() * 4;
+        let expected = config.param_count() * dtype.size();
         if payload.len() != expected {
             return Err(WeightError::SizeMismatch {
                 expected,
                 actual: payload.len(),
             });
         }
-        Ok(Self { config, payload })
+        Ok(Self {
+            config,
+            dtype,
+            payload,
+        })
     }
 
     /// Sequential reader over the payload tensors.
     pub fn reader(&self) -> TensorReader<'a> {
         TensorReader {
             payload: self.payload,
+            dtype: self.dtype,
             offset: 0,
             index: 0,
         }
@@ -174,6 +227,7 @@ fn validate_config(c: &BertConfig) -> Result<(), WeightError> {
 
 pub struct TensorReader<'a> {
     payload: &'a [u8],
+    dtype: Dtype,
     offset: usize,
     index: usize,
 }
@@ -183,7 +237,7 @@ impl TensorReader<'_> {
     /// so running past the end is a programming error in the caller's tensor
     /// order and is reported rather than panicking.
     pub fn take(&mut self, n: usize) -> Result<Vec<f32>, WeightError> {
-        let end = self.offset + n * 4;
+        let end = self.offset + n * self.dtype.size();
         if end > self.payload.len() {
             return Err(WeightError::SizeMismatch {
                 expected: end,
@@ -191,8 +245,11 @@ impl TensorReader<'_> {
             });
         }
         let mut out = Vec::with_capacity(n);
-        for chunk in self.payload[self.offset..end].chunks_exact(4) {
-            let v = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for chunk in self.payload[self.offset..end].chunks_exact(self.dtype.size()) {
+            let v = match self.dtype {
+                Dtype::F32 => f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+                Dtype::F16 => f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]])),
+            };
             if !v.is_finite() {
                 return Err(WeightError::NonFinite(self.index));
             }
@@ -206,6 +263,17 @@ impl TensorReader<'_> {
     pub fn is_exhausted(&self) -> bool {
         self.offset == self.payload.len()
     }
+}
+
+/// Serialize a header + f16 payload (raw half bit patterns). Test helper.
+#[cfg(test)]
+pub fn encode_f16(config: &BertConfig, halves: &[u16]) -> Vec<u8> {
+    let mut out = encode(config, &[]);
+    out[40..44].copy_from_slice(&DTYPE_F16.to_le_bytes());
+    for h in halves {
+        out.extend_from_slice(&h.to_le_bytes());
+    }
+    out
 }
 
 /// Serialize a header + payload. Used by tests to build synthetic models.
@@ -332,10 +400,10 @@ mod tests {
             Some(WeightError::UnsupportedVersion(2))
         );
         let mut bytes = valid_file();
-        bytes[40] = 1;
+        bytes[40] = 7;
         assert_eq!(
             WeightFile::parse(&bytes).err(),
-            Some(WeightError::UnsupportedDtype(1))
+            Some(WeightError::UnsupportedDtype(7))
         );
     }
 
@@ -358,6 +426,69 @@ mod tests {
             WeightFile::parse(&bytes),
             Err(WeightError::InvalidConfig(_))
         ));
+    }
+
+    #[test]
+    fn f16_known_values() {
+        assert_eq!(f16_to_f32(0x0000), 0.0);
+        assert!(f16_to_f32(0x8000).is_sign_negative() && f16_to_f32(0x8000) == 0.0);
+        assert_eq!(f16_to_f32(0x3c00), 1.0);
+        assert_eq!(f16_to_f32(0xc000), -2.0);
+        assert_eq!(f16_to_f32(0x3555), 0.333_251_95);
+        assert_eq!(f16_to_f32(0x7bff), 65504.0); // largest finite
+        assert_eq!(f16_to_f32(0x0400), 2f32.powi(-14)); // smallest normal
+        assert_eq!(f16_to_f32(0x0001), 2f32.powi(-24)); // smallest subnormal
+        assert_eq!(f16_to_f32(0x03ff), 2f32.powi(-14) - 2f32.powi(-24)); // largest subnormal
+        assert_eq!(f16_to_f32(0x7c00), f32::INFINITY);
+        assert!(f16_to_f32(0x7e00).is_nan());
+    }
+
+    /// Exhaustive: every finite half decodes exactly like NumPy
+    /// (`np.arange(65536, dtype=np.uint16).view(np.float16).astype(np.float32)`),
+    /// compared through an FNV-1a-64 checksum of the f32 bit patterns.
+    #[test]
+    fn f16_decode_matches_numpy_for_all_values() {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut finite = 0;
+        for h in 0..=u16::MAX {
+            let v = f16_to_f32(h);
+            if !v.is_finite() {
+                continue;
+            }
+            finite += 1;
+            for byte in v.to_bits().to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        assert_eq!(finite, 63_488);
+        assert_eq!(hash, 0xaf41_7771_d363_a145);
+    }
+
+    #[test]
+    fn parses_f16_payload_and_checks_its_size() {
+        let cfg = tiny_config();
+        let bytes = encode_f16(&cfg, &vec![0x3c00; cfg.param_count()]);
+        let file = WeightFile::parse(&bytes).unwrap();
+        assert_eq!(file.dtype, Dtype::F16);
+        let all = file.reader().take(cfg.param_count()).unwrap();
+        assert!(all.iter().all(|&v| v == 1.0));
+        let mut short = bytes.clone();
+        short.truncate(short.len() - 2);
+        assert!(matches!(
+            WeightFile::parse(&short),
+            Err(WeightError::SizeMismatch { .. })
+        ));
+        let mut inf = encode_f16(&cfg, &vec![0x3c00; cfg.param_count()]);
+        inf[HEADER_LEN + 2..HEADER_LEN + 4].copy_from_slice(&0x7c00u16.to_le_bytes());
+        assert_eq!(
+            WeightFile::parse(&inf)
+                .unwrap()
+                .reader()
+                .take(cfg.param_count())
+                .err(),
+            Some(WeightError::NonFinite(1))
+        );
     }
 
     #[test]

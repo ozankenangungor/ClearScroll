@@ -2,7 +2,7 @@
 //   node scripts/validate-dist.mjs [dist-dir]
 import fs from "node:fs";
 import path from "node:path";
-import { LOCK, REPO, sha256 } from "./lib.mjs";
+import { LOCK, REPO, sha256, weightsShaKey } from "./lib.mjs";
 
 const DIST = path.resolve(process.argv[2] ?? path.join(REPO, "dist"));
 const errors = [];
@@ -54,6 +54,7 @@ const referenced = [
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
   "licenses/Apache-2.0.txt",
+  "licenses/THIRD_PARTY_LICENSES.txt",
 ].filter(Boolean);
 for (const r of referenced) if (!exists(r)) err(`referenced file missing: ${r}`);
 
@@ -93,9 +94,11 @@ if (fs.existsSync(metaPath)) {
   const lock = LOCK.models[meta.id];
   if (!lock) err(`model.json id "${meta.id}" is not in tools/model_lock.json`);
   else {
-    if (sha256(path.join(DIST, "offscreen/model/weights.bin")) !== lock.weights_sha256) err("weights.bin sha256 does not match the lock file");
+    const key = weightsShaKey(meta.dtype ?? "f32");
+    if (!lock[key]) err(`no pinned ${key} for ${meta.id}`);
+    else if (sha256(path.join(DIST, "offscreen/model/weights.bin")) !== lock[key]) err(`weights.bin sha256 does not match ${key} in the lock file`);
     if (sha256(path.join(DIST, "offscreen/model/vocab.txt")) !== lock.files["vocab.txt"]) err("vocab.txt sha256 does not match the lock file");
-    notes.push(`model ${meta.id} (${lock.repo}@${lock.revision.slice(0, 12)}, ${lock.license})`);
+    notes.push(`model ${meta.id}, ${meta.dtype ?? "f32"} weights (${lock.repo}@${lock.revision.slice(0, 12)}, ${lock.license})`);
   }
   if (!meta.selftest?.embeddings?.length) err("model.json has no self-test reference embeddings");
 }

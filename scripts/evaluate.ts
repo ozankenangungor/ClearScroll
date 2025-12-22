@@ -1,7 +1,8 @@
 /**
  * Semantic-quality evaluation of the shipped decision logic.
  *
- *   node scripts/evaluate.ts [--models bert-tiny,minilm-l6] [--out docs/evaluation] [--min-en-f1 0.6]
+ *   node scripts/evaluate.ts [--models bert-tiny,minilm-l6] [--dtype f16|f32] [--scoring margin|raw]
+ *                            [--exclude-kinds neg-ui] [--out docs/evaluation] [--min-en-f1 0.6] [--max-ui-fpr 0.05]
  *
  * Pipeline:
  *  1. Embed every dataset text and topic query with the production Rust
@@ -26,9 +27,10 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { decide, LEXICAL_PARAMS, prepareTopic, type ModeParams } from "../src/shared/classifier.ts";
+import { decide, LEXICAL_PARAMS, prepareTopic, type Background, type ModeParams } from "../src/shared/classifier.ts";
 import type { FilterMode } from "../src/shared/settings.ts";
-import { MIN_SEMANTIC_CHARS, TOPIC_TEMPLATE, applyTopicTemplate } from "../src/shared/models.ts";
+import { modelDir as sharedModelDir } from "./lib.mjs";
+import { BACKGROUND_TOPICS, MIN_SEMANTIC_CHARS, MODEL_PROFILES, TOPIC_TEMPLATE, applyTopicTemplate } from "../src/shared/models.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const CLI = path.join(REPO, "target/release/clearscroll-embed");
@@ -36,9 +38,28 @@ const CLI = path.join(REPO, "target/release/clearscroll-embed");
 interface Item { id: string; lang: "en" | "tr"; kind: string; labels: string[]; text: string }
 interface Query { topic: string; lang: "en" | "tr"; text: string }
 
+// Strict "--flag value" parsing: an unknown or malformed flag is an error, so
+// a quoting mistake can never silently fall back to default settings.
+const KNOWN_FLAGS = new Set(["models", "dtype", "scoring", "exclude-kinds", "out", "template", "calib-langs", "min-en-f1", "max-ui-fpr"]);
 const args = new Map<string, string>();
-for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i]!.replace(/^--/, ""), process.argv[i + 1] ?? "");
+for (let i = 2; i < process.argv.length; i += 2) {
+  const flag = process.argv[i]!;
+  const value = process.argv[i + 1];
+  const key = flag.replace(/^--/, "");
+  if (!flag.startsWith("--") || !KNOWN_FLAGS.has(key) || value === undefined || value.startsWith("--")) {
+    console.error(`evaluate.ts: bad argument ${JSON.stringify(flag)}${value === undefined ? "" : ` ${JSON.stringify(value)}`}; flags: ${[...KNOWN_FLAGS].map((f) => `--${f} <value>`).join(" ")}`);
+    process.exit(2);
+  }
+  args.set(key, value);
+}
+if (!["f16", "f32"].includes(args.get("dtype") ?? "f16") || !["margin", "raw"].includes(args.get("scoring") ?? "margin")) {
+  console.error("evaluate.ts: --dtype must be f16|f32 and --scoring margin|raw");
+  process.exit(2);
+}
 const models = (args.get("models") ?? "bert-tiny,minilm-l3,minilm-l6").split(",");
+/** Weight storage precision to evaluate; defaults to what the build ships (f16). */
+const dtype = args.get("dtype") ?? "f16";
+const modelDir = (m: string) => sharedModelDir(m, dtype);
 const outDir = path.resolve(REPO, args.get("out") ?? "docs/evaluation");
 const MODES: FilterMode[] = ["precision", "balanced", "aggressive"];
 const BETA: Record<FilterMode, number> = { precision: 0.5, balanced: 1, aggressive: 2 };
@@ -46,9 +67,13 @@ const template = args.get("template") ?? TOPIC_TEMPLATE;
 /** Languages used for threshold calibration (the shipped encoders are English-only). */
 const calibLangs = (args.get("calib-langs") ?? "en").split(",");
 const LEGACY: Record<FilterMode, number> = { precision: 0.68, balanced: 0.62, aggressive: 0.56 };
+/** Force "margin" or "raw" scoring; default: each model's profile (what ships). */
+const scoringOverride = args.get("scoring") as "margin" | "raw" | undefined;
+/** Item kinds to leave out, e.g. "neg-ui" to reproduce the v1 dataset. */
+const excludeKinds = (args.get("exclude-kinds") ?? "").split(",").filter(Boolean);
 
 const items: Item[] = fs.readFileSync(path.join(REPO, "eval/dataset.jsonl"), "utf8")
-  .split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  .split("\n").filter(Boolean).map((l) => JSON.parse(l) as Item).filter((it) => !excludeKinds.includes(it.kind));
 const topicsDoc = JSON.parse(fs.readFileSync(path.join(REPO, "eval/topics.json"), "utf8"));
 const queries: Query[] = [];
 for (const [topic, byLang] of Object.entries<Record<string, string[]>>(topicsDoc.topics)) {
@@ -63,7 +88,7 @@ function fnv1a(s: string): number {
 const split = (it: Item) => (fnv1a(it.id) % 2 === 0 ? "calib" : "test");
 
 function embed(model: string, texts: string[]): { dim: number; vectors: Float32Array[]; ms: number; cached: boolean } {
-  const dir = path.join(REPO, "build/models", model);
+  const dir = modelDir(model);
   const key = createHash("sha256").update(fs.readFileSync(path.join(dir, "weights.bin"))).update(JSON.stringify(texts)).digest("hex").slice(0, 16);
   const cache = path.join(REPO, "build/eval", `${model}-${key}.json`);
   let out: { dim: number; embeddings: number[][]; embed_ms: number };
@@ -109,16 +134,16 @@ type System = "lexical" | "semantic" | "hybrid";
 interface Pair { q: Query; it: Item; actual: boolean; score: number; lexical: boolean }
 
 /** Pre-compute per-pair score and lexical verdict; thresholds are applied later. */
-function buildPairs(subset: Item[], textVec: Map<string, Float32Array>, queryVec: Map<string, Float32Array>, dim: number, mode: FilterMode): Pair[] {
+function buildPairs(subset: Item[], textVec: Map<string, Float32Array>, queryVec: Map<string, Float32Array>, dim: number, mode: FilterMode, background: Background | null): Pair[] {
   const pairs: Pair[] = [];
   const params: ModeParams = { threshold: Infinity, minSemanticChars: MIN_SEMANTIC_CHARS[mode], lexical: LEXICAL_PARAMS[mode] };
   for (const q of queries) {
     const langItems = subset.filter((it) => it.lang === q.lang);
-    const topic = prepareTopic({ id: q.topic, text: q.text }, queryVec.get(`${q.lang}|${q.text}`)!, params);
+    const topic = prepareTopic({ id: q.topic, text: q.text }, queryVec.get(`${q.lang}|${q.text}`)!, params, background);
     const flat = new Float32Array(langItems.length * dim);
     langItems.forEach((it, i) => flat.set(textVec.get(it.id)!, i * dim));
     // threshold=Infinity → decide() reports pure lexical verdicts plus scores.
-    const lex = decide(langItems.map((it) => it.text), flat, dim, [topic], params);
+    const lex = decide(langItems.map((it) => it.text), flat, dim, [topic], params, background);
     langItems.forEach((it, i) => pairs.push({ q, it, actual: it.labels.includes(q.topic), score: lex[i]!.score, lexical: lex[i]!.matched }));
   }
   return pairs;
@@ -139,7 +164,8 @@ function count(pairs: Pair[], system: System, threshold: number, mode: FilterMod
 
 function calibrate(pairs: Pair[], mode: FilterMode): number {
   let best = { t: 1, f: -1 };
-  for (let t = 0.0; t <= 1.0001; t += 0.005) {
+  // Margin scores can be negative or small; scan a wide range.
+  for (let t = -0.5; t <= 1.0001; t += 0.005) {
     const f = fbeta(count(pairs, "hybrid", t, mode), BETA[mode]);
     if (f > best.f + 1e-12) best = { t: Math.round(t * 1000) / 1000, f };
   }
@@ -156,21 +182,33 @@ report.push("# Semantic filtering evaluation", "");
 report.push(`Generated by \`node scripts/evaluate.ts\` on ${new Date().toISOString().slice(0, 10)}. Do not edit by hand.`, "");
 report.push(`Dataset: ${items.length} texts (${items.filter((i) => i.lang === "en").length} English, ${items.filter((i) => i.lang === "tr").length} Turkish), `
   + `${queries.length} topic queries (${Object.keys(topicsDoc.topics).length} topics). Calibration split: ${calibItems.length} texts, test split: ${testItems.length} texts.`);
-report.push(`Evaluation unit: (query, text) pairs within the same language. Topic template: \`${template}\`. Thresholds are calibrated on the calibration split of: ${calibLangs.join(", ")}.`, "");
+report.push(`Evaluation unit: (query, text) pairs within the same language. Topic template: \`${template}\`. Thresholds are calibrated on the calibration split of: ${calibLangs.join(", ")}. `
+  + `Scoring: ${scoringOverride ? `forced to ${scoringOverride} for every model` : "per model profile (what ships)"}; margin = similarity minus best unrelated of ${BACKGROUND_TOPICS.length} background topics.`
+  + (excludeKinds.length ? ` Excluded item kinds: ${excludeKinds.join(", ")}.` : ""), "");
+const kinds = [...new Set(items.map((i) => i.kind))];
+report.push(`Item kinds: ${kinds.map((k) => `${k} ${items.filter((i) => i.kind === k).length}`).join(", ")}.`, "");
 
 for (const model of models) {
   const allTexts = items.map((it) => it.text);
   const qTexts = queries.map((q) => applyTopicTemplate(q.text, template));
-  const { dim, vectors, ms, cached } = embed(model, [...allTexts, ...qTexts]);
+  const scoring = scoringOverride ?? MODEL_PROFILES[model]?.scoring ?? "margin";
+  // Background phrases are embedded verbatim (never templated), as in prepare_model.py.
+  const bgTexts = [...BACKGROUND_TOPICS];
+  const { dim, vectors, ms, cached } = embed(model, [...allTexts, ...qTexts, ...bgTexts]);
   const textVec = new Map(items.map((it, i) => [it.id, vectors[i]!]));
   const queryVec = new Map(queries.map((q, i) => [`${q.lang}|${q.text}`, vectors[items.length + i]!]));
+  const bgStart = items.length + queries.length;
+  const background: Background | null =
+    scoring === "margin"
+      ? { vectors: Float32Array.from(vectors.slice(bgStart, bgStart + bgTexts.length).flatMap((v) => [...v])), count: bgTexts.length }
+      : null;
 
   const modelResult: Record<string, unknown> = { dim, cpuEmbedMsTotal: ms, texts: allTexts.length + qTexts.length };
-  report.push(`## Model: \`${model}\``, "");
+  report.push(`## Model: \`${model}\`${dtype === "f32" ? "" : ` (${dtype} weights)`}, ${scoring === "margin" ? "margin" : "raw cosine"} scoring`, "");
   report.push(`Native CPU embedding of ${allTexts.length + qTexts.length} texts took ${ms.toFixed(0)} ms (single thread, release build${cached ? "; measured when build/eval cache was created" : ""}). In-browser latency: docs/benchmarks.`, "");
 
   // Similarity separation (all pairs, both splits): how far apart are positives and negatives?
-  const allPairs = buildPairs(items, textVec, queryVec, dim, "balanced");
+  const allPairs = buildPairs(items, textVec, queryVec, dim, "balanced", background);
   const pos = allPairs.filter((p) => p.actual).map((p) => p.score);
   const neg = allPairs.filter((p) => !p.actual).map((p) => p.score);
   const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
@@ -184,7 +222,7 @@ for (const model of models) {
   const auc = rocAuc(allPairs);
   const aucEn = rocAuc(allPairs.filter((p) => p.it.lang === "en"));
   const aucTr = rocAuc(allPairs.filter((p) => p.it.lang === "tr"));
-  report.push(`Cosine similarity: mean ${mean(pos).toFixed(3)} for matching pairs vs ${mean(neg).toFixed(3)} for non-matching pairs. `
+  report.push(`${scoring === "margin" ? "Margin score" : "Cosine similarity"}: mean ${mean(pos).toFixed(3)} for matching pairs vs ${mean(neg).toFixed(3)} for non-matching pairs. `
     + `ROC-AUC (threshold-free ranking quality): ${aucEn.toFixed(3)} English, ${aucTr.toFixed(3)} Turkish, ${auc.toFixed(3)} combined.`, "");
   modelResult.similarity = { meanPositive: mean(pos), meanNegative: mean(neg), auc, aucEn, aucTr };
 
@@ -192,8 +230,8 @@ for (const model of models) {
   report.push("| Mode | Threshold (calibrated) | System | Precision | Recall | F1 | FPR | TP | FP | FN | TN |", "|---|---|---|---|---|---|---|---|---|---|---|");
   const modes: Record<string, unknown> = {};
   for (const mode of MODES) {
-    const calib = buildPairs(calibItems, textVec, queryVec, dim, mode);
-    const test = buildPairs(testItems, textVec, queryVec, dim, mode);
+    const calib = buildPairs(calibItems, textVec, queryVec, dim, mode, background);
+    const test = buildPairs(testItems, textVec, queryVec, dim, mode, background);
     const t = calibrate(calib.filter((p) => calibLangs.includes(p.it.lang)), mode);
     const rows: Record<string, unknown> = { threshold: t };
     const en = (p: Pair) => p.it.lang === "en";
@@ -218,6 +256,11 @@ for (const model of models) {
     rows.byLanguage = byLang;
     rows.byTopic = byCat;
     rows.hardNegativeFpr = metrics(hardNeg).fpr;
+    // English only: page furniture (navigation, metadata, ads) as negatives.
+    const ui = count(test, "hybrid", t, mode, (p) => p.it.kind === "neg-ui");
+    rows.uiNegativeFpr = metrics(ui).fpr;
+    rows.uiNegativePairs = ui.fp + ui.tn;
+    rows.contentOnly_en = metrics(count(test, "hybrid", t, mode, (p) => p.it.lang === "en" && p.it.kind !== "neg-ui"));
     rows.errors = test
       .filter((p) => predict(p, "hybrid", t, mode) !== p.actual)
       .sort((a, b) => b.score - a.score)
@@ -234,7 +277,8 @@ for (const model of models) {
   report.push("", "Per topic (balanced, hybrid, test split, both languages):", "");
   report.push("| Topic | Precision | Recall | F1 | TP | FP | FN |", "|---|---|---|---|---|---|---|");
   for (const [topic, m] of Object.entries<any>(balanced.byTopic)) report.push(`| ${topic} | ${pct(m.precision)} | ${pct(m.recall)} | ${pct(m.f1)} | ${m.tp} | ${m.fp} | ${m.fn} |`);
-  report.push("", `False-positive rate on hard negatives (lexical traps), balanced: ${pct(balanced.hardNegativeFpr)}.`, "");
+  report.push("", `False-positive rate on hard negatives (lexical traps), balanced: ${pct(balanced.hardNegativeFpr)}.`
+    + (kinds.includes("neg-ui") ? ` On UI strings (navigation, metadata, ads), balanced: ${pct(balanced.uiNegativeFpr)}. English content texts only (no UI strings), balanced: F1 ${pct(balanced.contentOnly_en.f1)}, FPR ${pct(balanced.contentOnly_en.fpr)}.` : ""), "");
   report.push("<details><summary>Highest-scoring errors (balanced, hybrid)</summary>", "");
   report.push("| Query | Text | Label | Score | Lexical hit |", "|---|---|---|---|---|");
   for (const e of balanced.errors) report.push(`| ${e.query} | ${e.text.replace(/\|/g, "\\|")} | ${e.actual ? "positive" : "negative"} | ${e.score} | ${e.lexical ? "yes" : "no"} |`);
@@ -257,5 +301,19 @@ if (minF1 !== null) {
     const verdict = f1 >= minF1 ? "ok" : "FAILED";
     console.error(`quality gate ${model}: English balanced F1 ${(f1 * 100).toFixed(1)}% (min ${(minF1 * 100).toFixed(1)}%) ${verdict}`);
     if (f1 < minF1) process.exitCode = 1;
+  }
+}
+// --max-ui-fpr 0.05 fails if balanced-mode false positives on UI strings exceed the value.
+const maxUi = args.has("max-ui-fpr") ? Number(args.get("max-ui-fpr")) : null;
+if (maxUi !== null) {
+  for (const [model, r] of Object.entries<any>(results)) {
+    const fpr = r.modes.balanced.uiNegativeFpr as number;
+    if (!r.modes.balanced.uiNegativePairs) {
+      console.error(`quality gate ${model}: no UI-string items were evaluated — cannot check --max-ui-fpr`);
+      process.exitCode = 1;
+      continue;
+    }
+    console.error(`quality gate ${model}: UI-string false-positive rate ${(fpr * 100).toFixed(1)}% (max ${(maxUi * 100).toFixed(1)}%) ${fpr <= maxUi ? "ok" : "FAILED"}`);
+    if (!(fpr <= maxUi)) process.exitCode = 1;
   }
 }

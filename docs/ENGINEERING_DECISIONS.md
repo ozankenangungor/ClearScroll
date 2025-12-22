@@ -40,7 +40,7 @@ inference), `offscreen` permission (no install warning), Chrome ≥ 116.
 
 ## 2. Replace bert-tiny with all-MiniLM-L6-v2
 
-**Found.** `scripts/evaluate.ts` on 318 labelled texts: mean-pooled
+**Found.** `scripts/evaluate.ts` on the 318 labelled texts of dataset v1: mean-pooled
 bert-tiny gives cosine 0.689 for related vs 0.644 for unrelated pairs
 (English ROC-AUC 0.766). At the shipped 0.62 threshold it flagged 54 % of
 unrelated content.
@@ -54,8 +54,8 @@ balanced: 40.0 % → 67.5 %, FPR 14.3 % → 4.4 %.
 build option; a multilingual model was rejected for size (SentencePiece +
 250k vocabulary). See `docs/MODEL.md`.
 
-**Costs.** Package 28 → 97 MiB; CPU latency 1.7 → 28 ms per text; WASM memory
-51 → 219 MiB. Mitigated by WebGPU (2.6 ms/text), caching and near-viewport
+**Costs.** Package 28 → 97 MiB (55 MiB after f16 storage, §12); CPU latency
+1.7 → 28 ms per text; WASM memory 51 → 219 MiB. Mitigated by WebGPU (2.6 ms/text), caching and near-viewport
 scheduling.
 
 ## 3. Thresholds are calibrated per model, never guessed
@@ -184,6 +184,83 @@ like `*foo*.com` produced invalid Chrome match patterns that made
 Now inputs are normalised (IDNA, ports, paths), invalid ones are rejected in
 the UI, and a unit test checks that the content-script matcher and Chrome's
 pattern semantics agree.
+
+## 12. Half-precision weight storage
+
+**Decision.** Store weights as IEEE-754 binary16 and decode to f32 on load.
+**Measured.** Package 97.5 → 54.8 MiB, worker initialisation 361 → 192 ms;
+Rust f16 vs PyTorch with identical rounding max |Δ| 2.5 × 10⁻⁷; f16 vs f32
+similarity shift ≤ 3.6 × 10⁻⁴, identical calibrated thresholds, balanced F1
+unchanged on the shipped configuration. Inference speed is unchanged.
+WebAssembly memory fell by 43 MiB on the WebGPU path but not on the CPU path
+even though the native peak heap fell by 43 MiB — an allocator-level effect
+left documented rather than claimed as a saving.
+**Alternatives.** int8: needs custom kernels and a separate quality study;
+f16 compute: requires the `shader-f16` GPU feature and does not exist on the
+CPU backend. **Verified by** an exhaustive decoder test (all 63,488 finite
+half values vs NumPy) and a required f16 parity test in CI.
+
+## 13. Margin scoring against background topics
+
+**Found.** Adding 38 UI strings to the evaluation set showed raw cosine
+similarity blurring 27.6 % of (UI string, topic) pairs at the shipped
+balanced threshold: generic page furniture is mildly similar to every short
+query. **Decision.** Score = similarity to the topic − best similarity to 26
+fixed, unrelated background topics (22 subjects + 4 page-furniture
+classes); near-synonyms of the topic (cos ≥ 0.5) are excluded, and a topic
+close to all of them competes with the least similar one, so the score never
+silently changes scale. Background vectors ship precomputed in `model.json`.
+**Measured (MiniLM-L6, balanced, held-out English):** F1 54.2 → 63.7 % and
+UI false positives 17.6 → 1.8 % with UI strings; on the v1 content-only set
+F1 67.4 → 64.8 % — an accepted, documented trade-off. A generic-only variant
+reduced UI false positives to 2.1 %, so the gain does not rest on the four
+page-furniture classes. bert-tiny keeps raw cosine (its similarities are
+uniform). **Alternatives.** Raising thresholds (costs recall everywhere),
+DOM heuristics for metadata (site-specific, unmeasurable on this dataset),
+a learned classifier head (needs labelled training data we do not have).
+**Verified by** unit tests for the margin, near-synonym and generic-topic
+cases, CI gates on F1 and UI false positives, and a test pinning the
+shipped thresholds to the published calibration.
+
+## 14. Keyboard focus survives reveal and unblur
+
+An axe-core audit and keyboard tests found that revealing an item with Enter
+removed the `tabindex` we had added, so Chrome moved focus to `<body>` and
+the user lost their place. The added tabindex is now changed in place to
+`-1` on reveal, restored to `0` if the item is blurred again, and removed
+only after focus has left the element. Options page, popup and blurred
+elements have 0 WCAG 2.1 A/AA violations (light and dark).
+
+## 15. Privacy check: control for the browser, not just "no extension"
+
+The first network-capture check compared a ClearScroll session with a
+shorter session without any extension. On Google Chrome stable it reported
+`android.clients.google.com/checkin` as caused by ClearScroll. A control
+with a no-op extension reproduced the same request at the same times
+(≈ 5 s and ≈ 26 s after start) — Chrome's GCM check-in, timer-driven. The
+check now uses a no-op extension as control and equal 45-second sessions; a
+planted telemetry `fetch` is still detected by both criteria.
+
+## 16. Testing on branded Google Chrome
+
+Branded Chrome ignores `--load-extension` since version 137; the test helper
+loads the extension through the DevTools `Extensions.loadUnpacked` command.
+All end-to-end and accessibility tests pass on Chrome 153 stable, and CI
+runs them there too.
+
+## 17. Independent reviews
+
+Two code-review passes and a security review were run over the branch.
+They found, among others: units wedged after detachment from the DOM,
+keyword verdicts after transient messaging errors becoming permanent, an
+orphaned content script's cleanup erasing the new instance's state, silent
+loss of legacy site rules during migration, registration status lost on
+service-worker restarts, a permanent keyword-only state after one timeout,
+an unbounded per-frame map, a topic-template `$` escaping bug, a margin /
+raw-cosine scale mismatch for very generic topics, and CI gaps (cache key,
+f32 parity no longer required, a quality gate that passed with no data).
+Each was reproduced by a failing test first and fixed. The security review
+found no exploitable issue.
 
 ## Things deliberately not done
 

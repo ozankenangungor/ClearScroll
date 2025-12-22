@@ -10,7 +10,19 @@ export const LOCK = JSON.parse(fs.readFileSync(path.join(REPO, "tools/model_lock
 
 /** Model shipped in the extension; override with CLEARSCROLL_MODEL. */
 export const MODEL = process.env.CLEARSCROLL_MODEL || "minilm-l6";
-export const MODEL_DIR = path.join(REPO, "build/models", MODEL);
+/** Weight storage precision: "f16" (default, half the size) or "f32". */
+export const DTYPE = process.env.CLEARSCROLL_DTYPE || "f16";
+
+/** Directory holding the prepared artifacts of `model` stored as `dtype`. */
+export function modelDir(model, dtype) {
+  return path.join(REPO, "build/models", dtype === "f32" ? model : `${model}-${dtype}`);
+}
+export const MODEL_DIR = modelDir(MODEL, DTYPE);
+
+/** Lock-file key holding the pinned sha256 of the exported weights. */
+export function weightsShaKey(dtype) {
+  return dtype === "f32" ? "weights_sha256" : `weights_sha256_${dtype}`;
+}
 
 export function fail(msg) {
   console.error(`\n✖ ${msg}\n`);

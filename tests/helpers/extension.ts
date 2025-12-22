@@ -39,17 +39,63 @@ export function startServer(): Promise<{ base: string; close(): Promise<void> }>
   );
 }
 
+/**
+ * Browser under test: Playwright's Chromium (default) or a branded Google
+ * Chrome (`CLEARSCROLL_BROWSER=chrome`, binary from CHROME_PATH or
+ * /usr/bin/google-chrome-stable). Branded Chrome ignores --load-extension
+ * since version 137, so there the extension is loaded through the DevTools
+ * protocol (Extensions.loadUnpacked, enabled by --enable-unsafe-extension-debugging).
+ */
+export interface LaunchOptions {
+  dist?: string;
+  browser?: "chromium" | "chrome";
+  headless?: boolean;
+  extraArgs?: string[];
+}
+
+/** Launch a persistent browser context with the extension loaded. */
+export async function launchContext(profile: string, opts: LaunchOptions = {}): Promise<{ ctx: BrowserContext; sw: Worker }> {
+  const dist = opts.dist ?? DIST;
+  const browser = opts.browser ?? (process.env.CLEARSCROLL_BROWSER as LaunchOptions["browser"]) ?? "chromium";
+  const headless = opts.headless ?? true;
+  const extra = opts.extraArgs ?? [];
+  if (browser === "chromium") {
+    const ctx = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless,
+      args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`, "--enable-unsafe-webgpu", ...extra],
+    });
+    let [sw] = ctx.serviceWorkers();
+    sw ??= await ctx.waitForEvent("serviceworker");
+    return { ctx, sw };
+  }
+  if (browser !== "chrome") throw new Error(`browser must be chromium or chrome, not ${browser}`);
+  const ctx = await chromium.launchPersistentContext(profile, {
+    executablePath: process.env.CHROME_PATH ?? "/usr/bin/google-chrome-stable",
+    headless,
+    ignoreDefaultArgs: ["--disable-extensions"],
+    args: ["--enable-unsafe-extension-debugging", "--enable-unsafe-webgpu", ...extra],
+  });
+  const cdp = await ctx.browser()!.newBrowserCDPSession();
+  const { id } = (await cdp.send("Extensions.loadUnpacked" as never, { path: dist } as never)) as { id: string };
+  // Opening an extension page starts the service worker if it is not running yet.
+  const page = await ctx.newPage();
+  await page.goto(`chrome-extension://${id}/options/options.html`);
+  let sw: Worker | undefined;
+  for (let i = 0; i < 100 && !sw; i++) {
+    sw = ctx.serviceWorkers().find((w) => w.url().startsWith(`chrome-extension://${id}/`));
+    if (!sw) await new Promise((r) => setTimeout(r, 100));
+  }
+  await page.close();
+  if (!sw) throw new Error("extension service worker did not start in Chrome");
+  return { ctx, sw };
+}
+
 export async function launchExtension(): Promise<Env> {
   if (!fs.existsSync(path.join(DIST, "manifest.json"))) throw new Error(`${DIST} has no build; run npm run build`);
   const server = await startServer();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "clearscroll-e2e-"));
-  const ctx = await chromium.launchPersistentContext(profile, {
-    channel: "chromium",
-    headless: true,
-    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, "--enable-unsafe-webgpu"],
-  });
-  let [sw] = ctx.serviceWorkers();
-  sw ??= await ctx.waitForEvent("serviceworker");
+  const { ctx, sw } = await launchContext(profile);
   const extId = new URL(sw.url()).host;
   return {
     ctx,

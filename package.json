@@ -37,6 +37,7 @@
   "devDependencies": {
     "@types/chrome": "^0.1.37",
     "@types/node": "^26.6.5",
+    "axe-core": "^4.14.0",
     "esbuild": "^0.28.2",
     "playwright": "^1.64.0",
     "typescript": "^5.9.3"

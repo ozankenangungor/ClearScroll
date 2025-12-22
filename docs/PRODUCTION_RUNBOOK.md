@@ -20,8 +20,9 @@ npm run build          # Rust → WASM, wasm-bindgen, TypeScript bundles, dist/
 npm run validate       # deterministic checks on dist/
 ```
 
-`CLEARSCROLL_MODEL=minilm-l3|bert-tiny` selects another calibrated model
-for both `setup:model` and `build`. `node scripts/build.mjs --dev` adds
+`CLEARSCROLL_MODEL=minilm-l3|bert-tiny` selects another calibrated model and
+`CLEARSCROLL_DTYPE=f32` full-precision weights (default `f16`) for both
+`setup:model` and `build`. `node scripts/build.mjs --dev` adds
 inline source maps and skips minification (do not ship it; `validate`
 rejects source maps).
 
@@ -32,9 +33,12 @@ rejects source maps).
 | `npm run typecheck` | strict TypeScript over src, scripts, tests | — |
 | `npm test` | unit tests: settings, site rules, protocol, lexical, classifier, engine host (concurrency, fail-over) | — |
 | `npm run test:rust` | Rust unit + parity tests (parity skips without artifacts) | — |
-| `CLEARSCROLL_REQUIRE_MODEL=minilm-l6 npm run test:rust` | same, parity **required** | `setup:model` |
+| `CLEARSCROLL_REQUIRE_MODEL=minilm-l6-f16,minilm-l6 npm run test:rust` | same, parity **required** (f16 and f32) | f16 and f32 artifacts |
 | `npm run test:dom` | content-script controller in real Chromium (races, reveal, mutations) | Playwright Chromium |
-| `npm run test:e2e` | built extension end-to-end | `build` |
+| `npm run test:e2e` | built extension end-to-end + axe-core accessibility | `build` |
+| `CLEARSCROLL_BROWSER=chrome npm run test:e2e` | the same on Google Chrome stable (loaded via DevTools `Extensions.loadUnpacked`) | Chrome; `CHROME_PATH` if not `/usr/bin/google-chrome-stable` |
+| `node scripts/verify-no-egress.ts --browser chrome` | privacy check on Chrome stable | Chrome |
+| `node scripts/evaluate-all.mjs` | regenerate `docs/evaluation` and its variants | f16 + f32 artifacts of all three models |
 | `npm run verify:privacy` | no network requests caused by the extension | `build` |
 | `npm run evaluate` | semantic quality report (`--min-en-f1 0.6` as a gate) | `setup:model` |
 | `npm run benchmark` | performance (see `docs/BENCHMARKS.md`) | `build` |
@@ -48,8 +52,9 @@ Install Playwright's browser once: `npx playwright install chromium`
 
 - [ ] `git status` clean; version bumped in `package.json` (manifest version is taken from it)
 - [ ] `npm run release:prepare` passes (check → build → validate → DOM → E2E → privacy → package)
-- [ ] `CLEARSCROLL_REQUIRE_MODEL=minilm-l6 npm run test:rust` passes
-- [ ] `node scripts/evaluate.ts --models minilm-l6 --min-en-f1 0.60` passes; diff `docs/evaluation/RESULTS.md`
+- [ ] `CLEARSCROLL_REQUIRE_MODEL=minilm-l6-f16,minilm-l6 npm run test:rust` passes
+- [ ] `node scripts/evaluate.ts --models minilm-l6 --min-en-f1 0.60 --max-ui-fpr 0.05` passes; diff `docs/evaluation/RESULTS.md`
+- [ ] `CLEARSCROLL_BROWSER=chrome npm run test:e2e` passes on Google Chrome stable
 - [ ] `cargo deny check` and `npm audit --audit-level=high` clean
 - [ ] Manual smoke test in **Google Chrome stable** (below), ideally on Windows/macOS too
 - [ ] `docs/PRIVACY.md` still matches behaviour (permissions, storage, network)
@@ -96,7 +101,7 @@ uploaded or published by any script.
 - [ ] Data-usage form: no data collected or transmitted
 - [ ] Privacy policy URL: link to `docs/PRIVACY.md` on GitHub
 - [ ] Screenshots: `npm run screenshots` (real captures of the build)
-- [ ] Package size: ~97 MiB (mostly model weights) — check the current Web Store size limit; the MiniLM-L3 build is 77 MiB, bert-tiny 28 MiB
+- [ ] Package size: ~55 MiB (f16 model weights) — check the current Web Store size limit; MiniLM-L3 45 MiB, bert-tiny 20 MiB
 - [ ] After approval: tag the release in git and attach the zip + checksum
 
 ClearScroll is **not published** on the Chrome Web Store at the time of
@@ -118,14 +123,18 @@ writing.
 ## Model update
 
 1. Add the model to `tools/model_lock.json` with empty hashes and its config.
-2. `.venv/bin/python tools/prepare_model.py --model <id> --update-lock`
-   (trust-on-first-use: verify the Hugging Face revision manually first).
-3. Run the export again without `--update-lock`; it must reproduce the
-   pinned sha256.
+2. `.venv/bin/python tools/prepare_model.py --model <id> --dtype f16 --update-lock`
+   and the same with `--dtype f32` (trust-on-first-use: verify the Hugging
+   Face revision manually first).
+3. Run both exports again without `--update-lock`; they must reproduce the
+   pinned sha256 values.
 4. `cargo build --release --no-default-features --features cli && .venv/bin/python tools/parity.py --model <id> --write-fixtures`
-   — must print `PARITY OK`; commit the fixtures.
-5. `node scripts/evaluate.ts --models <id>`; copy the calibrated thresholds
-   into `MODEL_PROFILES` in `src/shared/models.ts`; commit
-   `docs/evaluation/`.
+   and the same with `--dtype f16` — both must print `PARITY OK`; commit the fixtures.
+5. Add a profile to `MODEL_PROFILES` (`scoring: "margin"` unless its
+   similarities are uniform, see docs/MODEL.md), run
+   `node scripts/evaluate-all.mjs`, copy the calibrated thresholds into the
+   profile (the profile unit test fails until they match) and commit
+   `docs/evaluation/`. Editing `src/shared/background-topics.json` requires
+   steps 2–5 as well, because `model.json` embeds the background vectors.
 6. Rebuild, run the full checklist and benchmarks; update `docs/MODEL.md`,
    `THIRD_PARTY_NOTICES.md` and the licence notice if the licence differs.

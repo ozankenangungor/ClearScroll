@@ -1,0 +1,31 @@
+{
+  "_comment": "Background topics for margin scoring (src/shared/classifier.ts). Generic and fixed; not derived from the evaluation topics. Read by the extension and by tools/prepare_model.py. Changing this list requires re-running prepare_model.py and re-calibrating thresholds.",
+  "topics": [
+    "cooking and recipes",
+    "travel and tourism",
+    "weather",
+    "music",
+    "art and museums",
+    "pets and animals",
+    "science",
+    "fashion",
+    "education and schools",
+    "cars",
+    "real estate",
+    "history",
+    "religion",
+    "nature and gardening",
+    "family and parenting",
+    "shopping and deals",
+    "jobs and careers",
+    "law and courts",
+    "books and literature",
+    "celebrities",
+    "home improvement",
+    "food and restaurants",
+    "website menu, login and account settings",
+    "comments, likes and shares",
+    "advertisement",
+    "article date, author and reading time"
+  ]
+}

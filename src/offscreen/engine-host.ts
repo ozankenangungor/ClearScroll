@@ -25,8 +25,8 @@ const RECOVERY_COOLDOWN_MS = 5 * 60_000;
 /** Frames tracked for stale-job dropping; oldest are forgotten first. */
 const MAX_TRACKED_FRAMES = 1000;
 
-import { decide, LEXICAL_PARAMS, prepareTopic, type Decision, type ModeParams } from "../shared/classifier.ts";
-import { applyTopicTemplate, MIN_SEMANTIC_CHARS, MODEL_PROFILES, type ModelProfile } from "../shared/models.ts";
+import { decide, LEXICAL_PARAMS, prepareTopic, type Background, type Decision, type ModeParams } from "../shared/classifier.ts";
+import { applyTopicTemplate, BACKGROUND_TOPICS, MIN_SEMANTIC_CHARS, MODEL_PROFILES, type ModelProfile } from "../shared/models.ts";
 import type {
   Backend,
   ClassifyReply,
@@ -67,6 +67,8 @@ export interface ModelMeta {
   id: string;
   /** Reference embeddings computed by PyTorch at export time. */
   selftest: { texts: string[]; embeddings: number[][]; max_abs_tol: number };
+  /** Precomputed background-topic embeddings (optional; see classifier.ts). */
+  background?: { topics: string[]; embeddings: number[][] };
 }
 
 interface Job {
@@ -86,6 +88,7 @@ export class EngineHost {
   private dim = 0;
   private profile: ModelProfile | null = null;
   private meta: ModelMeta | null = null;
+  private background: Background | null = null;
   private remainingBackends: Backend[] | null = null;
   private ready: Promise<boolean> | null = null;
   private nextId = 1;
@@ -101,7 +104,7 @@ export class EngineHost {
   private readonly embedTimeoutMs: number;
 
   /** Counters for diagnostics and the benchmark harness. */
-  readonly stats: EngineStats = { jobs: 0, staleDropped: 0, embedded: 0, cacheHits: 0, embedMs: 0, canaryFailures: 0, wasmMemoryBytes: null };
+  readonly stats: EngineStats = { jobs: 0, staleDropped: 0, embedded: 0, cacheHits: 0, embedMs: 0, canaryFailures: 0, wasmMemoryBytes: null, wasmMemoryBeforeModelBytes: null };
 
   private readonly deps: EngineHostDeps;
 
@@ -183,8 +186,9 @@ export class EngineHost {
     }
 
     const params = this.params(msg.mode);
+    const background = semantic && vectors && this.profile?.scoring === "margin" ? this.background : null;
     const topics = msg.topics.map((t) =>
-      prepareTopic(t, vectors?.get(topicKey(t.text)) ?? null, params)
+      prepareTopic(t, vectors?.get(topicKey(t.text)) ?? null, params, background)
     );
     let flat: Float32Array | null = null;
     if (semantic && vectors) {
@@ -193,7 +197,7 @@ export class EngineHost {
     }
     let decisions: Decision[];
     try {
-      decisions = decide(msg.texts, flat, this.dim, topics, params);
+      decisions = decide(msg.texts, flat, this.dim, topics, params, background);
     } catch (err) {
       return { ok: false, generation: msg.generation, error: errorText(err), engine: this.status };
     }
@@ -310,6 +314,7 @@ export class EngineHost {
         const { dim, loadMs } = await this.startWorker(backend);
         this.dim = dim;
         await this.selfTest();
+        await this.loadBackground();
         const notes = [...errors];
         const note = this.deps.backendNote?.();
         if (note && backend !== "webgpu") notes.unshift(note);
@@ -344,6 +349,29 @@ export class EngineHost {
     if (!(worst <= max_abs_tol)) {
       throw new Error(`self-test failed: max |Δ| ${worst === Infinity ? "NaN" : worst.toExponential(2)} > ${max_abs_tol}`);
     }
+  }
+
+  /**
+   * Background topics for margin scoring. Precomputed vectors from
+   * model.json are used when they describe exactly BACKGROUND_TOPICS for
+   * this model's dimension; otherwise they are embedded once on this backend.
+   * Thresholds are calibrated with margin scoring, so there is no fallback to
+   * scoring without a background.
+   */
+  private async loadBackground(): Promise<void> {
+    if (this.background || this.profile?.scoring !== "margin") return;
+    const pre = this.meta?.background;
+    const usable =
+      pre &&
+      pre.topics.length === BACKGROUND_TOPICS.length &&
+      pre.topics.every((t, i) => t === BACKGROUND_TOPICS[i]) &&
+      pre.embeddings.length === pre.topics.length &&
+      pre.embeddings.every((e) => e.length === this.dim && e.every(Number.isFinite));
+    const vectors = usable
+      ? Float32Array.from(pre.embeddings.flat())
+      : // Background phrases are never templated (prepare_model.py embeds them verbatim).
+        await this.embedRaw([...BACKGROUND_TOPICS]);
+    this.background = { vectors, count: BACKGROUND_TOPICS.length };
   }
 
   private degrade(detail: string, recoverable: boolean): boolean {
@@ -382,6 +410,7 @@ export class EngineHost {
         const msg = ev.data;
         if (msg.type === "ready") {
           this.stats.wasmMemoryBytes = msg.wasmMemoryBytes;
+          this.stats.wasmMemoryBeforeModelBytes = msg.wasmMemoryBeforeModelBytes;
           finish(null, { dim: msg.dim, loadMs: msg.loadMs });
         }
         else if (msg.type === "init-failed") finish(new Error(msg.error));

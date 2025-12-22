@@ -70,3 +70,54 @@ test("topic templates insert the topic literally ($ patterns are not special)", 
   assert.equal(applyTopicTemplate("$&", "about {topic}"), "about $&");
   assert.equal(applyTopicTemplate("a$'b", "{topic}"), "a$'b");
 });
+
+test("margin scoring: a text similar to every topic does not match; topic-specific text does", async () => {
+  const { decide, prepareTopic, LEXICAL_PARAMS } = await import("../../src/shared/classifier.ts");
+  const norm = (v: number[]) => { const n = Math.hypot(...v); return Float32Array.from(v.map((x) => x / n)); };
+  const params = { threshold: 0.1, minSemanticChars: 5, lexical: LEXICAL_PARAMS.balanced };
+  // dims: [topic, background-1, background-2, generic-ui]
+  const topicVec = norm([1, 0, 0, 0.3]);
+  const background = { vectors: Float32Array.from([...norm([0, 1, 0, 0.3]), ...norm([0, 0, 1, 0.3])]), count: 2 };
+  const topic = prepareTopic({ id: "t", text: "crypto" }, topicVec, params, background);
+  assert.deepEqual(topic.background, [0, 1]);
+  const generic = norm([0.2, 0.2, 0.2, 1]); // UI-like: mildly similar to everything
+  const specific = norm([1, 0.1, 0, 0.2]);
+  const flat = Float32Array.from([...generic, ...specific]);
+  const raw = decide(["generic ui string", "specific topic text"], flat, 4, [prepareTopic({ id: "t", text: "crypto" }, topicVec, params)], params);
+  const margin = decide(["generic ui string", "specific topic text"], flat, 4, [topic], params, background);
+  assert.equal(raw[0]!.matched, true, "raw cosine would match the generic text");
+  assert.equal(margin[0]!.matched, false, "margin removes the common offset");
+  assert.equal(margin[1]!.matched, true);
+  assert.ok(Math.abs(margin[1]!.similarity - raw[1]!.score) < 1e-6, "raw similarity is still reported");
+});
+
+test("background topics that are near-synonyms of the user topic are not used against it", async () => {
+  const { prepareTopic, LEXICAL_PARAMS, BACKGROUND_SIMILARITY_CUTOFF } = await import("../../src/shared/classifier.ts");
+  const params = { threshold: 0.1, minSemanticChars: 5, lexical: LEXICAL_PARAMS.balanced };
+  const topicVec = Float32Array.from([1, 0]);
+  const background = { vectors: Float32Array.from([0.9, Math.sqrt(1 - 0.81), 0, 1]), count: 2 };
+  assert.ok(0.9 >= BACKGROUND_SIMILARITY_CUTOFF);
+  assert.deepEqual(prepareTopic({ id: "f", text: "football" }, topicVec, params, background).background, [1]);
+});
+
+test("a topic similar to every background topic is still scored as a margin, never as raw cosine", async () => {
+  const { decide, prepareTopic, LEXICAL_PARAMS } = await import("../../src/shared/classifier.ts");
+  const params = { threshold: 0.05, minSemanticChars: 5, lexical: LEXICAL_PARAMS.balanced };
+  const norm = (v: number[]) => { const n = Math.hypot(...v); return Float32Array.from(v.map((x) => x / n)); };
+  const topicVec = norm([1, 1, 1]); // cos ≥ 0.5 with both backgrounds → no "unrelated" ones
+  const background = { vectors: Float32Array.from([...norm([1, 0.8, 0]), ...norm([0, 1, 0.9])]), count: 2 };
+  const topic = prepareTopic({ id: "g", text: "news" }, topicVec, params, background);
+  assert.ok(topic.background.length >= 1, "falls back to the least similar background topic");
+  const text = norm([0.5, 0.6, 0.6]); // raw cosine ≈ 0.98 would be a certain match
+  const d = decide(["a generic piece of text"], text, 3, [topic], params, background);
+  assert.ok(d[0]!.score < d[0]!.similarity - 0.5, `margin applied (score ${d[0]!.score}, similarity ${d[0]!.similarity})`);
+});
+
+test("models scored by raw cosine ignore the background entirely", async () => {
+  const { decide, prepareTopic, LEXICAL_PARAMS } = await import("../../src/shared/classifier.ts");
+  const params = { threshold: 0.5, minSemanticChars: 5, lexical: LEXICAL_PARAMS.balanced };
+  const t = prepareTopic({ id: "t", text: "crypto" }, Float32Array.from([1, 0]), params, null);
+  assert.deepEqual(t.background, []);
+  const d = decide(["some long text"], Float32Array.from([0.8, 0.6]), 2, [t], params, null);
+  assert.equal(d[0]!.score, d[0]!.similarity);
+});

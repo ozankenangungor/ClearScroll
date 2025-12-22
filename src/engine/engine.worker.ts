@@ -46,9 +46,10 @@ async function handle(req: WorkerRequest): Promise<void> {
         fetchOk(req.weightsUrl).then((r) => r.arrayBuffer()),
         fetchOk(req.vocabUrl).then((r) => r.text()),
       ]);
+      const before = memory?.buffer.byteLength ?? 0;
       const dim = await init_engine(new Uint8Array(weights), vocab, req.backend);
       initialised = true;
-      reply({ type: "ready", backend: req.backend, dim, loadMs: Math.round(performance.now() - start), wasmMemoryBytes: memory?.buffer.byteLength ?? 0 });
+      reply({ type: "ready", backend: req.backend, dim, loadMs: Math.round(performance.now() - start), wasmMemoryBytes: memory?.buffer.byteLength ?? 0, wasmMemoryBeforeModelBytes: before });
     } catch (err) {
       reply({ type: "init-failed", error: errorText(err) });
     }

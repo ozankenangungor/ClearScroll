@@ -59,26 +59,36 @@ design rationale: [docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md)
 
 ## Results
 
-**Quality** — English, held-out test split of 318 labelled texts, balanced
-mode ([full report](docs/evaluation/RESULTS.md), [method](docs/MODEL.md#evaluation)):
+**Quality** — English, held-out test split of 356 labelled texts including
+38 UI strings (navigation, metadata, ads), balanced mode
+([full report](docs/evaluation/RESULTS.md), [method](docs/MODEL.md#evaluation)):
 
-| Classifier | Precision | Recall | F1 | False-positive rate |
-|---|---|---|---|---|
-| ClearScroll (MiniLM-L6 + keywords) | 65.2 % | 70.1 % | 67.5 % | 4.4 % |
-| Keywords only | 100 % | 1.1 % | 2.2 % | 0.0 % |
-| Previous model (bert-tiny), calibrated | 31.3 % | 55.4 % | 40.0 % | 14.3 % |
+| Classifier | Precision | Recall | F1 | False-positive rate | FPR on UI strings |
+|---|---|---|---|---|---|
+| ClearScroll (MiniLM-L6, margin scoring + keywords) | 66.1 % | 61.4 % | 63.7 % | 3.0 % | 1.8 % |
+| Same model, plain cosine similarity | 52.0 % | 56.5 % | 54.2 % | 5.0 % | 17.6 % |
+| Keywords only | 50.0 % | 1.1 % | 2.1 % | 0.1 % | — |
+| Previous model (bert-tiny), calibrated | 23.9 % | 55.4 % | 33.4 % | 17.0 % | 29.4 % |
 
+Texts are scored by how much more they resemble your topic than a set of
+unrelated background topics; this removes most false positives on page
+furniture at a small cost on clean content (trade-off in
+[docs/MODEL.md](docs/MODEL.md#margin-scoring-against-background-topics)).
 The Rust engine reproduces the Hugging Face reference implementation:
 0/24 token-id mismatches, max embedding difference 3 × 10⁻⁷.
 
-**Performance** — Chromium 156, i7-11800H ([details](docs/BENCHMARKS.md)):
+**Performance** — Chromium 156 and Chrome 153 stable, i7-11800H
+([details](docs/BENCHMARKS.md)):
 
 | | WebGPU (NVIDIA Ampere) | CPU (WASM SIMD) |
 |---|---|---|
-| 24 texts | 62 ms | 666 ms |
-| Engine cold start | 0.9 s | 0.5 s |
+| 24 texts | 44 ms | 619 ms |
+| Engine cold start | 0.8 s | 0.4 s |
 | Main-thread long tasks on a 2,000-post page | 0 | 0 |
-| WebAssembly memory | 145 MiB | 219 MiB |
+| WebAssembly memory | 102 MiB | 221 MiB |
+
+On many Linux machines Chrome blocklists the GPU for WebGPU; ClearScroll
+then uses the CPU backend and says so in its diagnostics.
 
 ## Install (from source)
 
@@ -102,18 +112,20 @@ browse. Chrome 116 or newer is required.
 ## Testing
 
 ```bash
-npm run check                     # typecheck, 47 unit tests, Rust tests
+npm run check                     # typecheck, 59 unit tests, Rust tests
 npx playwright install chromium
-npm run test:dom                  # 20 content-script tests in real Chromium
-npm run test:e2e                  # 15 end-to-end tests of the built extension
+npm run test:dom                  # 26 content-script tests in real Chromium
+npm run test:e2e                  # 25 end-to-end + accessibility (axe-core) tests
+CLEARSCROLL_BROWSER=chrome npm run test:e2e   # the same on Google Chrome stable
 npm run verify:privacy            # network capture: no requests from the extension
 npm run evaluate                  # semantic quality report
 ```
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs all of the
 above plus formatting, Clippy for native and wasm32, dependency licence and
-advisory checks, model-artifact verification, Rust/PyTorch parity and a
-quality gate (English F1 ≥ 60 %).
+advisory checks, model-artifact verification, Rust/PyTorch parity (f16 and
+f32), quality gates (English F1 ≥ 60 %, false positives on UI strings ≤ 5 %)
+and the end-to-end/privacy suites on Chromium and on Google Chrome stable.
 
 ## Privacy and security
 
@@ -129,15 +141,19 @@ quality gate (English F1 ≥ 60 %).
 * **English only.** All bundled encoders use an English vocabulary; on
   Turkish text ranking quality is at chance level (ROC-AUC ≈ 0.53).
   Keyword rules still work in any language.
-* **Imperfect recall and precision.** About 30 % of related English texts are
-  missed at balanced strictness, and some short UI strings are blurred
-  wrongly (e.g. "Home & Garden · 3 min read" for the topic "football"). Broad
-  topics ("sports") work worse than concrete ones ("football").
+* **Imperfect recall and precision.** About 40 % of related English texts are
+  missed at balanced strictness (use *Thorough* for more recall), and a text
+  that mixes your topic with another subject can be missed ("Dogecoin …
+  posted a picture of a Shiba Inu" looks more like *pets* than *crypto* to
+  the model). Broad topics ("sports") work worse than concrete ones
+  ("football").
 * Text inside **shadow DOM** and **iframes** is not analysed.
 * Content is visible briefly until it is classified (≈ 0.1 s warm; up to
   ~1 s on the first page after the engine starts).
-* The package is large (~97 MiB, mostly model weights); a lighter MiniLM-L3
-  build is available (`CLEARSCROLL_MODEL=minilm-l3`).
+* The package is ~55 MiB, mostly model weights (half-precision); lighter
+  MiniLM-L3 (45 MiB) and bert-tiny (20 MiB) builds are available
+  (`CLEARSCROLL_MODEL=…`) with lower quality.
+* WebAssembly memory is ~220 MiB on the CPU backend (~100 MiB with WebGPU).
 
 ## Troubleshooting
 
@@ -170,10 +186,9 @@ docs/            architecture, model card, benchmarks, privacy, runbook
 ## Roadmap
 
 * Optional host permissions / per-site activation.
-* Quantised (f16/int8) weights to cut package size and memory, gated on parity
-  and evaluation.
+* Reduce WebAssembly memory on the CPU backend (allocator / streaming load).
 * Shadow DOM and same-origin iframe support.
-* A multilingual model, and UI-string negatives in the evaluation set.
+* A multilingual model; a larger, multi-annotator evaluation set.
 
 ## Contributing
 
