@@ -22,12 +22,14 @@ import type { ClassifyReply, ClassifyRequest, EngineStatus, TabActivity, TabStat
 import { activeTopics, type Settings } from "../shared/settings.ts";
 import { isUrlExcluded } from "../shared/sites.ts";
 import {
+  OWNER_ATTR,
   STATE_ATTR,
   applyBlur,
   clearAllVisuals,
   clearVisual,
   collectUnits,
   compileProtectedSelector,
+  itemOf,
   markRevealed,
   unitOf,
   unitText,
@@ -60,6 +62,8 @@ interface UnitState {
   phase: "dirty" | "queued" | "inflight" | "done";
   /** Text the user chose to reveal; stays revealed until the text changes. */
   revealedText: string | null;
+  /** Element showing this unit's match: the unit itself or its feed item. */
+  target: Element | null;
 }
 
 export class FilterController {
@@ -68,6 +72,8 @@ export class FilterController {
   private generation = 0;
   private protectedSelector = "";
   private states = new WeakMap<Element, UnitState>();
+  /** Hidden feed items → their matched units; an item is shown while any member matches. */
+  private items = new WeakMap<Element, Set<Element>>();
   private nearViewport = new WeakSet<Element>();
   private observed = new WeakSet<Element>();
   private readonly queue = new Set<Element>();
@@ -136,6 +142,7 @@ export class FilterController {
     this.retryUnits.clear();
     this.queue.clear();
     this.states = new WeakMap();
+    this.items = new WeakMap();
     this.nearViewport = new WeakSet();
     this.observed = new WeakSet();
     clearAllVisuals(this.deps.doc, this.instanceId);
@@ -171,9 +178,10 @@ export class FilterController {
     collectUnits(body, this.protectedSelector, units);
     for (const u of units) this.touch(u);
     // Units that were blurred but are no longer candidates (e.g. a selector
-    // became protected) must not stay blurred with a stale verdict.
+    // became protected) must not stay blurred with a stale verdict. Items
+    // are cleared through their members (touch → hide).
     this.deps.doc.querySelectorAll(`[${STATE_ATTR}]`).forEach((el) => {
-      if (!units.has(el)) clearVisual(el);
+      if (!units.has(el) && !this.items.has(el)) clearVisual(el);
     });
     this.scheduleFlush();
   }
@@ -182,13 +190,15 @@ export class FilterController {
   private touch(unit: Element): void {
     if (this.activity !== "active") return;
     const text = unitText(unit, this.protectedSelector);
+    const st = this.states.get(unit);
     if (text === null) {
-      if (visualState(unit)) clearVisual(unit);
+      if (st) this.hide(unit, st);
+      // A hidden item is not a unit itself; it is cleared through its members.
+      if (visualState(unit) && !this.items.has(unit)) clearVisual(unit);
       return;
     }
-    const st = this.states.get(unit);
     if (st && st.text === text && st.generation === this.generation && st.phase !== "dirty") return;
-    this.states.set(unit, { text, generation: this.generation, phase: "dirty", revealedText: st?.revealedText ?? null });
+    this.states.set(unit, { text, generation: this.generation, phase: "dirty", revealedText: st?.revealedText ?? null, target: st?.target ?? null });
     if (!this.observed.has(unit)) {
       this.observed.add(unit);
       this.intersectionObserver?.observe(unit);
@@ -406,16 +416,98 @@ export class FilterController {
       }
       st.phase = "done";
       this.analyzed++;
-      const d = reply.decisions[i]!;
-      if (!d.matched) {
-        clearVisual(u);
-      } else if (st.revealedText === st.text) {
-        markRevealed(u, this.instanceId);
+      if (reply.decisions[i]!.matched) this.show(u, st);
+      else this.hide(u, st);
+    });
+  }
+
+  /** Show a matched unit as hidden — through its feed item when it has one. */
+  private show(unit: Element, st: UnitState): void {
+    const target = this.targetFor(unit);
+    if (st.target !== target) this.hide(unit, st);
+    st.target = target;
+    if (target === unit) {
+      if (st.revealedText === st.text) {
+        markRevealed(unit, this.instanceId);
       } else {
         st.revealedText = null;
-        applyBlur(u, this.instanceId);
+        applyBlur(unit, this.instanceId);
       }
+      return;
+    }
+    let members = this.items.get(target);
+    if (!members) this.items.set(target, (members = new Set()));
+    members.add(unit);
+    this.absorb(target, members);
+    this.renderItem(target, members);
+  }
+
+  /** The unit no longer matches (or is no longer a candidate). */
+  private hide(unit: Element, st: UnitState): void {
+    const target = st.target;
+    st.target = null;
+    if (target === unit) clearVisual(unit);
+    else if (target) this.leaveItem(target, unit);
+    // Its item may still count members a re-render detached; prune them.
+    const item = this.itemContaining(unit);
+    if (item) this.leaveItem(item, unit);
+  }
+
+  private targetFor(unit: Element): Element {
+    const own = itemOf(unit, this.protectedSelector) ?? unit;
+    // Never nest hidden elements (two reveals): join an enclosing hidden item.
+    return this.itemContaining(own) ?? own;
+  }
+
+  private itemContaining(el: Element): Element | null {
+    for (let a = el.parentElement; a; a = a.parentElement) if (this.items.has(a)) return a;
+    return null;
+  }
+
+  /** Move units or smaller items hidden inside `item` into it. */
+  private absorb(item: Element, members: Set<Element>): void {
+    for (const el of item.querySelectorAll(`[${OWNER_ATTR}="${CSS.escape(this.instanceId)}"]`)) {
+      const inner = this.items.get(el);
+      if (inner) {
+        for (const m of inner) {
+          members.add(m);
+          const s = this.states.get(m);
+          if (s) s.target = item;
+        }
+        this.items.delete(el);
+        clearVisual(el);
+      } else {
+        const s = this.states.get(el);
+        if (s?.target === el) {
+          s.target = item;
+          members.add(el);
+          clearVisual(el);
+        }
+      }
+    }
+  }
+
+  private leaveItem(item: Element, unit: Element): void {
+    const members = this.items.get(item);
+    if (!members) return;
+    members.delete(unit);
+    for (const m of members) if (!m.isConnected || !item.contains(m)) members.delete(m);
+    if (members.size > 0) {
+      this.renderItem(item, members);
+    } else {
+      this.items.delete(item);
+      clearVisual(item);
+    }
+  }
+
+  /** An item stays revealed while any member is revealed for its current text. */
+  private renderItem(item: Element, members: Set<Element>): void {
+    const revealed = [...members].some((m) => {
+      const s = this.states.get(m);
+      return !!s && s.revealedText === s.text;
     });
+    if (revealed) markRevealed(item, this.instanceId);
+    else applyBlur(item, this.instanceId);
   }
 
   private blurredTarget(target: EventTarget | null): Element | null {
@@ -423,10 +515,13 @@ export class FilterController {
     return el?.closest(`[${STATE_ATTR}="blurred"]`) ?? null;
   }
 
-  private reveal(unit: Element): void {
-    const st = this.states.get(unit);
-    if (st) st.revealedText = st.text;
-    markRevealed(unit, this.instanceId);
+  /** Reveal a hidden unit or item (all of the item's members). */
+  private reveal(el: Element): void {
+    for (const u of this.items.get(el) ?? [el]) {
+      const st = this.states.get(u);
+      if (st) st.revealedText = st.text;
+    }
+    markRevealed(el, this.instanceId);
   }
 
   private handleClick(e: MouseEvent): void {

@@ -55,6 +55,8 @@ flowchart LR
 3. The content script applies a verdict only if the settings, the element
    and its text are still the same, by toggling an extension-owned attribute
    styled with `filter: blur()` — page markup and styles are left untouched.
+   When the text belongs to a feed item with a picture (a video card, a news
+   promo), the whole item is hidden, thumbnail and metadata included.
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 design rationale: [docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md)
@@ -118,9 +120,9 @@ browse. Chrome 116 or newer is required.
 ## Testing
 
 ```bash
-npm run check                     # typecheck, 59 unit tests, Rust tests
+npm run check                     # typecheck, 75 unit tests, Rust tests
 npx playwright install chromium
-npm run test:dom                  # 26 content-script tests in real Chromium
+npm run test:dom                  # 32 content-script tests in real Chromium
 npm run test:e2e                  # 25 end-to-end + accessibility (axe-core) tests
 CLEARSCROLL_BROWSER=chrome npm run test:e2e   # the same on Google Chrome stable
 npm run verify:privacy            # network capture: no requests from the extension
