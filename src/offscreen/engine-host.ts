@@ -5,8 +5,14 @@
  *  - Jobs are processed strictly FIFO, one at a time. Each job carries its
  *    own immutable config snapshot (mode + topics), so there is no shared
  *    "current target" that a later message could change mid-computation.
- *  - Per frame, only the newest generation matters: queued jobs from an
- *    older generation are answered `stale` without running inference.
+ *  - Per frame, only the newest generation matters: when a newer generation
+ *    arrives, that frame's queued jobs from older ones are answered `stale`
+ *    at once, without running inference; late requests for a superseded
+ *    generation are answered `stale` without being queued. The running job
+ *    cannot be cancelled (the worker has no cancel), so it completes.
+ *  - At most MAX_QUEUED_JOBS jobs wait. Beyond that a request is refused at
+ *    once with a non-stale error, which the content script retries with
+ *    exponential backoff; accepted work keeps its FIFO order.
  *  - The worker processes one embed at a time; requests are correlated by id.
  *
  * Failure model:
@@ -36,6 +42,17 @@ const MAX_EMBED_ATTEMPTS = 2 + MAX_RESTARTS;
 const RECOVERY_COOLDOWN_MS = 5 * 60_000;
 /** Frames tracked for stale-job dropping; oldest are forgotten first. */
 const MAX_TRACKED_FRAMES = 1000;
+/**
+ * Waiting jobs (the running one excluded). A design bound, not a measured
+ * optimum: content scripts run in top frames only and keep at most
+ * MAX_INFLIGHT (2) requests outstanding, so 256 covers 128 tabs all
+ * classifying at once. A job carries ≤ 24 texts from the content script
+ * (≤ 64 × 2,000 chars accepted), so the queue holds about 2.5 MB of text
+ * for typical ~200-char paragraphs and at most ~64 MB. A full queue is also
+ * at least ~160 s of work on the CPU backend (median 0.62 s per 24 short
+ * texts, docs/BENCHMARKS.md): results queued later would arrive too late.
+ */
+const MAX_QUEUED_JOBS = 256;
 
 import { decide, LEXICAL_PARAMS, prepareTopic, type Background, type Decision, type ModeParams } from "../shared/classifier.ts";
 import { applyTopicTemplate, BACKGROUND_TOPICS, MIN_SEMANTIC_CHARS, MODEL_PROFILES, type ModelProfile } from "../shared/models.ts";
@@ -74,6 +91,7 @@ export interface EngineHostDeps {
   embedTimeoutMs?: number;
   cacheSize?: number;
   maxEmbedAttempts?: number;
+  maxQueuedJobs?: number;
 }
 
 export interface ModelMeta {
@@ -118,9 +136,11 @@ export class EngineHost {
   private readonly initTimeoutMs: number;
   private readonly embedTimeoutMs: number;
   private readonly maxEmbedAttempts: number;
+  /** Maximum number of waiting jobs. */
+  readonly queueCapacity: number;
 
   /** Counters for diagnostics and the benchmark harness. */
-  readonly stats: EngineStats = { jobs: 0, staleDropped: 0, embedded: 0, cacheHits: 0, embedMs: 0, canaryFailures: 0, wasmMemoryBytes: null, wasmMemoryBeforeModelBytes: null };
+  readonly stats: EngineStats = { jobs: 0, staleDropped: 0, overloadRejected: 0, embedded: 0, cacheHits: 0, embedMs: 0, canaryFailures: 0, wasmMemoryBytes: null, wasmMemoryBeforeModelBytes: null };
 
   private readonly deps: EngineHostDeps;
 
@@ -130,6 +150,7 @@ export class EngineHost {
     this.initTimeoutMs = deps.initTimeoutMs ?? 120_000;
     this.embedTimeoutMs = deps.embedTimeoutMs ?? 60_000;
     this.maxEmbedAttempts = deps.maxEmbedAttempts ?? MAX_EMBED_ATTEMPTS;
+    this.queueCapacity = deps.maxQueuedJobs ?? MAX_QUEUED_JOBS;
     this.cache = new LruCache(deps.cacheSize ?? 4000);
   }
 
@@ -143,12 +164,42 @@ export class EngineHost {
   }
 
   classify(msg: OffscreenClassify): Promise<ClassifyReply> {
-    const prev = this.latestGeneration.get(msg.frameKey) ?? -Infinity;
-    if (msg.generation > prev) this.latestGeneration.set(msg.frameKey, msg.generation);
+    const latest = this.latestGeneration.get(msg.frameKey);
+    if (latest !== undefined && msg.generation < latest) {
+      this.stats.staleDropped++;
+      return Promise.resolve(this.staleReply(msg));
+    }
+    if (latest === undefined || msg.generation > latest) {
+      this.latestGeneration.set(msg.frameKey, msg.generation);
+      this.dropSuperseded(msg.frameKey, msg.generation);
+    }
+    if (this.queue.length >= this.queueCapacity) {
+      this.stats.overloadRejected++;
+      // Not `stale`: the content script retries errors with backoff, stale replies at once.
+      return Promise.resolve({ ok: false, generation: msg.generation, error: `engine overloaded: ${this.queue.length} requests waiting`, engine: this.status });
+    }
     return new Promise((resolve) => {
       this.queue.push({ msg, resolve });
       void this.pump();
     });
+  }
+
+  /** Answer the frame's queued jobs from generations older than `generation`. */
+  private dropSuperseded(frameKey: string, generation: number): void {
+    let kept = 0;
+    for (const job of this.queue) {
+      if (job.msg.frameKey === frameKey && job.msg.generation < generation) {
+        this.stats.staleDropped++;
+        job.resolve(this.staleReply(job.msg));
+      } else {
+        this.queue[kept++] = job;
+      }
+    }
+    this.queue.length = kept;
+  }
+
+  private staleReply(msg: OffscreenClassify): ClassifyReply {
+    return { ok: false, generation: msg.generation, error: "stale", stale: true, engine: this.status };
   }
 
   /** Number of frames whose latest generation is remembered (bounded). */
@@ -160,15 +211,17 @@ export class EngineHost {
     if (this.running) return;
     this.running = true;
     try {
+      // classify() keeps superseded jobs out of the queue, so every job here is current.
       while (this.queue.length > 0) {
         const job = this.queue.shift()!;
-        const latest = this.latestGeneration.get(job.msg.frameKey) ?? job.msg.generation;
-        if (job.msg.generation < latest) {
-          this.stats.staleDropped++;
-          job.resolve({ ok: false, generation: job.msg.generation, error: "stale", stale: true, engine: this.status });
-          continue;
+        let reply: ClassifyReply;
+        try {
+          reply = await this.run(job.msg);
+        } catch (err) {
+          // Never leave a caller without a reply or stall the jobs behind it.
+          reply = { ok: false, generation: job.msg.generation, error: errorText(err), engine: this.status };
         }
-        job.resolve(await this.run(job.msg));
+        job.resolve(reply);
       }
     } finally {
       this.running = false;

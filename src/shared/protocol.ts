@@ -71,6 +71,8 @@ export interface OffscreenStatsRequest {
 export interface EngineStats {
   jobs: number;
   staleDropped: number;
+  /** Requests refused because the offscreen queue was full. */
+  overloadRejected: number;
   embedded: number;
   cacheHits: number;
   embedMs: number;

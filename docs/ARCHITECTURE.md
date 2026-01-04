@@ -73,8 +73,10 @@ model instead of loading it per tab.
 3. Each request carries an immutable snapshot: `generation`, `mode`, and the
    active topics. The background attaches a `frameKey` (tab, frame, document)
    and forwards it to the offscreen document.
-4. `EngineHost` drops queued jobs whose generation is older than the newest
-   seen for that frame, looks texts and topics up in an LRU cache (4,000
+4. `EngineHost` answers a frame's queued jobs `stale` as soon as a newer
+   generation arrives for that frame, refuses new jobs with a retryable
+   `engine overloaded` error while 256 are already waiting, looks texts and
+   topics up in an LRU cache (4,000
    entries), sends only missing ones to the worker, and runs the shared
    `decide()` function. For the shipped model the score is a **margin**:
    cosine similarity to the topic minus the text's best similarity to the
@@ -114,6 +116,7 @@ model instead of loading it per tab.
 | Runtime failure (device lost, worker crash, embed timeout 60 s) | fail over to the next backend (the last one is restarted up to 2 times) and retry the same job on each backend that comes up, at most 4 attempts; nothing computed by the failed worker is reused | detail lists the failure; the job ends semantic, or lexical together with the engine |
 | No backend works / engine set to "keywords only" | lexical rules only | `lexical-fallback` |
 | Background/offscreen unreachable | content script uses lexical rules locally | `lexical-fallback` |
+| Offscreen queue full (256 waiting jobs) | request refused at once, not queued; units retried with the backoff below | console warning `engine overloaded` |
 | Request fails | units retried with exponential backoff (0.5 s → 30 s) | console warning |
 | Extension reloaded/removed | content script tears down and removes all blur | — |
 
