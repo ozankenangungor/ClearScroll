@@ -621,3 +621,22 @@ test("a hidden item stays hidden when its metadata text updates in place", async
   assert.equal(await h.state("c1"), "blurred");
   await page.close();
 });
+
+test("the first request of a configuration is sent promptly while the page keeps changing", async () => {
+  const page = await harnessPage(browser, `<main><p id="a">Bitcoin MATCH prices rallied this week after approval.</p><div id="feed"></div></main>`);
+  const h = H(page);
+  // A feed that keeps rendering (YouTube, infinite scroll): a mutation every 25 ms.
+  await page.evaluate(() => {
+    let n = 0;
+    const timer = setInterval(() => {
+      document.getElementById("feed")!.insertAdjacentHTML("beforeend", `<span>tick ${n++}</span>`);
+      if (n > 40) clearInterval(timer);
+    }, 25);
+  });
+  const t0 = Date.now();
+  await h.apply();
+  await waitPending(page, 1);
+  const waited = Date.now() - t0;
+  assert.ok(waited < 250, `first request after ${waited} ms (the debounce must not hold it back while the page changes)`);
+  await page.close();
+});
