@@ -24,6 +24,10 @@ page text is never sent anywhere.
   can be active at once and toggled individually.
 * **Three strictness levels** with thresholds calibrated on a labelled
   dataset (not guessed).
+* **Whole items, not just text** — a matching video card, post or news promo
+  is hidden together with its thumbnail and metadata
+  ([before](docs/images/7-feeds-unfiltered.png) /
+  [after](docs/images/8-feeds-filtered.png), topic "football").
 * **Reveal on click or Enter** for any single item; filtering continues.
 * **Per-site control** from the toolbar popup; site rules with validation.
 * **Honest status** — shows whether the semantic engine runs on WebGPU or
@@ -123,7 +127,7 @@ browse. Chrome 116 or newer is required.
 npm run check                     # typecheck, 75 unit tests, Rust tests
 npx playwright install chromium
 npm run test:dom                  # 32 content-script tests in real Chromium
-npm run test:e2e                  # 25 end-to-end + accessibility (axe-core) tests
+npm run test:e2e                  # 26 end-to-end + accessibility (axe-core) tests
 CLEARSCROLL_BROWSER=chrome npm run test:e2e   # the same on Google Chrome stable
 npm run verify:privacy            # network capture: no requests from the extension
 npm run evaluate                  # semantic quality report

@@ -1,7 +1,8 @@
 /**
  * Capture real screenshots of the built extension for the README.
- *   npm run build && node scripts/demo-screenshots.ts
- * Uses the deterministic fixture page tests/fixtures/pages/news.html.
+ *   npm run build && node scripts/demo-screenshots.ts [--feeds]
+ * Uses the deterministic fixture pages tests/fixtures/pages/news.html and
+ * feeds.html; --feeds captures only the feed before/after pair (7, 8).
  */
 import path from "node:path";
 
@@ -10,6 +11,27 @@ import { getSettings, launchExtension, setSettings, waitAttr, waitRegistered } f
 const OUT = path.resolve(import.meta.dirname, "../docs/images");
 const env = await launchExtension();
 try {
+  // Feeds: a match hides whole items (thumbnail, metadata) — before / after.
+  const feeds = await env.ctx.newPage();
+  await feeds.setViewportSize({ width: 1200, height: 860 });
+  await feeds.goto(`${env.base}/feeds.html`);
+  await feeds.screenshot({ path: `${OUT}/7-feeds-unfiltered.png` });
+  await setSettings(env, { topics: [{ id: "t-football", text: "football", enabled: true }] });
+  await waitRegistered(env, true);
+  await feeds.reload();
+  for (const id of ["#v1", "#r1", "#x1"]) await waitAttr(feeds, id, "blurred");
+  await feeds.waitForTimeout(800);
+  await feeds.screenshot({ path: `${OUT}/8-feeds-filtered.png` });
+  await feeds.close();
+  await setSettings(env, { topics: [] });
+  await waitRegistered(env, false);
+  if (!process.argv.includes("--feeds")) await readmeScreenshots();
+  console.log(`screenshots written to ${OUT}`);
+} finally {
+  await env.close();
+}
+
+async function readmeScreenshots(): Promise<void> {
   const page = await env.ctx.newPage();
   await page.setViewportSize({ width: 900, height: 760 });
 
@@ -57,7 +79,4 @@ try {
   await options.reload();
   await options.waitForTimeout(2500);
   await options.locator("#engine-status").screenshot({ path: `${OUT}/6-status-keyword-fallback.png` });
-  console.log(`screenshots written to ${OUT}`);
-} finally {
-  await env.close();
 }

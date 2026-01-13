@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  ClearScroll fixture: three common feed layouts with thumbnails, used to test
+  that a match hides the whole item (picture and metadata included).
+
+  The markup imitates widely used public patterns; it is NOT a copy of any
+  site and was NOT verified against live Reddit or X, which block automated
+  browsers (see eval/realworld/GUIDELINES.md):
+   * video cards: thumbnail link, title, metadata row, channel row with a
+     small avatar, description (as on video sites);
+   * posts rendered by a custom element with a shadow root, title, thumbnail
+     and body slotted from the light DOM (as on Reddit's current web UI);
+   * <article> posts with a small avatar, text and an attached image
+     (as on X / Mastodon-style timelines).
+  All texts are written for this fixture; thumbnails are inline SVG.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>Feeds (ClearScroll fixture)</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; background: #f6f6f6; color: #111; }
+  header.top { background: #222; color: #fff; padding: 10px 20px; font-weight: 600; }
+  main { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 16px; }
+  h2.col { font-size: 15px; margin: 0 0 8px; color: #555; }
+  .video { display: flex; flex-direction: column; background: #fff; border-radius: 10px; padding: 8px; margin-bottom: 12px; }
+  .video img.thumb { width: 100%; height: 150px; border-radius: 8px; display: block; }
+  .video h3 { font-size: 15px; margin: 8px 0 4px; }
+  .video h3 a { color: inherit; text-decoration: none; }
+  .video .meta, .video .channel { color: #606060; font-size: 12px; }
+  .video .channel img { width: 20px; height: 20px; border-radius: 50%; vertical-align: middle; }
+  .video p.desc { color: #444; font-size: 12px; margin: 4px 0 0; }
+  social-post { display: block; margin-bottom: 12px; }
+  article.status { background: #fff; border-radius: 10px; padding: 10px; margin-bottom: 12px; }
+  article.status .who img { width: 32px; height: 32px; border-radius: 50%; vertical-align: middle; }
+  article.status .who { font-weight: 600; font-size: 13px; }
+  article.status img.media { width: 100%; height: 140px; border-radius: 8px; display: block; margin-top: 6px; }
+</style></head>
+<body>
+<header class="top">Feeds fixture</header>
+<main>
+  <section>
+    <h2 class="col">Videos</h2>
+    <div class="video" id="v1">
+      <a class="thumb-link" href="#watch-v1"><img class="thumb" id="v1-thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23157a3c'/%3E%3Ctext x='160' y='112' font-size='64' font-family='sans-serif' fill='white' text-anchor='middle'%3E2 – 1%3C/text%3E%3C/svg%3E"></a>
+      <h3><a href="#watch-v1" id="v1-title">Arsenal 2-1 Leeds United | Premier League Highlights</a></h3>
+      <div class="meta" id="v1-meta">1.2M views · 2 days ago</div>
+      <div class="channel"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Ccircle cx='10' cy='10' r='10' fill='%23c00'/%3E%3C/svg%3E"> Match Highlights TV</div>
+      <p class="desc" id="v1-desc">Watch the goals as Arsenal came from behind at the Emirates to beat Leeds.</p>
+    </div>
+    <div class="video" id="v2">
+      <a class="thumb-link" href="#watch-v2"><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%238a5a2b'/%3E%3Ctext x='160' y='105' font-size='40' font-family='sans-serif' fill='white' text-anchor='middle'%3ECABIN BUILD%3C/text%3E%3C/svg%3E"></a>
+      <h3><a href="#watch-v2" id="v2-title">How I built a tiny cabin in the woods for five thousand dollars</a></h3>
+      <div class="meta">310K views · 3 weeks ago</div>
+      <div class="channel"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Ccircle cx='10' cy='10' r='10' fill='%23070'/%3E%3C/svg%3E"> Off Grid Weekends</div>
+      <p class="desc">A full build log of my off-grid cabin, from the foundations to the roof.</p>
+    </div>
+    <div class="video" id="v3">
+      <a class="thumb-link" href="#watch-v3"><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23b8860b'/%3E%3Ctext x='160' y='105' font-size='40' font-family='sans-serif' fill='white' text-anchor='middle'%3EPASTA x3%3C/text%3E%3C/svg%3E"></a>
+      <h3><a href="#watch-v3" id="v3-title">Three easy twenty-minute pasta recipes for busy weeknights</a></h3>
+      <div class="meta">88K views · 5 days ago</div>
+      <div class="channel"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Ccircle cx='10' cy='10' r='10' fill='%23d80'/%3E%3C/svg%3E"> Kitchen Basics</div>
+      <p class="desc">Garlic and chilli, lemon and ricotta, and a quick tomato sauce.</p>
+    </div>
+  </section>
+  <section>
+    <h2 class="col">Posts</h2>
+    <social-post id="r1"><a slot="title" href="#post-r1" id="r1-title">Haaland scores twice as City come from behind to beat Brighton</a><img slot="thumbnail" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%236cabdd'/%3E%3Ctext x='160' y='112' font-size='64' font-family='sans-serif' fill='white' text-anchor='middle'%3E3 – 2%3C/text%3E%3C/svg%3E"><div slot="body"><p id="r1-body">What a second half. The substitutions changed everything after the break.</p></div></social-post>
+    <social-post id="r2"><a slot="title" href="#post-r2" id="r2-title">My sourdough finally has an open crumb after six months of trying</a><img slot="thumbnail" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23d2b48c'/%3E%3Ctext x='160' y='105' font-size='40' font-family='sans-serif' fill='white' text-anchor='middle'%3EBREAD%3C/text%3E%3C/svg%3E"><div slot="body"><p>Higher hydration and a longer cold proof made the difference.</p></div></social-post>
+    <social-post id="r3"><a slot="title" href="#post-r3" id="r3-title">What is a good beginner telescope for viewing planets?</a><div slot="body"><p>I have a budget of about three hundred and a small balcony.</p></div></social-post>
+  </section>
+  <section>
+    <h2 class="col">Timeline</h2>
+    <article class="status" id="x1">
+      <div class="who"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23333'/%3E%3C/svg%3E"> Stadium Notes</div>
+      <div class="text" id="x1-text">What a finish at Anfield tonight. A winner in the 94th minute and the whole stadium is shaking.</div>
+      <img class="media" id="x1-media" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='140'%3E%3Crect width='320' height='140' fill='%23c8102e'/%3E%3Ctext x='160' y='90' font-size='48' font-family='sans-serif' fill='white' text-anchor='middle'%3E90%2B4'%3C/text%3E%3C/svg%3E">
+    </article>
+    <article class="status" id="x2">
+      <div class="who"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23069'/%3E%3C/svg%3E"> Trail Runner</div>
+      <div class="text" id="x2-text">Finished my first marathon in under four hours this morning, legs are completely gone.</div>
+      <img class="media" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='140'%3E%3Crect width='320' height='140' fill='%23096'/%3E%3Ctext x='160' y='90' font-size='48' font-family='sans-serif' fill='white' text-anchor='middle'%3E3:58%3C/text%3E%3C/svg%3E">
+    </article>
+  </section>
+</main>
+<script src="feeds.js"></script>
+</body>
+</html>
