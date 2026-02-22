@@ -85,6 +85,24 @@ furniture at a small cost on clean content (trade-off in
 The Rust engine reproduces the Hugging Face reference implementation:
 0/24 token-id mismatches, max embedding difference 3 × 10⁻⁷.
 
+**On real pages** — 3,152 text units captured with the extension from BBC,
+The Guardian, Sky Sports, The Independent, Hacker News and YouTube and
+labelled by hand; held-out split of 1,132 English texts from pages not used
+during development, balanced mode, classifier unchanged
+([report](docs/evaluation/realworld/RESULTS.md),
+[method](docs/MODEL.md#real-world-evaluation)):
+
+| Topic | Precision | Recall | F1 | False-positive rate |
+|---|---|---|---|---|
+| cryptocurrency | 58.2 % | 76.5 % | 66.1 % | 18.1 % |
+| football | 53.7 % | 77.9 % | 63.6 % | 50.4 % |
+| movie spoilers | 48.6 % | 93.4 % | 63.9 % | 51.4 % |
+
+The held-out pages deliberately include neighbouring subjects, and that is
+where precision fails: half of a rugby page is hidden for "football",
+gold-price videos for "cryptocurrency", and spoiler-free reviews for "movie
+spoilers" (see [limitations](#limitations)).
+
 **Performance** — Chromium 156 and Chrome 153 stable, i7-11800H
 ([details](docs/BENCHMARKS.md)):
 
@@ -153,15 +171,28 @@ and the end-to-end/privacy suites on Chromium and on Google Chrome stable.
 * **English only.** All bundled encoders use an English vocabulary; on
   Turkish text ranking quality is at chance level (ROC-AUC ≈ 0.53).
   Keyword rules still work in any language.
-* **Imperfect recall and precision.** About 40 % of related English texts are
-  missed at balanced strictness (use *Thorough* for more recall), and a text
+* **Neighbouring subjects are confused.** The model separates broad
+  domains well but not close ones: for "football" it also hides rugby,
+  basketball and generic sports items; for "cryptocurrency", gold and
+  stock-market items (on real pages, 50 % and 18 % of unrelated texts
+  respectively, measured on pages full of such neighbours). Because whole
+  items are hidden, each such mistake hides a whole card.
+* **"Spoilers" cannot be detected as such.** A topic like "movie spoilers"
+  hides film and TV content in general — including reviews that say they are
+  spoiler-free — rather than only text that reveals a plot.
+* **Imperfect recall.** About 40 % of related texts are missed on the
+  synthetic set at balanced strictness and about 20 % on captured real pages
+  (use *Thorough* for more recall); short labels such as channel names or
+  "Premier League" match by keywords only. A text
   that mixes your topic with another subject can be missed ("Dogecoin …
   posted a picture of a Shiba Inu" looks more like *pets* than *crypto* to
   the model). Broad topics ("sports") work worse than concrete ones
   ("football").
-* Text inside **shadow DOM** and **iframes** is not analysed.
-* Content is visible briefly until it is classified (≈ 0.1 s warm; up to
-  ~1 s on the first page after the engine starts).
+* Text rendered inside **shadow roots** (light-DOM text slotted into
+  components is analysed) and **iframes** is not analysed.
+* Content is visible briefly until it is classified: on live pages (YouTube,
+  BBC Sport; CPU backend) about 0.2–0.7 s while the engine runs and
+  1.1–1.7 s on the first page after it starts (`scripts/live-latency.ts`).
 * The package is ~55 MiB, mostly model weights (half-precision); lighter
   MiniLM-L3 (45 MiB) and bert-tiny (20 MiB) builds are available
   (`CLEARSCROLL_MODEL=…`) with lower quality.
