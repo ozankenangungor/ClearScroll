@@ -70,7 +70,8 @@ export function prepareTopic(
   topic: { id: string; text: string },
   vector: Float32Array | null,
   params: ModeParams,
-  background: Background | null = null
+  background: Background | null = null,
+  cutoff: number = BACKGROUND_SIMILARITY_CUTOFF
 ): PreparedTopic {
   const competing: number[] = [];
   if (vector && background && background.count > 0) {
@@ -79,7 +80,7 @@ export function prepareTopic(
     let leastSim = Infinity;
     for (let k = 0; k < background.count; k++) {
       const sim = dot(background.vectors, k * dim, vector, dim);
-      if (sim < BACKGROUND_SIMILARITY_CUTOFF) competing.push(k);
+      if (sim < cutoff) competing.push(k);
       if (sim < leastSim) {
         leastSim = sim;
         leastSimilar = k;

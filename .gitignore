@@ -8,6 +8,9 @@
 /build/
 /release/
 
+# Private evaluation data (third-party page text; see eval/realworld/README.md)
+/eval/private/
+
 # Local environments
 /.venv/
 node_modules/

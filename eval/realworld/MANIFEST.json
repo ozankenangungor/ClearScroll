@@ -1,0 +1,138 @@
+{
+  "_comment": "Published identity of the private real-world evaluation data (eval/private/realworld/, not in the repository). scripts/evaluate-realworld.ts refuses data whose sha256 differs.",
+  "splits": {
+    "dev": {
+      "description": "Task 03 development split (error analysis, threshold calibration)",
+      "sha256": "d4ce9f6d7341d1896f9c4510302083e0a46e455c222454609082377fda927c8c",
+      "texts": 1794,
+      "captured": [
+        "2026-10-14"
+      ],
+      "cards": false,
+      "by_topic": {
+        "football": {
+          "en_positive": 227,
+          "en_negative": 413,
+          "en_ambiguous": 30,
+          "other_language": 71
+        },
+        "cryptocurrency": {
+          "en_positive": 122,
+          "en_negative": 506,
+          "en_ambiguous": 5,
+          "other_language": 70
+        },
+        "movie spoilers": {
+          "en_positive": 86,
+          "en_negative": 203,
+          "en_ambiguous": 1,
+          "other_language": 60
+        }
+      },
+      "pages": [
+        "bbc.com/sport",
+        "bbc.com/news",
+        "theguardian.com/business",
+        "theguardian.com/international",
+        "theguardian.com/technology/cryptocurrencies",
+        "news.ycombinator.com/",
+        "youtube.com/results?search_query=bitcoin+price+news",
+        "youtube.com/results?search_query=stock+market+news+today",
+        "bbc.com/sport/football",
+        "theguardian.com/sport",
+        "youtube.com/results?search_query=nba+highlights",
+        "youtube.com/results?search_query=premier+league+highlights",
+        "theguardian.com/film",
+        "youtube.com/results?search_query=movie+ending+explained",
+        "youtube.com/results?search_query=official+movie+trailer+2026"
+      ]
+    },
+    "test": {
+      "description": "Task 03 test split; inspected during Task 03, no longer treated as blind",
+      "sha256": "0178002c0dc5d73fe87d87379c6ffdfab9ec8652f05171f6b86088b5014db9df",
+      "texts": 1358,
+      "captured": [
+        "2026-10-15"
+      ],
+      "cards": false,
+      "by_topic": {
+        "cryptocurrency": {
+          "en_positive": 102,
+          "en_negative": 309,
+          "en_ambiguous": 7,
+          "other_language": 73
+        },
+        "football": {
+          "en_positive": 195,
+          "en_negative": 260,
+          "en_ambiguous": 8,
+          "other_language": 74
+        },
+        "movie spoilers": {
+          "en_positive": 91,
+          "en_negative": 175,
+          "en_ambiguous": 2,
+          "other_language": 62
+        }
+      },
+      "pages": [
+        "bbc.com/business",
+        "theguardian.com/uk/technology",
+        "youtube.com/results?search_query=ethereum+news+today",
+        "youtube.com/results?search_query=gold+price+news+today",
+        "independent.co.uk/sport",
+        "skysports.com/",
+        "youtube.com/results?search_query=la+liga+goals+this+week",
+        "youtube.com/results?search_query=rugby+world+cup+highlights",
+        "theguardian.com/tv-and-radio",
+        "youtube.com/results?search_query=series+finale+recap+explained",
+        "youtube.com/results?search_query=movie+review+no+spoilers"
+      ]
+    },
+    "heldout": {
+      "description": "Task 04 held-out split: pages chosen in docs/evaluation/realworld/PREREGISTRATION.md, captured and labelled after it was pushed, labelled before any prediction was computed",
+      "sha256": "96bf18714c7c01d9492d1406aaad7395f9823777810493595d38c70803d5dd5f",
+      "texts": 1983,
+      "captured": [
+        "2026-10-15"
+      ],
+      "cards": true,
+      "by_topic": {
+        "cryptocurrency": {
+          "en_positive": 102,
+          "en_negative": 443,
+          "en_ambiguous": 16,
+          "other_language": 59
+        },
+        "football": {
+          "en_positive": 150,
+          "en_negative": 456,
+          "en_ambiguous": 19,
+          "other_language": 68
+        },
+        "movie spoilers": {
+          "en_positive": 68,
+          "en_negative": 516,
+          "en_ambiguous": 0,
+          "other_language": 86
+        }
+      },
+      "pages": [
+        "bbc.com/",
+        "theguardian.com/uk",
+        "coindesk.com/",
+        "theguardian.com/business/stock-markets",
+        "youtube.com/results?search_query=crypto+market+news+today",
+        "youtube.com/results?search_query=silver+price+news",
+        "bbc.com/sport/rugby-union",
+        "theguardian.com/football",
+        "youtube.com/results?search_query=euroleague+basketball+highlights",
+        "youtube.com/results?search_query=serie+a+highlights",
+        "theguardian.com/culture",
+        "youtube.com/results?search_query=spoiler+free+review+2026",
+        "youtube.com/results?search_query=official+teaser+trailer",
+        "youtube.com/results?search_query=movie+twist+ending+breakdown"
+      ]
+    }
+  }
+}
