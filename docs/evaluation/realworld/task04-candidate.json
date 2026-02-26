@@ -1,0 +1,9 @@
+{
+  "_comment": "Task 04 candidate (not shipped: failed the pre-registered recall criterion). Background: candidate-background-topics.json; thresholds calibrated on the dev split with the committed evaluator. Full implementation: task04-candidate.patch.",
+  "backgroundFile": "candidate-background-topics.json",
+  "cutoff": 0.45,
+  "thresholds": {
+    "minilm-l6": { "precision": -0.015, "balanced": -0.045, "aggressive": -0.09 },
+    "minilm-l3": { "precision": -0.04, "balanced": -0.09, "aggressive": -0.185 }
+  }
+}
