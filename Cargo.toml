@@ -1,0 +1,34 @@
+[package]
+name = "text-classifier-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["wgpu"]
+wgpu = ["burn/wgpu", "burn/webgpu", "burn/fusion"]
+ndarray = ["burn/ndarray"]
+
+[dependencies]
+burn = { version = "0.20", default-features = false, features = ["std"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
