@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IdeaBlocker — Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 80px 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: #888;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 1rem;
+      font-family: inherit;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: #6366f1;
+    }
+
+    input[type="text"]::placeholder {
+      color: #555;
+    }
+
+    .hint {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+
+    button {
+      margin-top: 24px;
+      padding: 12px 28px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: inherit;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #4f46e5;
+    }
+
+    button:active {
+      background: #4338ca;
+    }
+
+    .status {
+      margin-top: 16px;
+      font-size: 0.85rem;
+      color: #22c55e;
+      min-height: 1.2em;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>IdeaBlocker</h1>
+    <p class="subtitle">
+      Block any concept from the web. Enter what you want to hide — the AI will
+      blur all semantically similar text on every page you visit.
+    </p>
+
+    <label for="target">Block Target</label>
+    <input
+      type="text"
+      id="target"
+      placeholder="e.g. crypto and web3, political drama, movie spoilers"
+      spellcheck="false"
+      autocomplete="off"
+    >
+    <p class="hint">
+      Use natural language. Describe the topic, not exact keywords.
+      Leave empty to disable filtering.
+    </p>
+
+    <button id="save">Save</button>
+    <p class="status" id="status"></p>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
