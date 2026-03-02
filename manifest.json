@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "IdeaBlocker",
+  "version": "0.1.0",
+  "description": "On-device AI text classifier — censors specific topics locally using WebGPU-accelerated inference.",
+  "permissions": ["activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["extractor.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "brain.worker.js",
+        "pkg/text_classifier_wasm.js",
+        "pkg/text_classifier_wasm_bg.wasm"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
