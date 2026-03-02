@@ -3,3 +3,6 @@
 /.claude/
 Cargo.lock
 **/*.rs.bk
+node_modules/
+dist/
+model/*.onnx

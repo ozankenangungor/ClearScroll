@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use burn::prelude::*;
 
-use crate::model::{TextClassifier, TextClassifierConfig};
+use crate::model::{BertTinyConfig, TextClassifier};
 use crate::tokenizer;
 
 // --- Backend selection via features ---
@@ -32,30 +32,38 @@ type Device = <B as Backend>::Device;
 /// Holds the initialized model and device, cached for reuse.
 pub struct Classifier {
     model: TextClassifier<B>,
-    config: TextClassifierConfig,
+    config: BertTinyConfig,
     device: Device,
 }
 
 impl Classifier {
     /// Run batched classification. Takes raw texts, returns Vec<bool>.
     pub fn classify(&self, texts: &[String]) -> Result<Vec<bool>, String> {
-        let token_ids = tokenizer::tokenize_batch(texts, self.config.max_seq_len);
+        let (token_ids, attention_masks) =
+            tokenizer::tokenize_batch(texts, self.config.max_seq_len);
         let batch_size = token_ids.len();
         let seq_len = self.config.max_seq_len;
 
-        // Flatten to 1D for tensor construction, then reshape to [batch, seq_len]
-        let flat: Vec<i32> = token_ids
+        // Flatten input_ids → 1D tensor → reshape to [batch, seq_len]
+        let flat_ids: Vec<i32> = token_ids
             .into_iter()
             .flat_map(|row| row.into_iter().map(|v| v as i32))
             .collect();
-
-        let tensor = Tensor::<B, 1, Int>::from_data(
-            TensorData::new(flat, [batch_size * seq_len]),
+        let ids_tensor = Tensor::<B, 1, Int>::from_data(
+            TensorData::new(flat_ids, [batch_size * seq_len]),
             &self.device,
         )
         .reshape([batch_size, seq_len]);
 
-        Ok(self.model.predict(tensor))
+        // Flatten attention_mask → 1D tensor → reshape to [batch, seq_len]
+        let flat_mask: Vec<i32> = attention_masks.into_iter().flatten().collect();
+        let mask_tensor = Tensor::<B, 1, Int>::from_data(
+            TensorData::new(flat_mask, [batch_size * seq_len]),
+            &self.device,
+        )
+        .reshape([batch_size, seq_len]);
+
+        Ok(self.model.predict(ids_tensor, mask_tensor))
     }
 }
 
@@ -72,7 +80,7 @@ pub async fn initialize() -> Result<(), String> {
     }
 
     let device = backend::default_device();
-    let config = TextClassifierConfig::placeholder();
+    let config = BertTinyConfig::default_config();
     let model = config.init_model::<B>(&device);
 
     let classifier = Rc::new(Classifier {
