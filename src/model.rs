@@ -1,12 +1,13 @@
-//! BERT-tiny text classifier implemented natively in Burn.
+//! BERT-tiny sentence embedder implemented natively in Burn.
 //!
 //! Architecture (matching `prajjwal1/bert-tiny`):
 //!   - 2 transformer layers
 //!   - 128 hidden dim, 2 attention heads
 //!   - 512 intermediate (FFN) dim
 //!   - 30522 vocab size (BERT uncased)
-//!   - Binary classification head (Linear → sigmoid → threshold)
+//!   - Mean-pooled, L2-normalized sentence embeddings (no classification head)
 
+use burn::module::{Param, ParamId};
 use burn::nn::{
     Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
 };
@@ -22,13 +23,12 @@ pub struct BertTinyConfig {
     pub num_heads: usize,
     pub intermediate_size: usize,
     pub max_seq_len: usize,
-    pub num_classes: usize,
 }
 
 impl BertTinyConfig {
     /// bert-tiny defaults: 2 layers, 128 hidden, 2 heads, 512 FFN
     pub fn default_config() -> Self {
-        Self::new(30522, 128, 2, 2, 512, 128, 1)
+        Self::new(30522, 128, 2, 2, 512, 128)
     }
 }
 
@@ -61,7 +61,6 @@ impl<B: Backend> BertEmbeddings<B> {
 
         let word_emb = self.word_embeddings.forward(input_ids);
 
-        // Position IDs: [0, 1, 2, ..., seq_len-1] broadcast to [batch, seq_len]
         let positions: Vec<i32> = (0..seq_len as i32).collect();
         let pos_ids = Tensor::<B, 1, Int>::from_data(
             TensorData::new(positions, [seq_len]),
@@ -71,7 +70,6 @@ impl<B: Backend> BertEmbeddings<B> {
         .expand([batch, seq_len]);
         let pos_emb = self.position_embeddings.forward(pos_ids);
 
-        // Token type IDs: all zeros (single segment)
         let tt_ids = Tensor::<B, 2, Int>::zeros([batch, seq_len], device);
         let tt_emb = self.token_type_embeddings.forward(tt_ids);
 
@@ -116,12 +114,10 @@ impl<B: Backend> BertSelfAttention<B> {
     ) -> Tensor<B, 3> {
         let [batch, seq_len, _] = hidden.dims();
 
-        // Q, K, V projections
         let q = self.query.forward(hidden.clone());
         let k = self.key.forward(hidden.clone());
         let v = self.value.forward(hidden.clone());
 
-        // Reshape to [batch, heads, seq_len, head_dim]
         let q = q
             .reshape([batch, seq_len, self.num_heads, self.head_dim])
             .swap_dims(1, 2);
@@ -132,11 +128,9 @@ impl<B: Backend> BertSelfAttention<B> {
             .reshape([batch, seq_len, self.num_heads, self.head_dim])
             .swap_dims(1, 2);
 
-        // Scaled dot-product attention
         let scale = (self.head_dim as f64).sqrt();
         let scores = q.matmul(k.swap_dims(2, 3)) / scale;
 
-        // Apply attention mask: [batch, seq_len] → [batch, 1, 1, seq_len]
         let mask_float: Tensor<B, 2> = attention_mask.float();
         let mask_expanded = mask_float
             .unsqueeze_dim::<3>(1)
@@ -147,12 +141,10 @@ impl<B: Backend> BertSelfAttention<B> {
         let attn_weights = burn::tensor::activation::softmax(masked_scores, 3);
         let context = attn_weights.matmul(v);
 
-        // Merge heads
         let context = context
             .swap_dims(1, 2)
             .reshape([batch, seq_len, self.num_heads * self.head_dim]);
 
-        // Output projection + residual + LayerNorm
         let output = self.output_dense.forward(context);
         self.output_layer_norm.forward(output + hidden)
     }
@@ -214,31 +206,29 @@ impl<B: Backend> BertLayer<B> {
     }
 }
 
-// ── Full BERT-tiny Classifier ───────────────────────────────────────────
+// ── Text Embedder (Sentence Encoder) ────────────────────────────────────
 
 #[derive(Module, Debug)]
-pub struct TextClassifier<B: Backend> {
+pub struct TextEmbedder<B: Backend> {
     embeddings: BertEmbeddings<B>,
     layers: Vec<BertLayer<B>>,
-    classifier: Linear<B>,
 }
 
 impl BertTinyConfig {
-    pub fn init_model<B: Backend>(&self, device: &B::Device) -> TextClassifier<B> {
+    pub fn init_model<B: Backend>(&self, device: &B::Device) -> TextEmbedder<B> {
         let layers = (0..self.num_layers)
             .map(|_| self.init_layer(device))
             .collect();
 
-        TextClassifier {
+        TextEmbedder {
             embeddings: self.init_embeddings(device),
             layers,
-            classifier: LinearConfig::new(self.hidden_size, self.num_classes).init(device),
         }
     }
 }
 
-impl<B: Backend> TextClassifier<B> {
-    /// Forward pass: (input_ids, attention_mask) → logits [batch, num_classes]
+impl<B: Backend> TextEmbedder<B> {
+    /// Forward pass: (input_ids, attention_mask) → L2-normalized embeddings [batch, hidden_size]
     pub fn forward(
         &self,
         input_ids: Tensor<B, 2, Int>,
@@ -259,18 +249,111 @@ impl<B: Backend> TextClassifier<B> {
         let count = mask_float.sum_dim(1).clamp_min(1.0);
         let pooled: Tensor<B, 2> = (sum / count).squeeze_dim(1);
 
-        self.classifier.forward(pooled)
+        // L2 normalize: embedding / ||embedding||
+        l2_normalize(pooled)
+    }
+}
+
+// ── Vector Operations ───────────────────────────────────────────────────
+
+/// L2-normalize each row of a [batch, dim] tensor.
+fn l2_normalize<B: Backend>(t: Tensor<B, 2>) -> Tensor<B, 2> {
+    let norm = t.clone().powf_scalar(2.0).sum_dim(1).sqrt();
+    let norm_clamped = norm.clamp_min(1e-12); // avoid division by zero
+    t / norm_clamped
+}
+
+/// Cosine similarity between a reference [1, dim] and a batch [batch, dim].
+/// Both inputs are assumed to already be L2-normalized, so cosine = dot product.
+pub fn cosine_similarity_batch<B: Backend>(
+    reference: Tensor<B, 2>,
+    batch: Tensor<B, 2>,
+) -> Tensor<B, 1> {
+    // reference: [1, dim], batch: [N, dim]
+    // dot product per row: sum(ref * batch, dim=1) → [N]
+    let dots: Tensor<B, 2> = (reference * batch).sum_dim(1);
+    dots.squeeze_dim::<1>(1)
+}
+
+// ── Weight Injection ─────────────────────────────────────────────────
+
+/// Load pretrained encoder weights from raw f32 little-endian bytes.
+///
+/// The byte layout must match the order produced by `export_weights.py`:
+///   embeddings (word, position, token_type, LN) →
+///   layer 0 (attention Q/K/V/O + LN, FFN inter/out + LN) →
+///   layer 1 (same)
+pub fn load_pretrained_weights<B: Backend>(
+    model: &mut TextEmbedder<B>,
+    bytes: &[u8],
+    device: &B::Device,
+) {
+    let mut offset = 0usize;
+
+    let mut read_f32 = |n: usize| -> Vec<f32> {
+        let size = n * 4;
+        let slice = &bytes[offset..offset + size];
+        offset += size;
+        slice
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    };
+
+    macro_rules! param2 {
+        ($rows:expr, $cols:expr) => {{
+            let data = read_f32($rows * $cols);
+            let tensor = Tensor::<B, 2>::from_data(
+                TensorData::new(data, [$rows, $cols]),
+                device,
+            );
+            Param::initialized(ParamId::new(), tensor)
+        }};
     }
 
-    /// Forward + sigmoid + threshold → Vec<bool>
-    pub fn predict(
-        &self,
-        input_ids: Tensor<B, 2, Int>,
-        attention_mask: Tensor<B, 2, Int>,
-    ) -> Vec<bool> {
-        let logits = self.forward(input_ids, attention_mask);
-        let probs = burn::tensor::activation::sigmoid(logits);
-        let data = probs.to_data();
-        data.iter::<f32>().map(|v| v > 0.5).collect()
+    macro_rules! param1 {
+        ($len:expr) => {{
+            let data = read_f32($len);
+            let tensor = Tensor::<B, 1>::from_data(
+                TensorData::new(data, [$len]),
+                device,
+            );
+            Param::initialized(ParamId::new(), tensor)
+        }};
     }
+
+    // ── Embeddings ─────────────────────────────────────────────────
+    model.embeddings.word_embeddings.weight = param2!(30522, 128);
+    model.embeddings.position_embeddings.weight = param2!(128, 128);
+    model.embeddings.token_type_embeddings.weight = param2!(2, 128);
+    model.embeddings.layer_norm.gamma = param1!(128);
+    model.embeddings.layer_norm.beta = Some(param1!(128));
+
+    // ── Encoder Layers ─────────────────────────────────────────────
+    for layer in &mut model.layers {
+        layer.attention.query.weight = param2!(128, 128);
+        layer.attention.query.bias = Some(param1!(128));
+        layer.attention.key.weight = param2!(128, 128);
+        layer.attention.key.bias = Some(param1!(128));
+        layer.attention.value.weight = param2!(128, 128);
+        layer.attention.value.bias = Some(param1!(128));
+        layer.attention.output_dense.weight = param2!(128, 128);
+        layer.attention.output_dense.bias = Some(param1!(128));
+        layer.attention.output_layer_norm.gamma = param1!(128);
+        layer.attention.output_layer_norm.beta = Some(param1!(128));
+        layer.ffn.intermediate.weight = param2!(128, 512);
+        layer.ffn.intermediate.bias = Some(param1!(512));
+        layer.ffn.output_dense.weight = param2!(512, 128);
+        layer.ffn.output_dense.bias = Some(param1!(128));
+        layer.ffn.layer_norm.gamma = param1!(128);
+        layer.ffn.layer_norm.beta = Some(param1!(128));
+    }
+
+    assert_eq!(
+        offset,
+        bytes.len(),
+        "Weight file size mismatch: consumed {} of {} bytes",
+        offset,
+        bytes.len()
+    );
 }
