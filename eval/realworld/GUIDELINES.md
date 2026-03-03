@@ -65,5 +65,10 @@ excluded from English metrics: English is the supported language).
 * `dev.jsonl` — pages captured first; used for error analysis and for
   choosing any change.
 * `test.jsonl` — different pages captured later, labelled before any
-  evaluation on them; results are reported on this split only and it is
-  never used to choose a change.
+  evaluation on them. Inspected during Task 03; no longer treated as blind.
+* `heldout.jsonl` — Task 04: pages chosen in
+  `docs/evaluation/realworld/PREREGISTRATION.md`, captured after it was
+  pushed, at most 120 texts per page with the card each text belongs to,
+  labelled (checksum published in `MANIFEST.json`) before any prediction.
+
+The files themselves are private; see `README.md`.

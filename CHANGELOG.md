@@ -24,6 +24,11 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   without rendering).
 
 ### Changed
+- Example topics in the options page and README no longer suggest "movie
+  spoilers": topics are matched by what a text is about, and spoilers are
+  not detected as such (measured on real pages).
+- Real-world evaluation texts are kept private; a manifest with checksums,
+  counts and source pages is published instead.
 - The first request after a page loads or settings change is sent without
   waiting for the page to stop changing: matching content is visible for
   ~0.2–0.7 s instead of ~0.5–1.1 s on live pages with the engine running.

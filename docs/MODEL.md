@@ -191,14 +191,17 @@ work better than broad ones ("football" or "soccer" rather than "sports").
 ## Real-world evaluation
 
 The synthetic set above is written to be clean; this one is what the
-extension actually meets. `eval/realworld/` holds 3,152 text units captured
-with the built extension in Google Chrome from public pages (BBC News and
-Sport, The Guardian, Sky Sports, The Independent, Hacker News, YouTube
-search results; `scripts/live-capture.ts`), each labelled by hand for one
+extension actually meets: 5,135 text units in three splits (dev, test,
+held-out) captured with the built extension in Google Chrome from public
+pages (BBC, The Guardian, Sky Sports, The Independent, CoinDesk, Hacker
+News, YouTube search results; `scripts/live-capture.ts`), each labelled by hand for one
 topic — "cryptocurrency", "football" or "movie spoilers" — following
 `eval/realworld/GUIDELINES.md`, written before labelling and applied to the
 text alone without seeing verdicts. Reddit, X and AP News block automated
-browsers and are not included.
+browsers and are not included. The texts are third-party excerpts and are
+kept private; `eval/realworld/MANIFEST.json` publishes each split's sha256,
+counts and source pages, and the evaluator refuses data that does not match
+it ([eval/realworld/README.md](../eval/realworld/README.md)).
 
 Protocol: the **dev** split (pages captured first) was used for all error
 analysis; the **test** split (different pages and sites, captured later,
@@ -206,6 +209,9 @@ labelled before it was evaluated) only for reporting. Any classifier change
 had to pass a decision rule written down before the test split was
 captured. Report: [docs/evaluation/realworld/RESULTS.md](evaluation/realworld/RESULTS.md)
 (`node scripts/evaluate-realworld.ts --errors 8 --out …`).
+
+Task 03 numbers (the test split has since been inspected and is no longer
+treated as blind; see the next section for the current held-out split):
 
 | Balanced, English, as shipped | Precision | Recall | F1 | FPR |
 |---|---|---|---|---|
@@ -255,6 +261,73 @@ Not shipped; the test split was not used for it.
 change these per-text numbers, but it changes what they mean on screen: a
 correct match now also hides the item's thumbnail, and a false positive
 hides a whole card instead of one line.
+
+## Reducing false positives (Task 04)
+
+**Root cause.** Margin scoring compares a text with the user's topic and with
+26 generic background topics (cooking, travel, music …). None of them is a
+neighbour of the subjects users ask for, and background topics with cosine
+≥ 0.5 to the user's topic are dropped as near-synonyms, so for "football"
+nothing competes on behalf of rugby or basketball, and for "cryptocurrency"
+nothing on behalf of gold, stocks or inflation. Re-tuning the threshold
+alone barely helps (dev F1 70.7 → 71.8 %).
+
+**Candidates measured on the dev split** (balanced, best threshold; shipped:
+P 64.2 / R 78.6 / F1 70.7 / FPR 17.0):
+
+| Candidate | Precision | Recall | F1 | FPR | Outcome |
+|---|---|---|---|---|---|
+| Shipped background, re-tuned threshold | 68.2 % | 75.9 % | 71.8 % | 13.7 % | too small |
+| 97-subject taxonomy instead of the 26, cutoff 0.6 | 86.1 % | 78.6 % | 82.2 % | 4.9 % | fails the synthetic gate (broad topics such as "sports", "politics" lose their own sub-topics) |
+| **shipped 26 + taxonomy (106), cutoff 0.45** | **86.6 %** | **75.9 %** | **80.9 %** | **4.5 %** | pre-registered candidate |
+| topic templates ("{topic} news", "news about {topic}") | ≤ 85.3 % | — | ≤ 80.4 % | — | neutral or worse |
+| lexical negation ("no spoilers", "spoiler-free") | — | — | — | — | no effect on dev, no evidence |
+| all-MiniLM-L12-v2 (12 layers, 2× CPU, +22 MB) with taxonomy | 65.8 % | 83.4 % | 73.6 % | 16.8 % | worse than L6 + taxonomy |
+| gte-small (MIT, 12 layers) | 37.2 % | 92.0 % | 53.0 % | 60.2 % | similarities uniformly high; margin scoring fails |
+
+**Held-out validation.** The candidate, its thresholds and acceptance
+criteria were pushed ([PREREGISTRATION.md](evaluation/realworld/PREREGISTRATION.md))
+before 14 new pages were captured; their 1,983 texts were labelled and their
+checksum published before any prediction was computed. One evaluation,
+balanced, English, same data for both
+([shipped](evaluation/realworld/RESULTS.md),
+[candidate](evaluation/realworld/RESULTS-task04-candidate.md)):
+
+| Held-out | Precision | Recall | F1 | FPR texts | FPR cards |
+|---|---|---|---|---|---|
+| shipped | 47.0 % | 75.6 % | 58.0 % | 19.3 % | 19.7 % |
+| candidate | 62.0 % | 62.8 % | 62.4 % | 8.7 % | 10.2 % |
+| — cryptocurrency | 55.5 → 93.1 % | 74.5 → 65.7 % | 63.6 → 77.0 % | 13.8 → 1.1 % | |
+| — football | 56.1 → 61.2 % | 67.3 → 49.3 % | 61.2 → 54.6 % | 17.3 → 10.3 % | |
+| — movie spoilers | 32.8 → 45.8 % | 95.6 → 88.2 % | 48.9 → 60.3 % | 25.8 → 13.8 % | |
+
+Per page, the candidate cut false positives on silver-price videos for
+"cryptocurrency" from 57 % to 3 %, on teaser trailers for "movie spoilers"
+from 63 % to 10 % and on basketball for "football" from 58 % to 26 %, but
+barely on rugby (25 → 22 %) and spoiler-free reviews (72 → 62 %). In the
+browser (same live pages, both builds) a gold-price feed lost 3 instead of
+58 texts to "cryptocurrency". Package +0.54 MiB (model.json carries the
+background vectors), no measurable change in cold or warm latency.
+
+**Decision: not shipped.** Recall fell to 62.8 %, below the pre-registered
+65 % (all other criteria held). Cause: MiniLM places the one-word topic
+"football" near sport in general, so 18 sports are excluded as paraphrases,
+while "the Olympic Games" and "motor racing and Formula 1" fall below the
+cutoff, stay as competitors and beat Serie A highlight titles (24 of 29
+football matches lost). A cosine cutoff cannot build a coherent set of
+competitors around a weak one-word topic. The implementation is kept as
+[task04-candidate.patch](evaluation/realworld/task04-candidate.patch);
+`node scripts/evaluate-realworld.ts --config task04-candidate` reproduces
+its numbers.
+
+**Smallest viable next step** (not implemented): make the topic, not a
+cosine cutoff, decide what competes — map the user's topic onto an explicit
+two-level taxonomy (e.g. sport → association football / rugby / basketball,
+finance → crypto / precious metals / stocks), represent it by a few short
+descriptions of that node instead of one word, and let only its siblings and
+unrelated subjects compete, never its parent or children. It reuses this
+encoder and the precomputed-vector mechanism; it needs a new held-out set to
+validate.
 
 ## Known failure modes
 

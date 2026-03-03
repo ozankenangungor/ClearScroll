@@ -4,7 +4,7 @@
 runs entirely in your browser.**
 
 ClearScroll is a Chrome extension that blurs web content semantically related
-to topics such as "cryptocurrency", "movie spoilers" or "election news". A
+to topics such as "cryptocurrency", "football" or "election news". A
 sentence-embedding model written in Rust and compiled to WebAssembly runs in
 a background worker on your machine (on the GPU via WebGPU when available);
 page text is never sent anywhere.
@@ -85,36 +85,27 @@ furniture at a small cost on clean content (trade-off in
 The Rust engine reproduces the Hugging Face reference implementation:
 0/24 token-id mismatches, max embedding difference 3 × 10⁻⁷.
 
-**On real pages** — 3,152 text units captured with the extension from BBC,
-The Guardian, Sky Sports, The Independent, Hacker News and YouTube and
-labelled by hand; held-out split of 1,132 English texts from pages not used
-during development, balanced mode, classifier unchanged
-([report](docs/evaluation/realworld/RESULTS.md),
-[method](docs/MODEL.md#real-world-evaluation)):
+**On real pages** — text units captured with the extension from public
+pages and labelled by hand (5,135 in three splits; the texts themselves are
+kept private, [method](eval/realworld/README.md)). Latest held-out split:
+1,735 English texts from 14 pages captured and labelled after the method
+was fixed, balanced mode ([report](docs/evaluation/realworld/RESULTS.md)):
 
 | Topic | Precision | Recall | F1 | False-positive rate |
 |---|---|---|---|---|
-| cryptocurrency | 58.2 % | 76.5 % | 66.1 % | 18.1 % |
-| football | 53.7 % | 77.9 % | 63.6 % | 50.4 % |
-| movie spoilers | 48.6 % | 93.4 % | 63.9 % | 51.4 % |
+| cryptocurrency | 55.5 % | 74.5 % | 63.6 % | 13.8 % |
+| football | 56.1 % | 67.3 % | 61.2 % | 17.3 % |
+| movie spoilers | 32.8 % | 95.6 % | 48.9 % | 25.8 % |
+| all (texts / hidden cards) | 47.0 % / 49.4 % | 75.6 % / 85.5 % | 58.0 % / 62.6 % | 19.3 % / 19.7 % |
 
-The held-out pages deliberately include neighbouring subjects, and that is
-where precision fails: half of a rugby page is hidden for "football",
-gold-price videos for "cryptocurrency", and spoiler-free reviews for "movie
-spoilers" (see [limitations](#limitations)).
-
-**Performance** — Chromium 156 and Chrome 153 stable, i7-11800H
-([details](docs/BENCHMARKS.md)):
-
-| | WebGPU (NVIDIA Ampere) | CPU (WASM SIMD) |
-|---|---|---|
-| 24 texts | 44 ms | 619 ms |
-| Engine cold start | 0.8 s | 0.4 s |
-| Main-thread long tasks on a 2,000-post page | 0 | 0 |
-| WebAssembly memory | 102 MiB | 221 MiB |
-
-On many Linux machines Chrome blocklists the GPU for WebGPU; ClearScroll
-then uses the CPU backend and says so in its diagnostics.
+General news front pages are almost untouched (≤ 6 % of their texts), but
+pages full of a neighbouring subject are not: silver-price videos for
+"cryptocurrency" (57 % hidden), basketball (58 %) and rugby (25 %) for
+"football", trailers (63 %) and spoiler-free reviews (72 %) for "movie
+spoilers". A classifier that also scores texts against a broad taxonomy of
+competing subjects was tried: it cut false positives to 8.7 % but lowered
+recall to 62.8 % and is **not shipped**
+([details](docs/MODEL.md#reducing-false-positives-task-04)).
 
 ## Install (from source)
 
@@ -172,14 +163,15 @@ and the end-to-end/privacy suites on Chromium and on Google Chrome stable.
   Turkish text ranking quality is at chance level (ROC-AUC ≈ 0.53).
   Keyword rules still work in any language.
 * **Neighbouring subjects are confused.** The model separates broad
-  domains well but not close ones: for "football" it also hides rugby,
-  basketball and generic sports items; for "cryptocurrency", gold and
-  stock-market items (on real pages, 50 % and 18 % of unrelated texts
-  respectively, measured on pages full of such neighbours). Because whole
-  items are hidden, each such mistake hides a whole card.
-* **"Spoilers" cannot be detected as such.** A topic like "movie spoilers"
-  hides film and TV content in general — including reviews that say they are
-  spoiler-free — rather than only text that reveals a plot.
+  domains well but not close ones: for "football" it also hides rugby and
+  basketball; for "cryptocurrency", gold, silver and stock-market items
+  (25–58 % of such texts on pages full of them). Because whole items are
+  hidden, each such mistake hides a whole card.
+* **Topics are matched by what a text is about, not what it does.** Requests
+  that need interpretation — "spoilers" (what a text reveals), "negative
+  reviews", "clickbait" — are not detected as such: "movie spoilers" hides
+  film and TV content in general, including trailers and reviews that say
+  they are spoiler-free. Any topic can still be entered.
 * **Imperfect recall.** About 40 % of related texts are missed on the
   synthetic set at balanced strictness and about 20 % on captured real pages
   (use *Thorough* for more recall); short labels such as channel names or
