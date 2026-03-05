@@ -15,73 +15,95 @@
       display: flex;
       justify-content: center;
       align-items: flex-start;
-      padding: 80px 20px;
+      padding: 60px 20px;
     }
 
     .container {
       width: 100%;
-      max-width: 520px;
+      max-width: 640px;
     }
 
     h1 {
-      font-size: 1.6rem;
+      font-size: 1.7rem;
       font-weight: 700;
       color: #ffffff;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
 
     .subtitle {
-      font-size: 0.9rem;
-      color: #888;
-      margin-bottom: 32px;
+      font-size: 0.92rem;
+      color: #8d8d8d;
+      margin-bottom: 28px;
       line-height: 1.5;
+    }
+
+    .field {
+      margin-bottom: 18px;
     }
 
     label {
       display: block;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #aaa;
+      font-size: 0.82rem;
+      font-weight: 650;
+      color: #adadad;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       margin-bottom: 8px;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    select,
+    textarea {
       width: 100%;
-      padding: 14px 16px;
-      font-size: 1rem;
+      padding: 12px 14px;
+      font-size: 0.97rem;
       font-family: inherit;
-      background: #1a1a1a;
-      border: 1px solid #333;
+      background: #171717;
+      border: 1px solid #323232;
       border-radius: 8px;
       color: #fff;
       outline: none;
       transition: border-color 0.2s;
     }
 
-    input[type="text"]:focus {
-      border-color: #6366f1;
+    input[type="text"]:focus,
+    select:focus,
+    textarea:focus {
+      border-color: #4f9cff;
     }
 
-    input[type="text"]::placeholder {
-      color: #555;
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+      line-height: 1.4;
     }
 
     .hint {
       font-size: 0.8rem;
-      color: #666;
-      margin-top: 8px;
-      line-height: 1.4;
+      color: #6d6d6d;
+      margin-top: 7px;
+      line-height: 1.35;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    @media (min-width: 760px) {
+      .row {
+        grid-template-columns: 1fr 1fr;
+      }
     }
 
     button {
-      margin-top: 24px;
-      padding: 12px 28px;
-      font-size: 0.95rem;
-      font-weight: 600;
+      margin-top: 6px;
+      padding: 12px 24px;
+      font-size: 0.94rem;
+      font-weight: 650;
       font-family: inherit;
-      background: #6366f1;
+      background: #2987ff;
       color: #fff;
       border: none;
       border-radius: 8px;
@@ -89,20 +111,15 @@
       transition: background 0.2s;
     }
 
-    button:hover {
-      background: #4f46e5;
-    }
-
-    button:active {
-      background: #4338ca;
-    }
+    button:hover { background: #1477f7; }
+    button:active { background: #0d63cf; }
 
     .status {
-      margin-top: 16px;
+      margin-top: 14px;
       font-size: 0.85rem;
       color: #22c55e;
       min-height: 1.2em;
-      transition: opacity 0.3s;
+      transition: opacity 0.25s;
     }
   </style>
 </head>
@@ -110,22 +127,55 @@
   <div class="container">
     <h1>IdeaBlocker</h1>
     <p class="subtitle">
-      Block any concept from the web. Enter what you want to hide — the AI will
-      blur all semantically similar text on every page you visit.
+      Precision-first local semantic filtering. Configure topic, strictness,
+      site exclusions, and protected UI zones.
     </p>
 
-    <label for="target">Block Target</label>
-    <input
-      type="text"
-      id="target"
-      placeholder="e.g. crypto and web3, political drama, movie spoilers"
-      spellcheck="false"
-      autocomplete="off"
-    >
-    <p class="hint">
-      Use natural language. Describe the topic, not exact keywords.
-      Leave empty to disable filtering.
-    </p>
+    <div class="field">
+      <label for="target">Block Target</label>
+      <input
+        type="text"
+        id="target"
+        placeholder="e.g. crypto and web3, political drama, movie spoilers"
+        spellcheck="false"
+        autocomplete="off"
+      >
+      <p class="hint">
+        Natural language topic. Leave empty to disable filtering.
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="mode">Mode</label>
+      <select id="mode">
+        <option value="precision">Precision (least false positive)</option>
+        <option value="balanced">Balanced</option>
+        <option value="aggressive">Aggressive (more recall)</option>
+      </select>
+      <p class="hint">
+        Precision is recommended for UI-heavy sites like ChatGPT/X.
+      </p>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="excludedSites">Excluded Sites</label>
+        <textarea
+          id="excludedSites"
+          placeholder="chatgpt.com&#10;x.com&#10;*.bank.com"
+        ></textarea>
+        <p class="hint">One hostname pattern per line. Wildcard supported (`*`).</p>
+      </div>
+
+      <div class="field">
+        <label for="protectedSelectors">Protected Selectors</label>
+        <textarea
+          id="protectedSelectors"
+          placeholder="nav&#10;aside&#10;[data-testid*='history']"
+        ></textarea>
+        <p class="hint">One CSS selector per line. These zones are never blurred.</p>
+      </div>
+    </div>
 
     <button id="save">Save</button>
     <p class="status" id="status"></p>
