@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "bash build.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && cargo check --target wasm32-unknown-unknown --release",
+    "release:prepare": "npm run check && npm run build"
   },
   "repository": {
     "type": "git",
