@@ -3,6 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { LOCK, REPO, sha256, weightsShaKey } from "./lib.mjs";
+import { VISION_LOCK } from "./setup-vision-model.mjs";
+import { usableBackground } from "../src/shared/vision.ts";
 
 const DIST = path.resolve(process.argv[2] ?? path.join(REPO, "dist"));
 const errors = [];
@@ -51,6 +53,14 @@ const referenced = [
   "offscreen/model/weights.bin",
   "offscreen/model/vocab.txt",
   "offscreen/model/model.json",
+  "offscreen/vision.worker.js",
+  "offscreen/vision/ort-wasm-simd-threaded.wasm",
+  "offscreen/vision/vision_model_quantized.onnx",
+  "offscreen/vision/text_model_quantized.onnx",
+  "offscreen/vision/tokenizer.json",
+  "offscreen/vision/background.json",
+  "licenses/onnxruntime-LICENSE.txt",
+  "licenses/onnxruntime-ThirdPartyNotices.txt",
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
   "licenses/Apache-2.0.txt",
@@ -70,7 +80,8 @@ for (const f of files.filter((f) => f.endsWith(".html"))) {
 }
 
 // ── JavaScript: no remote code, no eval ───────────────────────────────────
-const ALLOWED_URL_STRINGS = new Set(["http://*/*", "https://*/*"]);
+// The second is a documentation link inside an ONNX Runtime warning message; never fetched.
+const ALLOWED_URL_STRINGS = new Set(["http://*/*", "https://*/*", "https://web.dev/cross-origin-isolation-guide/"]);
 for (const f of files.filter((f) => f.endsWith(".js"))) {
   const js = fs.readFileSync(f, "utf8");
   if (/\beval\s*\(|new\s+Function\s*\(/.test(js)) err(`${rel(f)}: uses eval/new Function`);
@@ -102,6 +113,22 @@ if (fs.existsSync(metaPath)) {
   }
   if (!meta.selftest?.embeddings?.length) err("model.json has no self-test reference embeddings");
 }
+
+// ── Image model ───────────────────────────────────────────────────────────
+for (const [file, { sha256: want }] of Object.entries(VISION_LOCK.files)) {
+  if (!file.endsWith(".onnx") && file !== "tokenizer.json") continue;
+  const p = path.join(DIST, "offscreen/vision", path.basename(file));
+  if (fs.existsSync(p) && sha256(p) !== want) err(`offscreen/vision/${path.basename(file)} sha256 does not match tools/vision_model_lock.json`);
+}
+const ortWasm = path.join(DIST, "offscreen/vision/ort-wasm-simd-threaded.wasm");
+if (fs.existsSync(ortWasm)) {
+  if (!fs.readFileSync(ortWasm).subarray(0, 4).equals(Buffer.from([0, 0x61, 0x73, 0x6d]))) err("ort-wasm-simd-threaded.wasm is not a WebAssembly binary");
+  const ortPkg = path.join(REPO, "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm");
+  if (fs.existsSync(ortPkg) && sha256(ortPkg) !== sha256(ortWasm)) err("ort-wasm-simd-threaded.wasm differs from the installed onnxruntime-web");
+}
+const bgPath = path.join(DIST, "offscreen/vision/background.json");
+if (fs.existsSync(bgPath) && !usableBackground(JSON.parse(fs.readFileSync(bgPath, "utf8")))) err("offscreen/vision/background.json does not match VISION_BACKGROUND_PROMPTS / the model id");
+notes.push(`image model ${VISION_LOCK.id} (${VISION_LOCK.repo}@${VISION_LOCK.revision.slice(0, 12)}, ${VISION_LOCK.license})`);
 
 // ── No development artifacts ──────────────────────────────────────────────
 for (const f of files) {

@@ -12,6 +12,14 @@
   pointer-events: none !important;
 }
 
+/* Images hidden by image analysis: a 7px blur leaves a photo recognisable,
+   so media get a much stronger one, clipped to the element's own box so it
+   does not bleed over neighbouring content. */
+[data-clearscroll="blurred"][data-clearscroll-media] {
+  filter: blur(28px) saturate(0.4) !important;
+  clip-path: inset(0) !important;
+}
+
 [data-clearscroll="blurred"]:focus-visible {
   outline: 3px solid #2563eb !important;
   outline-offset: 3px !important;
@@ -22,6 +30,11 @@
   [data-clearscroll] {
     transition: none !important;
   }
+}
+
+[data-clearscroll="blurred"][data-clearscroll-media]:focus-visible {
+  filter: blur(24px) saturate(0.4) !important;
+  clip-path: none !important;
 }
 
 @media (forced-colors: active) {

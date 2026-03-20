@@ -58,6 +58,7 @@ export interface VisionRequest {
 
 /** Why an image was not analysed (diagnostics; never shown per image). */
 export type SkipReason =
+  | "cross-origin"
   | "stale"
   | "disabled"
   | "downloads-off"
@@ -86,15 +87,33 @@ export interface OffscreenVision extends Omit<VisionRequest, "type"> {
   frameKey: string;
 }
 
-export interface OffscreenVisionStatus {
-  type: "off:vision-status";
+/** Status query, stats query (benchmarks) and unload (image filtering turned off). */
+export interface OffscreenVisionControl {
+  type: "off:vision-status" | "off:vision-stats" | "off:vision-shutdown";
   target: "offscreen";
+}
+
+export interface VisionStatusChanged {
+  type: "off:vision-status-changed";
+  status: VisionStatus;
+}
+
+/** Image-filtering counters of one tab (popup / tab:state). */
+export interface TabImageState {
+  enabled: boolean;
+  analyzed: number;
+  blurred: number;
+  /** Images seen but not analysed, by reason. */
+  skipped: Partial<Record<SkipReason, number>>;
+  /** Scheduler state (diagnostics): pictures known, waiting to load, queued, in flight. */
+  pipeline: { tracked: number; waiting: number; queued: number; inflight: number };
+  vision: VisionStatus | null;
 }
 
 // ── Worker protocol (offscreen ⇄ vision.worker) ──────────────────────────
 
 export type VisionWorkerRequest =
-  | { type: "init"; ortWasmUrl: string; visionModelUrl: string; textModelUrl: string; tokenizerUrl: string }
+  | { type: "init"; role: "image" | "text"; ortWasmUrl: string; modelUrl: string; tokenizerUrl?: string }
   | { type: "text"; id: number; prompts: string[] }
   | { type: "image"; id: number; rgb?: Uint8Array; blob?: Blob; maxPixels: number };
 
@@ -138,9 +157,9 @@ export function isVisionRequest(v: unknown): v is VisionRequest {
   );
 }
 
-export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | OffscreenVisionStatus {
+export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | OffscreenVisionControl {
   if (!isObject(v) || v.target !== "offscreen") return false;
-  if (v.type === "off:vision-status") return true;
+  if (v.type === "off:vision-status" || v.type === "off:vision-stats" || v.type === "off:vision-shutdown") return true;
   return v.type === "off:vision" && typeof v.frameKey === "string" && isVisionRequest({ ...v, type: "cs:vision" });
 }
 
@@ -164,7 +183,6 @@ export function checkImageUrl(raw: string): { ok: true; url: URL } | { ok: false
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { ok: false, error: `scheme ${url.protocol} not allowed` };
   if (url.username || url.password) return { ok: false, error: "credentials in URL" };
-  if (url.port && !["80", "443", "8080", "8443"].includes(url.port)) return { ok: false, error: "non-standard port" };
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (!host.includes(".") && !host.startsWith("[")) return { ok: false, error: "single-label host" };
   if (host === "localhost" || /\.(localhost|local|internal|intranet|lan|home|corp|arpa)$/.test(host)) return { ok: false, error: "local host name" };
@@ -266,6 +284,23 @@ export function meanVector(flat: Float32Array, n: number): Float32Array {
   return out;
 }
 
+/** offscreen/vision/background.json: background prompt embeddings computed at build time. */
+export interface PrecomputedBackground {
+  model: string;
+  prompts: string[];
+  vectors: number[][];
+}
+
+/** The precomputed vectors, if they describe exactly VISION_BACKGROUND_PROMPTS for this model. */
+export function usableBackground(b: unknown): Float32Array[] | null {
+  if (typeof b !== "object" || b === null) return null;
+  const { model, prompts, vectors } = b as Partial<PrecomputedBackground>;
+  if (model !== VISION_MODEL_ID || !Array.isArray(prompts) || !Array.isArray(vectors)) return null;
+  if (prompts.length !== VISION_BACKGROUND_PROMPTS.length || prompts.some((p, i) => p !== VISION_BACKGROUND_PROMPTS[i])) return null;
+  if (vectors.length !== prompts.length || vectors.some((v) => !Array.isArray(v) || v.length !== vectors[0]!.length || !v.every(Number.isFinite))) return null;
+  return vectors.map((v) => Float32Array.from(v));
+}
+
 export interface PreparedVisionTopic {
   id: string;
   vector: Float32Array;
@@ -300,4 +335,20 @@ export function decideImage(image: Float32Array, topics: readonly PreparedVision
     if (isVisualMatch(s, mode) && (!matched || s.margin > matched.margin)) matched = { id: t.id, margin: s.margin };
   }
   return matched ? { matched: true, topicId: matched.id, score: matched.margin } : { matched: false, topicId: null, score: Number.isFinite(best) ? best : 0 };
+}
+
+/** Short, user-facing description of the image model state. */
+export function describeVision(s: VisionStatus | null, enabled: boolean): string {
+  if (!enabled) return "Image filtering off";
+  switch (s?.state ?? "idle") {
+    case "off":
+    case "idle":
+      return "Image model not loaded yet (loads when a page has images to check)";
+    case "loading":
+      return "Loading image model…";
+    case "ready":
+      return "Image analysis active (CPU)";
+    case "error":
+      return "Image analysis unavailable — images are not being checked";
+  }
 }

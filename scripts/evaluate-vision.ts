@@ -90,26 +90,32 @@ const cached = cachePath && fs.existsSync(cachePath) ? JSON.parse(fs.readFileSyn
 const usable = cached && prompts.every((p) => cached.text[p]) && items.every((m) => cached.images[m.file]);
 const result = usable ? cached : await page.evaluate(
   async ({ files, prompts }) => {
-    const w = new Worker("/worker.js", { type: "module" });
-    let next = 1;
-    const call = (msg: Record<string, unknown>, transfer: Transferable[] = []) =>
-      new Promise<any>((resolve) => {
-        const id = next++;
-        const onMsg = (e: MessageEvent) => {
-          if (e.data.id === id || (msg.type === "init" && !("id" in e.data))) {
-            w.removeEventListener("message", onMsg);
-            resolve(e.data);
-          }
-        };
-        w.addEventListener("message", onMsg);
-        w.postMessage({ ...msg, id }, transfer);
-      });
-    const init = await call({ type: "init", ortWasmUrl: "/ort/ort-wasm-simd-threaded.wasm", visionModelUrl: "/model/onnx/vision_model_quantized.onnx", textModelUrl: "/model/onnx/text_model_quantized.onnx", tokenizerUrl: "/model/tokenizer.json" });
-    if (init.type !== "ready") throw new Error(init.error);
+    const spawn = async (role: "image" | "text") => {
+      const w = new Worker("/worker.js", { type: "module" });
+      let next = 1;
+      const call = (msg: Record<string, unknown>, transfer: Transferable[] = []) =>
+        new Promise<any>((resolve) => {
+          const id = next++;
+          const onMsg = (e: MessageEvent) => {
+            if (e.data.id === id || (msg.type === "init" && !("id" in e.data))) {
+              w.removeEventListener("message", onMsg);
+              resolve(e.data);
+            }
+          };
+          w.addEventListener("message", onMsg);
+          w.postMessage({ ...msg, id }, transfer);
+        });
+      const init = await call({ type: "init", role, ortWasmUrl: "/ort/ort-wasm-simd-threaded.wasm", modelUrl: role === "image" ? "/model/onnx/vision_model_quantized.onnx" : "/model/onnx/text_model_quantized.onnx", tokenizerUrl: role === "text" ? "/model/tokenizer.json" : undefined });
+      if (init.type !== "ready") throw new Error(init.error);
+      return { w, call, loadMs: init.loadMs as number };
+    };
+    const img = await spawn("image");
+    const txtw = await spawn("text");
+    const init = { loadMs: img.loadMs };
     const text: Record<string, number[]> = {};
     for (let i = 0; i < prompts.length; i += 16) {
       const batch = prompts.slice(i, i + 16);
-      const r = await call({ type: "text", prompts: batch });
+      const r = await txtw.call({ type: "text", prompts: batch });
       if (r.type !== "text-done") throw new Error(r.error);
       const dim = r.vectors.length / batch.length;
       batch.forEach((p: string, k: number) => (text[p] = Array.from(r.vectors.subarray(k * dim, (k + 1) * dim))));
@@ -118,13 +124,14 @@ const result = usable ? cached : await page.evaluate(
     const ms: number[] = [];
     for (const f of files) {
       const blob = await (await fetch("/img/" + f)).blob();
-      const r = await call({ type: "image", blob, maxPixels: 24_000_000 });
+      const r = await img.call({ type: "image", blob, maxPixels: 24_000_000 });
       if (r.type === "image-done") {
         images[f] = Array.from(r.vector);
         ms.push(r.ms);
       } else images[f] = `${r.reason}: ${r.error}`;
     }
-    w.terminate();
+    img.w.terminate();
+    txtw.w.terminate();
     return { loadMs: init.loadMs, text, images, ms };
   },
   { files: items.map((m) => m.file), prompts }

@@ -7,6 +7,7 @@
  */
 
 import { describeEngine, type UiStatusReply } from "../shared/protocol.ts";
+import { describeVision } from "../shared/vision.ts";
 import {
   ENGINE_PREFERENCES,
   FILTER_MODES,
@@ -40,6 +41,8 @@ const sitesError = $<HTMLUListElement>("sites-error");
 const selectorsInput = $<HTMLTextAreaElement>("protected-selectors");
 const selectorsError = $<HTMLUListElement>("selectors-error");
 const engineSelect = $<HTMLSelectElement>("engine");
+const imagesInput = $<HTMLInputElement>("images");
+const imageDownloadsInput = $<HTMLInputElement>("image-downloads");
 const saveStatus = $<HTMLParagraphElement>("save-status");
 const dirtyNote = $<HTMLSpanElement>("dirty-note");
 const engineStatusEl = $<HTMLSpanElement>("engine-status");
@@ -151,6 +154,9 @@ function applyToForm(s: Settings): void {
   sitesInput.value = s.excludedSites.join("\n");
   selectorsInput.value = s.protectedSelectors.join("\n");
   engineSelect.value = s.engine;
+  imagesInput.checked = s.images;
+  imageDownloadsInput.checked = s.imageDownloads;
+  syncImageControls();
   renderTopics();
   dirtyNote.hidden = true;
 }
@@ -204,8 +210,16 @@ function readForm(): Settings | null {
     topics: cleanTopics,
     excludedSites: sites.hosts,
     protectedSelectors: selectors,
+    images: imagesInput.checked,
+    imageDownloads: imageDownloadsInput.checked,
   };
 }
+
+/** Downloads only mean something with image filtering on. */
+function syncImageControls(): void {
+  imageDownloadsInput.disabled = !imagesInput.checked;
+}
+imagesInput.addEventListener("change", syncImageControls);
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -260,6 +274,9 @@ async function refreshStatus(): Promise<void> {
       ["Detail", status.engine.detail ?? "—"],
       ["Content script", status.registration.registered ? "registered" : "not registered"],
       ["Registration error", status.registration.error ?? "—"],
+      ["Image model", saved?.images ? `${status.vision.model}: ${describeVision(status.vision, true)}` : "off"],
+      ["Image model load time", status.vision.loadMs === null ? "—" : `${status.vision.loadMs} ms`],
+      ["Image model detail", status.vision.detail ?? "—"],
     ];
     diagnostics.replaceChildren(
       ...rows.flatMap(([k, v]) => [

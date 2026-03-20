@@ -7,13 +7,18 @@
  * This document runs under the extension's own CSP, and one engine instance
  * is shared by every tab instead of loading the model once per tab.
  *
+ * It hosts two independent engines: EngineHost (Rust text encoder) and
+ * VisionHost (image model, loaded only when image filtering needs it).
+ *
  * Query parameters (set by the background script):
  *   backend=auto|cpu|off      inference backend preference from settings
  *   allowFallbackAdapter=1    test-only: also try software WebGPU adapters
  */
 
 import { EngineHost, type ModelMeta } from "./engine-host.ts";
+import { VisionHost } from "./vision-host.ts";
 import { isOffscreenMessage, type Backend, type OffscreenStatusChanged } from "../shared/protocol.ts";
+import { isOffscreenVisionMessage, type VisionStatusChanged } from "../shared/vision.ts";
 
 const TAG = "[ClearScroll/offscreen]";
 const params = new URLSearchParams(location.search);
@@ -73,11 +78,43 @@ const host = new EngineHost({
   now: () => Date.now(),
 });
 
+const vision = new VisionHost({
+  createWorker: () => new Worker(new URL("vision.worker.js", location.href), { type: "module" }),
+  assetUrl: (path) => new URL(path, location.href).href,
+  // Bound: the host calls fetch as a free function.
+  fetch: (input, init) => fetch(input, init),
+  onStatus: (status) => {
+    console.info(TAG, "vision:", status.state, status.detail ?? "");
+    const msg: VisionStatusChanged = { type: "off:vision-status-changed", status };
+    chrome.runtime.sendMessage(msg).catch(() => undefined);
+  },
+  now: () => Date.now(),
+  loadBackground: async () => {
+    const res = await fetch(new URL("vision/background.json", location.href));
+    return res.ok ? res.json() : null;
+  },
+  sha256: async (data) => {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  },
+});
+
 // Exposed for the benchmark harness and debugging from DevTools.
 (globalThis as Record<string, unknown>).clearscrollEngine = host;
+(globalThis as Record<string, unknown>).clearscrollVision = vision;
 
 chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || !isOffscreenMessage(msg)) return false;
+  if (sender.id !== chrome.runtime.id) return false;
+  if (isOffscreenVisionMessage(msg)) {
+    if (msg.type === "off:vision") {
+      void vision.classify(msg).then(sendResponse);
+      return true;
+    }
+    if (msg.type === "off:vision-shutdown") vision.shutdown();
+    sendResponse(msg.type === "off:vision-stats" ? { ...vision.stats, skipped: { ...vision.stats.skipped } } : vision.getStatus());
+    return false;
+  }
+  if (!isOffscreenMessage(msg)) return false;
   if (msg.type === "off:status") {
     sendResponse(host.getStatus());
     return false;

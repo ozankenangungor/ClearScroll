@@ -3,6 +3,7 @@
  */
 
 import { describeEngine, type TabStateReply, type UiStatusReply } from "../shared/protocol.ts";
+import { describeVision, type VisionStatus } from "../shared/vision.ts";
 import { SETTINGS_KEY, STORAGE_KEYS, activeTopics, migrateSettings, type Settings } from "../shared/settings.ts";
 import { hostMatchesRule, parseSiteRule } from "../shared/sites.ts";
 
@@ -13,6 +14,7 @@ const stateEl = $<HTMLParagraphElement>("site-state");
 const enabledEl = $<HTMLInputElement>("enabled");
 const toggleSite = $<HTMLButtonElement>("toggle-site");
 const topicsEl = $<HTMLParagraphElement>("topics");
+const imageEl = $<HTMLParagraphElement>("image-state");
 
 let settings: Settings;
 let host: string | null = null;
@@ -51,14 +53,31 @@ async function render(): Promise<void> {
   else if (tab.activity !== "active") stateEl.textContent = "Not filtering on this page.";
   else stateEl.textContent = `${tab.blurred} item${tab.blurred === 1 ? "" : "s"} hidden${tab.revealed ? `, ${tab.revealed} revealed` : ""}.`;
 
+  let vision: VisionStatus | null = tab?.images?.vision ?? null;
   try {
     const status = (await chrome.runtime.sendMessage({ type: "ui:status" })) as UiStatusReply;
+    if (!vision || status.vision.updatedAt > vision.updatedAt) vision = status.vision;
     const engine = tab?.engine && tab.engine.updatedAt > status.engine.updatedAt ? tab.engine : status.engine;
     engineEl.dataset.state = settings.enabled ? engine.state : "idle";
     engineEl.textContent = settings.enabled ? describeEngine(engine) : "Filtering off";
   } catch {
     engineEl.textContent = "Status unavailable";
   }
+  renderImages(tab, vision);
+}
+
+/** One line about pictures: model state, and how many were hidden or could not be checked. */
+function renderImages(tab: TabStateReply | null, vision: VisionStatus | null): void {
+  imageEl.hidden = !settings.enabled || !settings.images;
+  if (imageEl.hidden) return;
+  const parts = [describeVision(vision, true)];
+  const img = tab?.activity === "active" ? tab.images : null;
+  if (img?.enabled) {
+    parts.push(`${img.blurred} picture${img.blurred === 1 ? "" : "s"} hidden`);
+    const crossOrigin = img.skipped["cross-origin"] ?? 0;
+    if (crossOrigin) parts.push(`${crossOrigin} from other domains not checked (see Settings)`);
+  }
+  imageEl.textContent = `Pictures: ${parts.join(" · ")}.`;
 }
 
 enabledEl.addEventListener("change", () => void save({ ...settings, enabled: enabledEl.checked }));
