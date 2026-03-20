@@ -1,0 +1,35 @@
+{
+  "label": "cpu-chrome-stable",
+  "browser": "chrome",
+  "date": "2026-10-15",
+  "cpu": "11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz",
+  "cores": 16,
+  "gallery": {
+    "photos": 40,
+    "inferred": 42,
+    "wallMs": 25856,
+    "wallPerPictureMs": 646,
+    "meanInferMs": 616
+  },
+  "modelLoadMs": 620,
+  "coldFirstPictureMs": 1895,
+  "repeatVisit": {
+    "wallMs": 530,
+    "cacheHits": 40
+  },
+  "memory": {
+    "pssBeforeImagesMiB": 651,
+    "pssAfterGalleryMiB": 1044,
+    "peakDeltaMiB": 394,
+    "steadyDeltaMiB": 328,
+    "note": "sum of PSS over all browser processes of the profile; steady = 25 s after the last new topic (text encoder released)"
+  },
+  "textFiltering": {
+    "aloneMs": 143,
+    "whileGalleryAnalysedMs": 142,
+    "note": "time until every paragraph within 2.5 viewports of long.html is analysed"
+  },
+  "package": {
+    "distMiB": 272.6
+  }
+}
