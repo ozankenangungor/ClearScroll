@@ -4,6 +4,26 @@
 
 First version under the ClearScroll name (previously "IdeaBlocker").
 
+### Added
+- **Image filtering (opt-in, experimental).** An on-device image–text model
+  (SigLIP base/16, int8 ONNX, ONNX Runtime Web on the WebAssembly CPU
+  backend) analyses the pixels of pictures near the viewport and blurs those
+  that show an active topic, without needing captions, alt text or nearby
+  text. Supports `<img>`/`<picture>`, video posters and CSS background
+  pictures; icons, avatars, SVG and protected areas are skipped. Click or
+  Enter reveals a picture; text- and image-hidden content never nests.
+  Held-out evaluation (223 photos, 10 topics, default strictness): precision
+  0.93, recall 0.80, false-positive rate 0.4 %; football vs rugby and
+  politics are named weaknesses (`docs/evaluation/vision/RESULTS.md`).
+- Optional *Also check pictures from other domains*: downloads a copy of
+  displayed cross-origin pictures without cookies or referrer (public hosts
+  only, size/type/time limits). Off by default; with it off ClearScroll still
+  makes no network requests at all.
+- Image-model status and counters in the popup and options diagnostics.
+- Image privacy checks (`npm run verify:privacy:images`), real-model browser
+  tests, PyTorch parity fixtures, an image benchmark and a pre-registered
+  image evaluation.
+
 ### Fixed
 - The semantic engine never ran in the browser: content scripts cannot start
   extension workers and the blob fallback could not load the WASM module or

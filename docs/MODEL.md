@@ -370,3 +370,47 @@ dtypes), run `node scripts/evaluate-all.mjs`, copy the calibrated thresholds
 into `MODEL_PROFILES` (the profile test fails until they match), and re-run
 the full test and benchmark suites. Changing `background-topics.json`
 requires the same steps.
+
+## Image model (image filtering)
+
+Used only when *Images* is enabled; independent of the text encoder above.
+
+| | |
+|---|---|
+| Model | SigLIP base, patch 16, 224 px — `google/siglip-base-patch16-224` @ `7fd15f0689c7` (Apache-2.0) |
+| Files shipped | int8 dynamically quantised ONNX export from `Xenova/siglip-base-patch16-224` @ `4649052661e5`: image encoder 94.9 MiB, text encoder 106.3 MiB, SentencePiece `tokenizer.json` 2.3 MiB; sha256 + size pinned in `tools/vision_model_lock.json` |
+| Runtime | ONNX Runtime Web 1.30.0, WebAssembly SIMD, 1 thread (13.6 MiB `.wasm`), in dedicated workers of the offscreen document |
+| Embedding | 768-d `pooler_output`, L2-normalised; image and text in one space (contrastive image–text pre-training with a sigmoid loss on WebLI) |
+| Preprocessing | RGB, resize the whole picture to 224 × 224 (no crop, as trained), ×1/255, mean 0.5, std 0.5, NCHW float32 (`src/vision/preprocess.ts`) |
+| Text | lowercase, ASCII punctuation removed, whitespace collapsed (SigLIP's canonicalisation), SentencePiece Unigram, `</s>`, padded to 64 with `</s>` (the model has no attention mask); `src/vision/siglip-tokenizer.ts` |
+
+**Why this model.** Two candidates were measured in Chromium on the
+development photos with the same code (`docs/evaluation/vision/PREREGISTRATION.md`):
+OpenAI CLIP ViT-B/32 int8 (MIT; 154 MB; 155 ms per picture; dev mAP 0.897;
+its model card calls deployed use out of scope) and SigLIP base/16 int8
+(Apache-2.0; 211 MB; 575 ms; dev mAP 0.954). With the generic-background
+rule SigLIP reached F0.5 0.91 vs 0.80 (CLIP missed all "cars", which it could
+not separate from "a vehicle"). SigLIP was chosen for quality and licence.
+MobileCLIP-S0 would be smaller and faster but its weights are under Apple's
+research-only licence. Larger or fp16 variants were not considered (size).
+
+**Correctness.** Tokenizer: identical ids to the reference `tokenizers`
+implementation on 18 edge cases (`tests/fixtures/siglip_tokenizer_parity.json`).
+Text encoder (int8, WebAssembly, Node) vs PyTorch fp32: cosine 0.968–0.989.
+Image path in the extension (Chrome's decoding and resampling + int8) vs
+PyTorch fp32 with PIL bicubic preprocessing: cosine 0.944–0.976 on the ten
+test photos, and the same best-matching prompt for every photo
+(`tests/e2e/vision.test.ts`). The decision rule was calibrated on the int8
+outputs, so the quantisation error is inside the measured quality.
+
+**Decision rule and quality.** `src/shared/vision.ts` (two conditions:
+similarity floor and margin over 22 generic background descriptions);
+calibration, held-out results, per-topic numbers and known confusions:
+`docs/evaluation/vision/RESULTS.md`. SigLIP's own sigmoid calibration
+(scale 117.3, bias −12.93) gives match probabilities below 0.001 for these
+generic prompts, so its scores are not shown or used as probabilities.
+
+**Determinism.** The int8 model quantises activations with one scale per
+tensor; prompts are therefore always embedded one at a time, never batched,
+so a topic's embedding does not depend on other topics. Image inference is
+always one picture per run.

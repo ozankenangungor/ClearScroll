@@ -3,7 +3,10 @@
 ClearScroll is a Chrome Manifest V3 extension. Text from web pages is
 classified by a BERT-family sentence encoder written in Rust, compiled to
 WebAssembly and executed in a dedicated Web Worker inside an offscreen
-document. Nothing leaves the device.
+document. Optionally, pictures are classified from their pixels by a second,
+independent engine (SigLIP image–text model, ONNX Runtime Web) in the same
+offscreen document — see [Image filtering](#image-filtering). Nothing leaves
+the device (the one opt-in exception is documented in `docs/PRIVACY.md`).
 
 ```mermaid
 flowchart LR
@@ -41,7 +44,9 @@ flowchart LR
 | Engine worker | `src/engine/engine.worker.ts` | Owns one WebAssembly instance; loads weights; embeds batches strictly one at a time. |
 | Rust engine | `src/weights.rs`, `tokenizer.rs`, `model.rs`, `embedder.rs`, `wasm.rs` | CSWT weight parsing, HF-compatible WordPiece tokenizer, BERT encoder on Burn (WebGPU or ndarray CPU backend), mean pooling + L2 norm. |
 | Shared logic | `src/shared/*` | Settings schema/migration, site rules, message protocol + runtime guards, lexical matcher, decision function, calibrated model profiles. |
-| UI | `src/options/*`, `src/popup/*`, `src/ui/common.css` | Topics, strictness, site rules, protected selectors, engine preference, diagnostics; per-tab status and quick controls. |
+| UI | `src/options/*`, `src/popup/*`, `src/ui/common.css` | Topics, strictness, site rules, protected selectors, engine preference, image options, diagnostics; per-tab status and quick controls. |
+| Image filtering (content) | `src/content/image-filter.ts`, `media.ts` | Media discovery and eligibility, in-page pixel reading, near-viewport scheduling, verdicts, image blur/reveal. |
+| Image filtering (offscreen) | `src/offscreen/vision-host.ts`, `src/vision/*`, `src/shared/vision.ts` | Image/text model workers (ONNX Runtime Web), queue, caches, downloads, decision rule. |
 
 ## Why an offscreen document
 
@@ -95,6 +100,123 @@ model instead of loading it per tab.
    thumbnail, but never a list or a box of several stories. An item stays
    hidden while any of its texts matches and is revealed as a whole.
 
+## Image filtering
+
+Opt-in (`settings.images`, default off). A second pipeline next to the text
+one; it shares the content script's generation, observers, ownership tag and
+reveal handling, and the offscreen document, but nothing else.
+
+```mermaid
+flowchart LR
+  subgraph Page["Web page"]
+    IF["ImageFilter<br/>content/image-filter.ts + media.ts"]
+  end
+  subgraph Ext["Extension origin"]
+    BG["Service worker<br/>validate · settings · site · URL checks"]
+    subgraph OFF["Offscreen document"]
+      VH["VisionHost<br/>queue · stale drop · caches · downloads · decision"]
+      IW["Image worker<br/>SigLIP image encoder<br/>ONNX Runtime Web (WASM, 1 thread)"]
+      TW["Text worker (on demand, idle-released)<br/>SigLIP text encoder + tokenizer"]
+    end
+  end
+  IF -- "cs:vision {generation, mode, topics, image: pixels | url}" --> BG
+  BG -- "off:vision (+ frameKey)" --> VH
+  VH -- "image: RGB frame or downloaded blob" --> IW
+  VH -- "text: topic prompts (new topics only)" --> TW
+  VH -- "decision {matched, topicId, score}" --> BG --> IF
+```
+
+**1. Discovery and eligibility** (`media.ts`). Candidates: `<img>` (the
+`currentSrc` the browser selected, so `<picture>`/`srcset` work), `<video
+poster>`, and elements whose content is one CSS background picture (inline
+`style` or `role="img"`, no text, no `<img>` inside, not fixed, ≤ 60 % of the
+viewport). Required: rendered ≥ 100 × 80 CSS px, aspect ratio ≤ 4.5,
+natural size ≥ 48 px, not SVG, not in a protected area (the text list —
+navigation, header/footer landmarks, forms, buttons, editable regions, user
+selectors — **except `aria-hidden`**: sites mark visible thumbnails
+`aria-hidden` when the title link is the accessible copy, e.g. every YouTube
+thumbnail). Pictures not laid out yet (0 × 0), hidden, or fully transparent
+(lazy layouts and fade-ins) are *pending*: re-checked on `load`,
+`transitionend`/`animationend`, intersection, and once a second while any is
+waiting near the viewport (≤ 300 per round) — found necessary on YouTube,
+where thumbnails load at opacity 0 inside containers laid out later. Image
+dimensions only decide *whether* a picture is analysed, never whether it
+matches.
+
+**2. Scheduling** (`image-filter.ts`). An IntersectionObserver with a
+half-viewport margin (layout geometry in background tabs); the queue
+(≤ 200) is served visible-first, nearest-next; at most 2 requests in flight
+per frame; one request per picture identity (kind + URL) at a time, and a
+verdict of the current generation is reused for every element showing the
+same picture. Pending (`complete === false`) images resume on their `load`
+event; `src`, `srcset`, `sizes`, `poster` and `style` changes are observed
+(attribute observation is enabled only while image filtering is on).
+
+**3. Pixels.** The content script draws the displayed picture (or decodes a
+`data:`/`blob:` URL) into a 224 × 224 canvas — the model's input size; SigLIP
+resizes the whole picture without cropping — and sends the RGB bytes
+(base64, 200 KB; runtime messaging is JSON-only). No network. If the canvas
+is tainted (a cross-origin picture without CORS approval) the picture is
+skipped as `cross-origin`, unless the user enabled downloads, in which case
+its URL is sent instead.
+
+**4. Background checks.** `cs:vision` is validated (`isVisionRequest`:
+exact frame length and alphabet, URL length, topics, generation, mode) and
+accepted only from content scripts in a tab; image filtering must be on and
+the frame's site not excluded; a URL request additionally needs
+`imageDownloads` and must pass `checkImageUrl` (public http(s) host, no
+credentials, no localhost/private/link-local/special addresses or `.local`
+style names).
+
+**5. VisionHost** (`vision-host.ts`). Loads nothing before the first image
+request. One job at a time; ≤ 32 waiting (`overloaded` beyond); per frame,
+older generations are answered `stale`. Downloads: `credentials: "omit"`,
+`referrerPolicy: "no-referrer"`, image MIME types only (no SVG), ≤ 8 MiB
+(header and streamed), 10 s timeout, the final URL after redirects re-checked.
+Caches, memory only: image embeddings by identity (`u:<url>` or `p:<sha256
+of the RGB frame>`; 1,000 entries; topic-independent, so changing topics
+re-scores without inference), topic embeddings by text (64). The background
+prompts' embeddings are computed at build time (`scripts/vision-background.ts`,
+same runtime and files → `offscreen/vision/background.json`, validated before
+use).
+
+**6. Workers** (`src/vision/vision.worker.ts`, one bundle, two roles). The
+image worker holds the image encoder for as long as image filtering is on.
+The text worker is started only when a topic has no cached embedding, embeds
+each prompt on its own (batching would change results: the int8 model
+quantises activations per tensor) and is terminated after 20 s without use,
+because a WebAssembly heap is only returned when its worker ends. ONNX
+Runtime uses one WebAssembly thread: multi-threading needs cross-origin
+isolation of the extension pages and crashed the renderer in the bundled
+configuration; the GPU is not used (the int8 operators have no WebGPU
+kernels and fp16 weights would double the size).
+
+**7. Decision** (`decideImage`, `src/shared/vision.ts`, calibrated in
+`docs/evaluation/vision/`): match ⇔ cos(picture, topic) ≥ minSimilarity **and**
+cos(picture, topic) − max over 22 generic background descriptions ≥
+minMargin (per strictness), background descriptions that are synonyms of the
+topic excluded. Topic = mean of 3 prompt embeddings ("a photo of {topic}." …).
+
+**8. Applying verdicts.** Same rules as text: current generation, still
+active, still connected, **same picture identity** (a changed source drops
+the old verdict and is re-queued). Matched pictures get
+`data-clearscroll="blurred"` plus `data-clearscroll-media` (a 28 px blur
+clipped to the element). Nesting: a picture inside an item hidden because of
+its text is not blurred a second time; revealing the item marks the pictures
+inside as revealed; when the item is cleared, pictures fall back to their own
+verdicts. A revealed picture stays revealed until its source changes.
+Turning images off removes all picture effects (text effects stay), unloads
+both workers and clears the caches.
+
+| Image failure | Behaviour | Visible as |
+|---|---|---|
+| Model fails to load / init timeout (120 s) | pictures left visible; retried after 5 min | state `error`, detail in diagnostics |
+| Image worker crash / 30 s inference timeout | worker restarted (≤ 2×), job retried by the content script | then `error` |
+| Text worker crash | the job fails (retryable); next topic starts a new worker | — |
+| Picture cannot be read (cross-origin, downloads off) | left visible | popup count "from other domains not checked" |
+| Download fails, not an image, too large, decode error, ineligible URL | left visible, not retried for that picture | diagnostics counters |
+| Queue full / model loading | retried with backoff (1 s → 60 s, ≤ 5 attempts) | — |
+
 ## State and concurrency
 
 * **No shared mutable "current target".** The previous worker kept the target
@@ -133,8 +255,13 @@ model instead of loading it per tab.
 ```ts
 { schema: 2, enabled: boolean, mode: "precision" | "balanced" | "aggressive",
   engine: "auto" | "cpu" | "off", topics: { id, text, enabled }[],
-  excludedSites: string[] /* normalised hosts */, protectedSelectors: string[] }
+  excludedSites: string[] /* normalised hosts */, protectedSelectors: string[],
+  images: boolean /* default false */, imageDownloads: boolean /* default false */ }
 ```
+
+The image fields were added without a schema bump: stored settings without
+them (all existing users) normalise to `false`, i.e. unchanged text-only
+behaviour; only a literal `true` enables either.
 
 Builds published as "IdeaBlocker" stored `ideablocker_settings` (one target
 string) or `ideablocker_target`; `migrateSettings()` converts both on install,
@@ -211,3 +338,7 @@ handles.
   warm, 0.7–1.1 s for the first page after the engine starts on CPU, see
   `docs/BENCHMARKS.md`).
 * **Languages**: the shipped encoders are English-only (see `docs/MODEL.md`).
+* **Pictures**: see the image-filtering limitations in the README — coverage
+  (no iframes, shadow roots, canvas, video frames; other-domain pictures only
+  with downloads), ≈ 0.6 s per new picture on one CPU thread, pictures visible
+  until analysed.

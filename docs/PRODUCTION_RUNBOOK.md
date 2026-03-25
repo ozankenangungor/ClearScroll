@@ -9,14 +9,15 @@
 | wasm-bindgen CLI | must equal the `wasm-bindgen` version in `Cargo.lock` (0.2.129) | `cargo install wasm-bindgen-cli --version 0.2.129 --locked` |
 | Python | 3.13 (the only version tested) | model export only; `uv` is used if present |
 | zip | any | packaging only |
-| Disk / network | ~1.5 GB for `.venv` + Hugging Face cache, ~90 MB model download | first build only |
+| Disk / network | ~1.5 GB for `.venv` + Hugging Face cache, ~90 MB text-model download, ~213 MB image-model download | first build only |
 
 ## Build
 
 ```bash
 npm ci
 npm run setup:model    # creates .venv (hash-locked), downloads + exports + verifies the model
-npm run build          # Rust → WASM, wasm-bindgen, TypeScript bundles, dist/
+npm run setup:vision   # image model: pinned ONNX files, size + sha256 verified (Node only; build runs it too)
+npm run build          # Rust → WASM, wasm-bindgen, TypeScript bundles, background vectors, dist/
 npm run validate       # deterministic checks on dist/
 ```
 
@@ -42,6 +43,11 @@ rejects source maps).
 | `npm run verify:privacy` | no network requests caused by the extension | `build` |
 | `npm run evaluate` | semantic quality report (`--min-en-f1 0.6` as a gate) | `setup:model` |
 | `npm run benchmark` | performance (see `docs/BENCHMARKS.md`) | `build` |
+| `CLEARSCROLL_REQUIRE_VISION_MODEL=1 node --test tests/unit/vision-model.test.ts` | SigLIP tokenizer ids and int8 text encoder vs PyTorch fixtures, **required** | `setup:vision` |
+| `npm run verify:privacy:images` | privacy capture with image filtering on (no requests) and with downloads on (only the displayed pictures, no cookies) | `build` |
+| `npm run evaluate:vision -- --manifest <private>/manifest.json --set val` | image-filtering quality in Chromium (photo set kept outside the repo; public manifest in `docs/evaluation/vision/`) | `setup:vision`, the photos |
+| `npm run benchmark:vision` | image-filtering cold start, per-picture cost, memory, impact on text filtering | `build` |
+| `.venv/bin/python tools/vision_reference.py --upstream <siglip dir> --tokenizer build/vision/…/tokenizer.json` | regenerate the SigLIP PyTorch parity fixtures (one-off; needs Pillow and the 813 MB upstream checkpoint) | — |
 | `cargo test --release --no-default-features --features webgpu,cpu --test gpu_parity -- --ignored` | optional native GPU parity | a GPU |
 | `cargo deny check` | Rust licences/advisories | cargo-deny |
 
@@ -54,7 +60,8 @@ Install Playwright's browser once: `npx playwright install chromium`
 - [ ] `npm run release:prepare` passes (check → build → validate → DOM → E2E → privacy → package)
 - [ ] `CLEARSCROLL_REQUIRE_MODEL=minilm-l6-f16,minilm-l6 npm run test:rust` passes
 - [ ] `node scripts/evaluate.ts --models minilm-l6 --min-en-f1 0.60 --max-ui-fpr 0.05` passes; diff `docs/evaluation/RESULTS.md`
-- [ ] `CLEARSCROLL_BROWSER=chrome npm run test:e2e` passes on Google Chrome stable
+- [ ] `CLEARSCROLL_BROWSER=chrome npm run test:e2e` passes on Google Chrome stable (includes the real-model image tests)
+- [ ] `npm run verify:privacy:images` passes; `docs/PRIVACY.md` network table still true
 - [ ] `cargo deny check` and `npm audit --audit-level=high` clean
 - [ ] Manual smoke test in **Google Chrome stable** (below), ideally on Windows/macOS too
 - [ ] `docs/PRIVACY.md` still matches behaviour (permissions, storage, network)
@@ -81,6 +88,16 @@ Install Playwright's browser once: `npx playwright install chromium`
    shows *Keyword matching only…*.
 8. `chrome://extensions` → *Errors* is empty; the offscreen document's console
    (inspect "offscreen.html" from the extension card) shows the engine state.
+9. Images: Settings → Images → tick *Also hide pictures…*, topic `cats`, save.
+   Open a page with an uncaptioned cat photo and a dog photo from the same
+   site (e.g. the repository's `tests/fixtures/pages/images.html` served
+   locally). Popup: *Pictures: Loading image model…* then *Image analysis
+   active (CPU)*; the cat photo blurs within ~3 s, the dog photo does not.
+   Click the cat → revealed. Untick *Also hide pictures…* → picture blur gone,
+   text blur stays; Diagnostics → Image model shows "off".
+10. On a large site (YouTube, BBC): popup reports "N from other domains not
+   checked" with downloads off; tick *Also check pictures from other
+   domains* → thumbnails are analysed (expect ~0.6 s per picture on CPU).
 
 ## Packaging
 
@@ -120,6 +137,19 @@ writing.
 | A site is broken by blurring | over-broad match | add the region to *Protected areas*, or exclude the site |
 | Page console warns `classify failed: engine overloaded` | more than 256 requests waiting in the offscreen engine (many tabs classifying at once on a slow backend) | none needed: affected units are retried with backoff; if persistent, check `off:stats` (`overloadRejected`) and the backend in Diagnostics |
 | CI `browser` job fails only on CI | timing | re-run once; if reproducible locally with `npm run test:e2e`, treat as a bug |
+
+## Image model
+
+* Pinned in `tools/vision_model_lock.json` (repository + revision + sha256 +
+  size per file, upstream licence). `scripts/setup-vision-model.mjs` refuses
+  any changed file; the build and `validate` re-check the hashes in `dist/`.
+* Changing the model: update the lock, re-run `tools/vision_reference.py`
+  for new parity fixtures, recalibrate `VISION_RULES` on the development photos
+  only (`scripts/evaluate-vision.ts --set dev --calibrate`), pre-register, then
+  score the validation photos once (`docs/evaluation/vision/`).
+* If image filtering misbehaves for users, it can be turned off per user
+  (Settings → Images) without affecting text filtering; the text engine does
+  not depend on any image-model file.
 
 ## Model update
 

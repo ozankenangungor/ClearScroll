@@ -106,3 +106,36 @@ CPU fallback), int8 quantisation (not supported by the backend's kernels
 without custom work; f16 already halves the download), `wasm-opt` (binaryen
 is not part of the toolchain; the 11 MiB engine is small next to the
 weights).
+
+## Image filtering
+
+`node scripts/benchmark-vision.ts` (raw: `docs/benchmarks/vision-*.json`):
+real extension, SigLIP base/16 int8 on the WebAssembly CPU backend (one
+thread), topic "cats", default strictness, gallery of 40 distinct photos from
+the development image set (no cache hits), same machine as above.
+
+| Metric | Chromium (headless) | Google Chrome stable (headless) |
+|---|---|---|
+| Image model load (worker: fetch + session) | 594 ms | 620 ms |
+| Turning images on → first picture hidden (cold: offscreen document, model load, topic embedding, first inference) | 2,378 ms | 1,895 ms |
+| Per new picture, inference (mean of 40) | 636 ms | 616 ms |
+| Per new picture, wall time on a 40-photo page | 654 ms | 646 ms |
+| Same page again (cached embeddings), all 40 | 493 ms | 530 ms |
+| Memory, all browser processes (PSS), before → after the gallery | 633 → 1106 MiB (+473) | 651 → 1044 MiB (+394) |
+| Memory 25 s later (text encoder released), over text-only | +359 MiB | +328 MiB |
+| Text filtering of a long page: alone / while the gallery is analysed | 146 / 148 ms | 143 / 142 ms |
+| Unpacked package | 272.6 MiB (image model and runtime: 216.9 MiB) | same |
+
+Optimisations and their measured effect (same benchmark):
+
+| Change | Before | After |
+|---|---|---|
+| Background prompt embeddings computed at build time instead of on the first picture (22 text-encoder runs ≈ 3.7 s) | first picture 6.4 s | 2.4 s |
+| Text encoder in its own worker, terminated 20 s after its last use (WebAssembly memory is only returned when a worker ends) | +592 MiB, permanent | +473 MiB peak, +359 MiB steady |
+
+Not done: multi-threaded inference (needs cross-origin-isolated extension
+pages; the threaded build crashed the renderer in our bundled
+configuration) and WebGPU (no WebGPU kernels for the int8 operators; fp16
+files would double the package). Per-picture cost is therefore ≈ 0.6 s on
+one CPU core of a fast laptop and proportionally more on slower machines;
+pictures stay visible until analysed.

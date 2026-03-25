@@ -1,7 +1,7 @@
 # Privacy
 
 ClearScroll hides web content about topics you choose. It is built so that
-the text you read never leaves your computer.
+the text you read and the pictures you see never leave your computer.
 
 ## What ClearScroll processes
 
@@ -10,8 +10,13 @@ the text you read never leaves your computer.
   ones near the part of the page you are looking at to the on-device model.
   Input fields, editable areas, code blocks, navigation, forms, buttons and
   areas you mark as protected are skipped and never classified.
-* **Your settings:** topics, strictness, excluded sites, protected selectors
-  and the engine preference.
+* **Pictures on web pages — only if you turn on *Images* (off by default).**
+  Pictures near the part of the page you are looking at are scaled down to
+  224 × 224 pixels in the page and these pixels are analysed by an on-device
+  image model. Icons, avatars, SVG graphics, navigation, headers, forms,
+  buttons, hidden pictures and protected areas are skipped.
+* **Your settings:** topics, strictness, excluded sites, protected selectors,
+  the engine preference and the two image options.
 
 ## Where processing happens
 
@@ -29,6 +34,35 @@ ships inside the extension package and runs in a Web Worker
 * The extension declares no `web_accessible_resources`, so websites cannot
   detect it by probing its files.
 
+### Image filtering and network requests
+
+| Settings | Network requests made by ClearScroll |
+|---|---|
+| Default (text only) | none |
+| *Images* on | none — pictures are analysed from pixels the page already loaded; pictures whose pixels the browser does not expose to extensions (most pictures served from another domain) are left visible and counted in the popup |
+| *Images* on **and** *Also check pictures from other domains* on | one request per such picture, to the address the page itself loaded it from |
+
+The download option exists because browsers do not let an extension read the
+pixels of a picture from another domain inside the page. When you enable it,
+ClearScroll's offscreen document requests a copy of such a picture:
+
+* only pictures shown on the page you are viewing, near the viewport, on a
+  site you have not excluded, while a topic is active;
+* **without cookies or other credentials and without a referrer** — the image
+  server learns that someone fetched that picture, like a browser loading
+  it, but not who you are logged in as or which page you were on;
+* only `http`/`https` URLs of public hosts — never `localhost`, private,
+  link-local or other special-purpose network addresses, `.local`/`.internal`
+  names, or URLs with embedded credentials (`checkImageUrl`,
+  `src/shared/vision.ts`); redirects to such addresses are refused;
+* image types only (JPEG, PNG, WebP, AVIF, GIF, BMP), at most 8 MiB and
+  10 seconds per picture, decoded only in the extension's worker;
+* the URL is re-checked by the service worker against your settings before
+  any request; web pages cannot trigger downloads by messaging ClearScroll.
+
+Picture pixels, their URLs, your topics and the results are never sent
+anywhere. Picture URLs are not logged.
+
 ### How this is verified
 
 `npm run verify:privacy` (also run in CI, on Chromium and on Google Chrome
@@ -40,6 +74,15 @@ in the ClearScroll session. Latest results: 0 requests from the extension on
 both browsers; filtering worked offline. The browser itself contacts Google
 services in both sessions (component updater, account check, autofill and,
 in Chrome, the GCM check-in) — browser behaviour, unrelated to ClearScroll.
+
+`npm run verify:privacy:images` repeats the capture with image filtering on
+(a fourth page with photos, including two served from a second, "other-domain"
+host): with downloads off it requires the same zero requests and that a
+picture is hidden offline from its pixels; with downloads on it allows
+exactly one cookie-less request for each of the two displayed other-domain
+pictures and fails on any other request (`scripts/verify-no-egress.ts`).
+Latest results (Chromium): 0 extension requests with images on; exactly the
+two expected picture requests, without cookies, with downloads on.
 
 ## What is stored
 
@@ -55,18 +98,21 @@ In `chrome.storage.session` (memory only, cleared when the browser closes):
 registering the content script, if any — no page or browsing data.
 
 Classification results are kept in memory only — an in-memory cache of text
-embeddings in the offscreen document (at most 4,000 entries) and per-element
-state in each tab — and disappear when the tab closes, when filtering is
+embeddings in the offscreen document (at most 4,000 entries), of picture
+embeddings (at most 1,000, keyed by picture URL or a hash of its pixels; not
+the pictures themselves) and topic embeddings, and per-element state in each
+tab — and disappear when the tab closes, when filtering or image filtering is
 turned off or when the browser restarts. They are never written to disk.
+Downloaded picture copies exist only while being decoded.
 
 ## Permissions and why they are needed
 
 | Permission | Why |
 |---|---|
-| Access to `http://*/*` and `https://*/*` | To read and blur text on the pages you visit. ClearScroll only runs while at least one topic is active and never on sites you exclude. |
+| Access to `http://*/*` and `https://*/*` | To read and blur text (and, if enabled, pictures) on the pages you visit. ClearScroll only runs while at least one topic is active and never on sites you exclude. With *Also check pictures from other domains* on, the same host access lets the extension download those pictures (see above). |
 | `scripting` | To register the content script while filtering is active (and unregister it otherwise) and to start filtering in tabs that were already open. |
 | `storage` | To save your settings locally. |
-| `offscreen` | To run the AI model in a hidden extension page, isolated from websites' security policies and shared by all tabs. |
+| `offscreen` | To run the AI models in a hidden extension page, isolated from websites' security policies and shared by all tabs. |
 
 No `tabs`, `history`, `cookies`, `webRequest` or `identity` permission is
 requested.
@@ -74,7 +120,10 @@ requested.
 ## Turning it off or removing it
 
 * **Pause:** toolbar popup → untick *Filtering enabled*. All blur is removed
-  immediately, the content script is unregistered and the model is unloaded.
+  immediately, the content script is unregistered and the models are unloaded.
+* **Images only:** Settings → Images → untick *Also hide pictures…*. Picture
+  blur is removed at once and the image model is unloaded; text filtering
+  continues.
 * **One site:** popup → *Never run on this site*, or edit the site list in
   Settings.
 * **Remove:** `chrome://extensions` → ClearScroll → *Remove*. Chrome deletes
