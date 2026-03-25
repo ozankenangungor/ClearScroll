@@ -135,11 +135,6 @@ async function syncRegistration(reason: string, injectExisting: boolean): Promis
 
   // Engine preference changes require a fresh offscreen document.
   await reconcileOffscreen(settings);
-  // Image filtering turned off: unload the image model (text keeps running).
-  if (!settings.images && (await currentOffscreen())) {
-    await chrome.runtime.sendMessage({ type: "off:vision-shutdown", target: "offscreen" }).catch(() => undefined);
-    visionStatus = initialVisionStatus();
-  }
 
   if (injectExisting || !isRegistered) await injectIntoOpenTabs(settings);
 }
@@ -250,6 +245,13 @@ async function forwardClassify(msg: OffscreenClassify): Promise<ClassifyReply> {
   }
 }
 
+function unloadImageModel(): void {
+  visionStatus = initialVisionStatus();
+  void currentOffscreen()
+    .then((ctx) => (ctx ? chrome.runtime.sendMessage({ type: "off:vision-shutdown", target: "offscreen" }) : undefined))
+    .catch(() => undefined);
+}
+
 function visionSkip(generation: number, reason: SkipReason, error: string): VisionReply {
   return { ok: false, generation, reason, error, vision: visionStatus };
 }
@@ -355,5 +357,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const change = changes[SETTINGS_KEY];
   if (!change) return;
   const prev = change.oldValue === undefined ? null : normalizeSettings(change.oldValue);
-  void scheduleSync("settings-changed", shouldInjectOpenTabs(prev, normalizeSettings(change.newValue)));
+  const next = normalizeSettings(change.newValue);
+  // A write that only normalises (e.g. migration adding new fields with their
+  // defaults) changes nothing: no second registration sync.
+  if (prev && JSON.stringify(prev) === JSON.stringify(next)) return;
+  void scheduleSync("settings-changed", shouldInjectOpenTabs(prev, next));
+  // Image filtering turned off: unload the image model; text keeps running.
+  // Fire-and-forget and outside the registration chain: messaging the
+  // offscreen document must never delay content-script registration.
+  if (prev?.images && !next.images) unloadImageModel();
 });

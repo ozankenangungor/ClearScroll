@@ -37,9 +37,18 @@ if (!g.__clearscroll?.alive()) {
     onInvalidated: () => console.info(TAG, "extension was reloaded or removed; filtering stopped"),
   });
 
+  // Last applied settings: a storage write that only normalises them (the
+  // background's migration write-back) must not restart analysis.
+  let applied = "";
   const refresh = () => {
     chrome.storage.local.get([...STORAGE_KEYS]).then(
-      (stored) => controller.applySettings(migrateSettings(stored).settings, location.href),
+      (stored) => {
+        const settings = migrateSettings(stored).settings;
+        const key = JSON.stringify(settings) + location.host;
+        if (key === applied) return;
+        applied = key;
+        controller.applySettings(settings, location.href);
+      },
       (err) => console.warn(TAG, "could not read settings", err)
     );
   };
