@@ -169,9 +169,16 @@ export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | Off
  * Whether `raw` may be downloaded by the extension. Only plain http(s) URLs
  * of public hosts: no credentials in the URL, no localhost, no private,
  * loopback, link-local or otherwise special-purpose IP ranges, no
- * single-label or .local/.internal hosts. This keeps the download path from
- * becoming a way to read intranet resources; it cannot see DNS answers
- * (a public name resolving to a private address is not detected).
+ * single-label or .local/.internal hosts. Downloads never follow redirects
+ * (vision-host.ts), so only URLs that passed this check are requested.
+ *
+ * This is a check of the URL text, not of the network address actually
+ * contacted: it cannot see DNS answers, so a public-looking name that
+ * resolves to a private or loopback address (including DNS rebinding) is
+ * not detected here. Extension fetches have no API to pin or inspect the
+ * resolved address; what remains is that such a response is only decoded
+ * as an image and turned into a match/no-match verdict, never returned to
+ * the page, and is sent without cookies or credentials.
  */
 export function checkImageUrl(raw: string): { ok: true; url: URL } | { ok: false; error: string } {
   if (raw.length > VISION_LIMITS.maxUrlChars) return { ok: false, error: "URL too long" };
