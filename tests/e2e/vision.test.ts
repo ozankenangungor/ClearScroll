@@ -279,3 +279,111 @@ test("a broken image model is reported as unavailable; pictures stay visible and
     fs.rmSync(broken, { recursive: true, force: true });
   }
 });
+
+// ── Download security and consent lifecycle ─────────────────────────────
+
+async function securityPage(): Promise<Page> {
+  const page = await env.ctx.newPage();
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await page.goto(`${env.base}/security.html`);
+  return page;
+}
+
+async function addRemoteImage(page: Page, id: string, path: string): Promise<void> {
+  await page.evaluate(
+    ({ id, src }) =>
+      new Promise<void>((resolve) => {
+        const img = document.createElement("img");
+        img.id = id;
+        img.onload = img.onerror = () => resolve();
+        img.src = src;
+        document.getElementById("slot")!.append(img);
+      }),
+    { id, src: `http://${REMOTE_HOST}:${env.port}${path}` }
+  );
+}
+
+async function waitFor(cond: () => Promise<boolean> | boolean, what: string, ms = 60_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!(await cond())) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+test("a redirect from an image host to a private address is never followed by the extension", async () => {
+  await reset();
+  await setSettings(env, { topics: topic("cats"), images: true, imageDownloads: true });
+  await waitRegistered(env, true);
+  const page = await securityPage();
+  await waitAttr(page, "#local-cat", "blurred", COLD_MS);
+  const forbidden = `http://127.0.0.1:${env.port}/media/k1?forbidden-${Date.now()}`;
+  const marker = new URL(forbidden).search;
+  await addRemoteImage(page, "redirected", `/redirect/k1?to=${encodeURIComponent(forbidden)}`);
+  // The page itself follows the redirect (its own business, with its referrer);
+  // the extension's download of /redirect/… must stop at the 302.
+  await waitFor(() => env.mediaRequests.some((r) => r.path.startsWith("/redirect/k1") && r.referer === null), "the extension's request to the redirecting URL");
+  await waitFor(async () => (await tabState(page)).images.analyzed + Object.values((await tabState(page)).images.skipped as Record<string, number>).reduce((a, b) => a + b, 0) >= 2, "the redirected picture to be handled");
+  await page.waitForTimeout(500);
+  const extensionHits = env.mediaRequests.filter((r) => r.path.endsWith(marker) && r.referer === null);
+  assert.deepEqual(extensionHits, [], "the private redirect target was never requested by the extension");
+  assert.ok(env.mediaRequests.some((r) => r.path.endsWith(marker) && r.referer !== null), "control: the page itself did load it");
+  assert.equal(await attr(page, "#redirected"), null, "not analysed, left visible");
+  const st = await tabState(page);
+  assert.ok((st.images.skipped["download-failed"] ?? 0) >= 1, JSON.stringify(st.images.skipped));
+});
+
+test("revoking download permission aborts an in-flight download; page pixels and the text engine keep working", async () => {
+  await reset();
+  await setSettings(env, { topics: topic("cats"), images: true, imageDownloads: true });
+  await waitRegistered(env, true);
+  const page = await securityPage();
+  await waitAttr(page, "#local-cat", "blurred", COLD_MS);
+  const contextsBefore = await env.sw.evaluate(async () => (await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT" as chrome.runtime.ContextType] })).map((c) => c.documentId));
+  const held = `/hold/k1?revoke-${Date.now()}`;
+  await addRemoteImage(page, "pending", held);
+  await waitFor(() => env.held.waiting.includes(held), "the extension's download to start");
+  await setSettings(env, { imageDownloads: false });
+  // Well under the 10 s download timeout: aborted by the settings change itself.
+  await waitFor(() => env.held.aborted.includes(held), "the in-flight download to be aborted", 2_000);
+  env.held.releaseAll();
+  await page.waitForTimeout(1000);
+  assert.equal(await attr(page, "#pending"), null, "the aborted picture is left visible");
+  // Image filtering still works from pixels; the same offscreen document (text engine) is still running.
+  await page.evaluate(() => {
+    const img = document.createElement("img");
+    img.id = "local-cat-2";
+    img.src = "/media/k10?after-revoke";
+    document.getElementById("slot")!.append(img);
+  });
+  await waitAttr(page, "#local-cat-2", "blurred", 60_000);
+  const contextsAfter = await env.sw.evaluate(async () => (await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT" as chrome.runtime.ContextType] })).map((c) => c.documentId));
+  assert.deepEqual(contextsAfter, contextsBefore, "no offscreen (text engine) restart");
+  const status = await uiStatus(env);
+  assert.equal(status.vision.state, "ready", "image model still loaded");
+  assert.notEqual(status.engine.state, "error");
+  // No later download of the revoked picture either.
+  const before = env.mediaRequests.length;
+  await addRemoteImage(page, "pending-2", `/hold/k1?after-${Date.now()}`);
+  await page.waitForTimeout(2000);
+  assert.deepEqual(env.mediaRequests.slice(before).filter((r) => r.referer === null), [], "no download after revocation");
+});
+
+test("turning image filtering off aborts an in-flight download and the image model stays unloaded", async () => {
+  await reset();
+  await setSettings(env, { topics: topic("cats"), images: true, imageDownloads: true });
+  await waitRegistered(env, true);
+  const page = await securityPage();
+  await waitAttr(page, "#local-cat", "blurred", COLD_MS);
+  const held = `/hold/k1?disable-${Date.now()}`;
+  await addRemoteImage(page, "pending", held);
+  await waitFor(() => env.held.waiting.includes(held), "the extension's download to start");
+  await setSettings(env, { images: false });
+  // Well under the 10 s download timeout: aborted by the settings change itself.
+  await waitFor(() => env.held.aborted.includes(held), "the in-flight download to be aborted", 2_000);
+  env.held.releaseAll();
+  await page.waitForTimeout(2000);
+  const status = await uiStatus(env);
+  assert.equal(status.vision.state, "idle", "no model resurrection after shutdown");
+  assert.equal(await page.locator("img[data-clearscroll]").count(), 0);
+});
