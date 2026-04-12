@@ -85,12 +85,27 @@ export interface OffscreenVision extends Omit<VisionRequest, "type"> {
   type: "off:vision";
   target: "offscreen";
   frameKey: string;
+  /**
+   * URL requests only, set by the service worker when it approved the
+   * download: the latest download revocation it knew of. The offscreen
+   * document refuses grants older than a revocation it has received, so a
+   * request approved just before the user withdrew permission cannot start
+   * a download afterwards.
+   */
+  downloadGrant?: number;
 }
 
 /** Status query, stats query (benchmarks) and unload (image filtering turned off). */
 export interface OffscreenVisionControl {
   type: "off:vision-status" | "off:vision-stats" | "off:vision-shutdown";
   target: "offscreen";
+}
+
+/** Download permission withdrawn: abort downloads in flight, refuse older grants. */
+export interface OffscreenRevokeDownloads {
+  type: "off:vision-revoke-downloads";
+  target: "offscreen";
+  revokedAt: number;
 }
 
 export interface VisionStatusChanged {
@@ -157,10 +172,16 @@ export function isVisionRequest(v: unknown): v is VisionRequest {
   );
 }
 
-export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | OffscreenVisionControl {
+export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | OffscreenVisionControl | OffscreenRevokeDownloads {
   if (!isObject(v) || v.target !== "offscreen") return false;
   if (v.type === "off:vision-status" || v.type === "off:vision-stats" || v.type === "off:vision-shutdown") return true;
-  return v.type === "off:vision" && typeof v.frameKey === "string" && isVisionRequest({ ...v, type: "cs:vision" });
+  if (v.type === "off:vision-revoke-downloads") return Number.isFinite(v.revokedAt);
+  return (
+    v.type === "off:vision" &&
+    typeof v.frameKey === "string" &&
+    (v.downloadGrant === undefined || Number.isFinite(v.downloadGrant)) &&
+    isVisionRequest({ ...v, type: "cs:vision" })
+  );
 }
 
 // ── Image URL eligibility (downloads) ─────────────────────────────────────

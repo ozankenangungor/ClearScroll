@@ -111,6 +111,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
       return true;
     }
     if (msg.type === "off:vision-shutdown") vision.shutdown();
+    if (msg.type === "off:vision-revoke-downloads") vision.revokeDownloads(msg.revokedAt);
     sendResponse(msg.type === "off:vision-stats" ? { ...vision.stats, skipped: { ...vision.stats.skipped } } : vision.getStatus());
     return false;
   }

@@ -324,6 +324,8 @@ const msg = (image: OffscreenVision["image"], patch: Partial<OffscreenVision> = 
   mode: "balanced",
   topics: [{ id: "t-cats", text: "cats" }],
   image,
+  // URL requests are approved by the service worker with a download grant.
+  ...(image.kind === "url" ? { downloadGrant: 0 } : {}),
   ...patch,
 });
 
@@ -569,3 +571,103 @@ test("security: a redirect to a private address is never requested (manual redir
   assert.deepEqual([r.ok, !r.ok && r.reason], [false, "download-failed"]);
 });
 
+/** A fetch that never answers on its own; it rejects like the browser's when aborted. */
+function hangingFetch() {
+  const calls: { url: string; signal: AbortSignal }[] = [];
+  const impl = (url: string, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => {
+      const signal = init!.signal!;
+      calls.push({ url, signal });
+      signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    });
+  return { calls, impl };
+}
+
+async function until(cond: () => boolean, what: string): Promise<void> {
+  for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(cond(), what);
+}
+
+/** Fails the test on any unhandled rejection while `fn` runs (and shortly after). */
+async function noUnhandledRejections(fn: () => Promise<void>): Promise<void> {
+  const seen: unknown[] = [];
+  const on = (e: unknown) => seen.push(e);
+  process.on("unhandledRejection", on);
+  try {
+    await fn();
+    await new Promise((r) => setTimeout(r, 50));
+  } finally {
+    process.off("unhandledRejection", on);
+  }
+  assert.deepEqual(seen, [], "no unhandled rejections");
+}
+
+test("lifecycle: shutdown aborts a download in flight at once; nothing restarts afterwards", () =>
+  noUnhandledRejections(async () => {
+    const { calls, impl } = hangingFetch();
+    const h = harness({}, impl);
+    const pending = h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/slow.jpg" }));
+    await until(() => calls.length === 1, "download started");
+    assert.equal(h.host.activeDownloads(), 1);
+    h.host.shutdown();
+    assert.equal(calls[0]!.signal.aborted, true, "aborted synchronously by shutdown()");
+    assert.equal(h.host.activeDownloads(), 0);
+    const r = await pending;
+    assert.deepEqual([r.ok, !r.ok && r.reason], [false, "disabled"]);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(h.host.getStatus().state, "idle", "no model resurrection");
+    assert.ok(h.workers.every((w) => w.terminated));
+    assert.equal(calls.length, 1, "no new download");
+  }));
+
+test("lifecycle: revoking downloads aborts the one in flight and refuses queued ones; pixels and the model keep working", () =>
+  noUnhandledRejections(async () => {
+    const { calls, impl } = hangingFetch();
+    const h = harness({}, impl);
+    await h.host.classify(msg({ kind: "pixels", rgb: frame(true) })); // model loaded
+    const inFlight = h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/a.jpg" }, { frameKey: "a" }));
+    const queued = h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/b.jpg" }, { frameKey: "b" }));
+    await until(() => calls.length === 1, "first download started");
+    h.host.revokeDownloads(1_000);
+    assert.equal(calls[0]!.signal.aborted, true);
+    for (const r of await Promise.all([inFlight, queued])) assert.deepEqual([r.ok, !r.ok && r.reason], [false, "downloads-off"]);
+    assert.equal(calls.length, 1, "the queued download (approved before the revocation) never started");
+    // Pixel analysis, the image model and its worker are unaffected.
+    assert.ok(okDecision(await h.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched);
+    assert.equal(h.host.getStatus().state, "ready");
+    assert.equal(h.image().length, 1);
+    assert.equal(h.image()[0]!.terminated, false);
+  }));
+
+test("lifecycle: a request approved before a revocation but delivered after it never reaches the network", async () => {
+  const { calls, impl } = hangingFetch();
+  const h = harness({}, impl);
+  h.host.revokeDownloads(2_000);
+  const late = await h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/late.jpg" }, { downloadGrant: 1_999 }));
+  assert.deepEqual([late.ok, !late.ok && late.reason], [false, "downloads-off"]);
+  const missing = await h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/late.jpg" }, { downloadGrant: undefined }));
+  assert.deepEqual([missing.ok, !missing.ok && missing.reason], [false, "downloads-off"], "no grant, no download");
+  assert.equal(calls.length, 0);
+  // Re-enabled later: a grant issued after the revocation works again.
+  void h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/again.jpg" }, { downloadGrant: 2_000 }));
+  await until(() => calls.length === 1, "download allowed again");
+  h.host.shutdown();
+});
+
+test("lifecycle: shutdown during model initialisation settles waiting work and does not resurrect the model", () =>
+  noUnhandledRejections(async () => {
+    const { calls, impl } = hangingFetch();
+    const h = harness({ initHangs: true }, impl, { initTimeoutMs: 5_000 });
+    const pixel = h.host.classify(msg({ kind: "pixels", rgb: frame(true) }, { frameKey: "p" }));
+    const url = h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/x.jpg" }, { frameKey: "u" }));
+    await until(() => h.workers.length === 1, "initialisation started");
+    const t0 = Date.now();
+    h.host.shutdown();
+    const replies = await Promise.all([pixel, url]);
+    assert.ok(Date.now() - t0 < 1_000, "settled at once, not after the initialisation timeout");
+    for (const r of replies) assert.deepEqual([r.ok, !r.ok && r.reason], [false, "disabled"]);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(h.host.getStatus().state, "idle", "no 'error' or 'ready' status after shutdown");
+    assert.equal(h.workers.length, 1, "no worker started after shutdown");
+    assert.equal(calls.length, 0, "no download after shutdown");
+  }));
