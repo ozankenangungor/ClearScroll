@@ -54,11 +54,27 @@ ClearScroll's offscreen document requests a copy of such a picture:
 * only `http`/`https` URLs of public hosts — never `localhost`, private,
   link-local or other special-purpose network addresses, `.local`/`.internal`
   names, or URLs with embedded credentials (`checkImageUrl`,
-  `src/shared/vision.ts`); redirects to such addresses are refused;
+  `src/shared/vision.ts`);
+* **redirects are never followed**: the request is made with
+  `redirect: "manual"` and any redirect answer is treated as a failed
+  download, so the extension never contacts an address it has not checked
+  (pictures served through redirects are left unchecked);
+* the check looks at the address as written, not at what its name resolves
+  to: a public name that resolves to a private address (e.g. DNS rebinding)
+  is not detected — browsers give extensions no way to see or pin the
+  resolved address. Such a response is still fetched without cookies, only
+  decoded as an image and reduced to "hidden / not hidden"; it is never
+  passed back to the web page;
 * image types only (JPEG, PNG, WebP, AVIF, GIF, BMP), at most 8 MiB and
   10 seconds per picture, decoded only in the extension's worker;
 * the URL is re-checked by the service worker against your settings before
-  any request; web pages cannot trigger downloads by messaging ClearScroll.
+  any request; web pages cannot trigger downloads by messaging ClearScroll;
+* **turning the option off takes effect at once**: downloads in progress are
+  aborted, and requests approved a moment earlier are refused before they
+  reach the network. The same happens when *Images* or filtering is turned
+  off, the last topic is disabled, or a site is newly excluded. Pictures the
+  page itself exposes keep being analysed from their pixels; the text engine
+  is not restarted.
 
 Picture pixels, their URLs, your topics and the results are never sent
 anywhere. Picture URLs are not logged.
