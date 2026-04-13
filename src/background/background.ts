@@ -28,7 +28,8 @@ import {
 } from "../shared/protocol.ts";
 import { STORAGE_KEYS, SETTINGS_KEY, LEGACY_TARGET_KEY, LEGACY_V1_KEY, MIGRATION_NOTES_KEY, isFilteringActive, isImageFilteringActive, migrateSettings, normalizeSettings, shouldInjectOpenTabs, type Settings } from "../shared/settings.ts";
 import { isUrlExcluded, rulesToExcludeMatches } from "../shared/sites.ts";
-import { checkImageUrl, initialVisionStatus, isVisionRequest, type OffscreenVision, type SkipReason, type VisionReply, type VisionStatus } from "../shared/vision.ts";
+import { isVisionRequest, type VisionStatus } from "../shared/vision.ts";
+import { VisionGate } from "./vision-gate.ts";
 
 const TAG = "[ClearScroll/background]";
 const SCRIPT_ID = "clearscroll-content";
@@ -37,7 +38,6 @@ const HOST_MATCHES = ["http://*/*", "https://*/*"];
 const OFFSCREEN_PATH = "offscreen/offscreen.html";
 
 let engineStatus: EngineStatus = initialEngineStatus("unknown");
-let visionStatus: VisionStatus = initialVisionStatus();
 // Last registration error, kept in session storage so the diagnostics survive
 // service-worker restarts. Whether the script is registered is always read
 // from Chrome itself (registrationStatus), never cached.
@@ -193,7 +193,7 @@ function ensureOffscreen(settings: Settings): Promise<void> {
     if (ctx?.documentUrl === url) return;
     if (ctx) await chrome.offscreen.closeDocument();
     engineStatus = initialEngineStatus(engineStatus.model);
-    visionStatus = initialVisionStatus();
+    visionGate.resetStatus();
     await chrome.offscreen.createDocument({
       url,
       reasons: [chrome.offscreen.Reason.WORKERS],
@@ -209,7 +209,7 @@ function reconcileOffscreen(settings: Settings): Promise<void> {
     if (ctx && ctx.documentUrl !== offscreenUrl(settings)) {
       await chrome.offscreen.closeDocument();
       engineStatus = initialEngineStatus(engineStatus.model);
-      visionStatus = initialVisionStatus();
+      visionGate.resetStatus();
     }
   });
 }
@@ -221,7 +221,7 @@ function closeOffscreen(): Promise<void> {
       console.info(TAG, "offscreen document closed (filtering inactive)");
     }
     engineStatus = initialEngineStatus(engineStatus.model);
-    visionStatus = initialVisionStatus();
+    visionGate.resetStatus();
   });
 }
 
@@ -245,80 +245,17 @@ async function forwardClassify(msg: OffscreenClassify): Promise<ClassifyReply> {
   }
 }
 
-// ── Download consent ──────────────────────────────────────────────────────
-//
-// When download permission is withdrawn the offscreen document must abort
-// downloads in flight and refuse requests approved earlier. Each approval
-// carries `downloadGrant` = the latest revocation time known here, read
-// *before* the settings check; the offscreen document refuses grants older
-// than the newest revocation it received. Kept in session storage so a
-// restarted service worker continues the sequence (the offscreen document
-// can outlive it).
+// ── Image requests ────────────────────────────────────────────────────────
 
-const REVOKED_KEY = "clearscroll_downloads_revoked_at";
-let downloadsRevokedAt = 0;
-const revocationLoaded: Promise<void> = chrome.storage.session.get(REVOKED_KEY).then(
-  (r) => {
-    downloadsRevokedAt = Math.max(downloadsRevokedAt, Number(r[REVOKED_KEY]) || 0);
-  },
-  () => undefined
-);
-
-function downloadsAllowed(s: Settings): boolean {
-  return isImageFilteringActive(s) && s.imageDownloads;
-}
-
-function revokeDownloads(): void {
-  downloadsRevokedAt = Math.max(Date.now(), downloadsRevokedAt + 1);
-  const revokedAt = downloadsRevokedAt;
-  void chrome.storage.session.set({ [REVOKED_KEY]: revokedAt }).catch(() => undefined);
-  void currentOffscreen()
-    .then((ctx) => (ctx ? chrome.runtime.sendMessage({ type: "off:vision-revoke-downloads", target: "offscreen", revokedAt }) : undefined))
-    .catch(() => undefined);
-}
-
-function unloadImageModel(): void {
-  visionStatus = initialVisionStatus();
-  void currentOffscreen()
-    .then((ctx) => (ctx ? chrome.runtime.sendMessage({ type: "off:vision-shutdown", target: "offscreen" }) : undefined))
-    .catch(() => undefined);
-}
-
-function visionSkip(generation: number, reason: SkipReason, error: string): VisionReply {
-  return { ok: false, generation, reason, error, vision: visionStatus };
-}
-
-async function forwardVision(msg: OffscreenVision, frameUrl: string | undefined): Promise<VisionReply> {
-  // The grant is taken before the settings are read: if permission is
-  // withdrawn in between, the grant predates the revocation and is refused.
-  await revocationLoaded;
-  const grant = downloadsRevokedAt;
-  const settings = await loadSettings();
-  if (!isImageFilteringActive(settings)) return visionSkip(msg.generation, "disabled", "image filtering is off");
-  if (!frameUrl || isUrlExcluded(frameUrl, settings.excludedSites)) return visionSkip(msg.generation, "disabled", "site excluded");
-  if (msg.image.kind === "url") {
-    // Downloads are the one network-visible behaviour: re-checked here so a
-    // stale or misbehaving content script cannot trigger them.
-    if (!settings.imageDownloads) return visionSkip(msg.generation, "downloads-off", "image downloads are not allowed");
-    const checked = checkImageUrl(msg.image.url);
-    if (!checked.ok) return visionSkip(msg.generation, "ineligible-url", checked.error);
-    msg = { ...msg, downloadGrant: grant };
-  } else {
-    msg = { ...msg, downloadGrant: undefined };
-  }
-  await ensureOffscreen(settings);
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const reply = (await chrome.runtime.sendMessage(msg)) as VisionReply | undefined;
-      if (!reply) throw new Error("no reply from vision host");
-      if (reply.vision) visionStatus = reply.vision;
-      return reply;
-    } catch (err) {
-      if (attempt >= 2) throw err;
-      await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
-    }
-  }
-}
+const visionGate = new VisionGate({
+  loadSettings,
+  ensureOffscreen,
+  offscreenExists: async () => !!(await currentOffscreen()),
+  send: (msg) => chrome.runtime.sendMessage(msg),
+  sessionGet: (key) => chrome.storage.session.get(key),
+  sessionSet: (items) => chrome.storage.session.set(items),
+  now: () => Date.now(),
+});
 
 // ── Messaging ─────────────────────────────────────────────────────────────
 
@@ -340,13 +277,14 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
 
   if (type === "cs:vision") {
     if (!sender.tab?.id || !isVisionRequest(msg)) {
-      sendResponse(visionSkip(-1, "inference", "invalid request"));
+      sendResponse(visionGate.skip(-1, "inference", "invalid request"));
       return false;
     }
     const frameKey = `${sender.tab.id}:${sender.frameId ?? 0}:${sender.documentId ?? ""}`;
-    forwardVision({ ...msg, type: "off:vision", target: "offscreen", frameKey }, sender.url ?? sender.tab.url)
+    visionGate
+      .forward({ ...msg, type: "off:vision", target: "offscreen", frameKey }, sender.url ?? sender.tab.url)
       .then(sendResponse)
-      .catch((err) => sendResponse(visionSkip(msg.generation, "unavailable", errorText(err))));
+      .catch((err) => sendResponse(visionGate.skip(msg.generation, "unavailable", errorText(err))));
     return true;
   }
 
@@ -356,7 +294,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
   }
 
   if (type === "off:vision-status-changed" && sender.url?.startsWith(chrome.runtime.getURL(OFFSCREEN_PATH))) {
-    visionStatus = (msg as { status: VisionStatus }).status;
+    visionGate.status = (msg as { status: VisionStatus }).status;
     return false;
   }
 
@@ -367,12 +305,12 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
       if (await currentOffscreen()) {
         try {
           engineStatus = (await chrome.runtime.sendMessage({ type: "off:status", target: "offscreen" })) ?? engineStatus;
-          visionStatus = (await chrome.runtime.sendMessage({ type: "off:vision-status", target: "offscreen" })) ?? visionStatus;
+          visionGate.status = (await chrome.runtime.sendMessage({ type: "off:vision-status", target: "offscreen" })) ?? visionGate.status;
         } catch {
           /* keep last known */
         }
       }
-      sendResponse({ engine: engineStatus, registration: await registrationStatus(), vision: visionStatus } satisfies UiStatusReply);
+      sendResponse({ engine: engineStatus, registration: await registrationStatus(), vision: visionGate.status } satisfies UiStatusReply);
     })();
     return true;
   }
@@ -401,11 +339,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // defaults) changes nothing: no second registration sync.
   if (prev && JSON.stringify(prev) === JSON.stringify(next)) return;
   void scheduleSync("settings-changed", shouldInjectOpenTabs(prev, next));
-  // Download permission withdrawn (downloads or images off, filtering paused,
-  // no active topic) or a site newly excluded: abort downloads in flight.
-  if (prev && downloadsAllowed(prev) && (!downloadsAllowed(next) || next.excludedSites.some((h) => !prev.excludedSites.includes(h)))) revokeDownloads();
-  // Image filtering turned off: unload the image model; text keeps running.
-  // Fire-and-forget and outside the registration chain: messaging the
-  // offscreen document must never delay content-script registration.
-  if (prev?.images && !next.images) unloadImageModel();
+  visionGate.settingsChanged(prev, next);
 });
