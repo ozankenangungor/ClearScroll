@@ -186,11 +186,19 @@ async function currentOffscreen(): Promise<chrome.runtime.ExtensionContext | und
   return contexts[0];
 }
 
-function ensureOffscreen(settings: Settings): Promise<void> {
+/**
+ * Make sure the offscreen document for `settings` exists. `stillAllowed`
+ * (image requests) is checked inside the lock right before anything is
+ * closed or created: a request whose authorisation was revoked while it
+ * waited for the lock (e.g. behind the close of a paused session) returns
+ * false instead of bringing a document back.
+ */
+function ensureOffscreen(settings: Settings, stillAllowed: () => boolean = () => true): Promise<boolean> {
   const url = offscreenUrl(settings);
   return withOffscreenLock(async () => {
     const ctx = await currentOffscreen();
-    if (ctx?.documentUrl === url) return;
+    if (ctx?.documentUrl === url) return true;
+    if (!stillAllowed()) return false;
     if (ctx) await chrome.offscreen.closeDocument();
     engineStatus = initialEngineStatus(engineStatus.model);
     visionGate.resetStatus();
@@ -199,6 +207,7 @@ function ensureOffscreen(settings: Settings): Promise<void> {
       reasons: [chrome.offscreen.Reason.WORKERS],
       justification: "Runs the on-device text and image classification models in Web Workers. Page text and images are analysed on this device only.",
     });
+    return true;
   });
 }
 

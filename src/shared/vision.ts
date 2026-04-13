@@ -86,6 +86,15 @@ export interface OffscreenVision extends Omit<VisionRequest, "type"> {
   target: "offscreen";
   frameKey: string;
   /**
+   * Set by the service worker when it authorised the request: the latest
+   * time image filtering was turned off (or paused) that it knew of, read
+   * before its settings check. The offscreen document refuses requests
+   * whose grant predates a shutdown it has received, so a request
+   * authorised just before the user turned image filtering off can never
+   * load the model again afterwards, however late it is delivered.
+   */
+  visionGrant: number;
+  /**
    * URL requests only, set by the service worker when it approved the
    * download: the latest download revocation it knew of. The offscreen
    * document refuses grants older than a revocation it has received, so a
@@ -95,10 +104,17 @@ export interface OffscreenVision extends Omit<VisionRequest, "type"> {
   downloadGrant?: number;
 }
 
-/** Status query, stats query (benchmarks) and unload (image filtering turned off). */
+/** Status query and stats query (benchmarks). */
 export interface OffscreenVisionControl {
-  type: "off:vision-status" | "off:vision-stats" | "off:vision-shutdown";
+  type: "off:vision-status" | "off:vision-stats";
   target: "offscreen";
+}
+
+/** Image filtering turned off at service-worker time `revokedAt`: unload, refuse older grants. */
+export interface OffscreenVisionShutdown {
+  type: "off:vision-shutdown";
+  target: "offscreen";
+  revokedAt: number;
 }
 
 /** Download permission withdrawn: abort downloads in flight, refuse older grants. */
@@ -172,13 +188,14 @@ export function isVisionRequest(v: unknown): v is VisionRequest {
   );
 }
 
-export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | OffscreenVisionControl | OffscreenRevokeDownloads {
+export function isOffscreenVisionMessage(v: unknown): v is OffscreenVision | OffscreenVisionControl | OffscreenVisionShutdown | OffscreenRevokeDownloads {
   if (!isObject(v) || v.target !== "offscreen") return false;
-  if (v.type === "off:vision-status" || v.type === "off:vision-stats" || v.type === "off:vision-shutdown") return true;
-  if (v.type === "off:vision-revoke-downloads") return Number.isFinite(v.revokedAt);
+  if (v.type === "off:vision-status" || v.type === "off:vision-stats") return true;
+  if (v.type === "off:vision-shutdown" || v.type === "off:vision-revoke-downloads") return Number.isFinite(v.revokedAt);
   return (
     v.type === "off:vision" &&
     typeof v.frameKey === "string" &&
+    Number.isFinite(v.visionGrant) &&
     (v.downloadGrant === undefined || Number.isFinite(v.downloadGrant)) &&
     isVisionRequest({ ...v, type: "cs:vision" })
   );

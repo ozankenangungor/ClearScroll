@@ -87,10 +87,13 @@ test("protocol: vision requests are validated strictly", () => {
   ]) {
     assert.equal(isVisionRequest(bad), false, JSON.stringify(bad)?.slice(0, 80));
   }
-  assert.ok(isOffscreenVisionMessage({ ...req(), type: "off:vision", target: "offscreen", frameKey: "1:0:a" }));
-  assert.equal(isOffscreenVisionMessage({ ...req(), type: "off:vision", target: "offscreen" }), false, "frameKey required");
-  assert.ok(isOffscreenVisionMessage({ type: "off:vision-shutdown", target: "offscreen" }));
-  assert.equal(isOffscreenVisionMessage({ type: "off:vision-shutdown" }), false);
+  assert.ok(isOffscreenVisionMessage({ ...req(), type: "off:vision", target: "offscreen", frameKey: "1:0:a", visionGrant: 0 }));
+  assert.equal(isOffscreenVisionMessage({ ...req(), type: "off:vision", target: "offscreen", visionGrant: 0 }), false, "frameKey required");
+  assert.equal(isOffscreenVisionMessage({ ...req(), type: "off:vision", target: "offscreen", frameKey: "1:0:a" }), false, "visionGrant required (set by the service worker)");
+  assert.equal(isOffscreenVisionMessage({ ...req(), type: "off:vision", target: "offscreen", frameKey: "1:0:a", visionGrant: "0" }), false);
+  assert.ok(isOffscreenVisionMessage({ type: "off:vision-shutdown", target: "offscreen", revokedAt: 5 }));
+  assert.equal(isOffscreenVisionMessage({ type: "off:vision-shutdown", target: "offscreen" }), false, "revokedAt required");
+  assert.equal(isOffscreenVisionMessage({ type: "off:vision-shutdown", revokedAt: 5 }), false);
 });
 
 test("image URLs: only public http(s) hosts are eligible for download", () => {
@@ -324,6 +327,8 @@ const msg = (image: OffscreenVision["image"], patch: Partial<OffscreenVision> = 
   mode: "balanced",
   topics: [{ id: "t-cats", text: "cats" }],
   image,
+  // Authorised by the service worker (no shutdown yet: grant 0).
+  visionGrant: 0,
   // URL requests are approved by the service worker with a download grant.
   ...(image.kind === "url" ? { downloadGrant: 0 } : {}),
   ...patch,
