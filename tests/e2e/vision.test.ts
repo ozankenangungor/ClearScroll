@@ -387,3 +387,36 @@ test("turning image filtering off aborts an in-flight download and the image mod
   assert.equal(status.vision.state, "idle", "no model resurrection after shutdown");
   assert.equal(await page.locator("img[data-clearscroll]").count(), 0);
 });
+
+test("rapid image-filtering toggles: ending off leaves the model unloaded; ending on analyses new pictures", async () => {
+  await reset();
+  await setSettings(env, { topics: topic("cats"), images: true });
+  await waitRegistered(env, true);
+  const page = await securityPage();
+  await waitAttr(page, "#local-cat", "blurred", COLD_MS);
+  const addLocal = (id: string, key: string) =>
+    page.evaluate(
+      ({ id, key }) => {
+        const img = document.createElement("img");
+        img.id = id;
+        img.src = `/media/${key}?${id}`;
+        document.getElementById("slot")!.append(img);
+      },
+      { id, key }
+    );
+  // off → on → off in quick succession while new pictures keep arriving.
+  await addLocal("t1", "k10");
+  await setSettings(env, { images: false });
+  await addLocal("t2", "k1");
+  await setSettings(env, { images: true });
+  await addLocal("t3", "k10");
+  await setSettings(env, { images: false });
+  await page.waitForTimeout(3000);
+  assert.equal((await uiStatus(env)).vision.state, "idle", "ended off: no model loaded by any earlier request");
+  assert.equal(await page.locator("img[data-clearscroll]").count(), 0, "ended off: nothing hidden");
+  // Back on: legitimate image-only analysis works again.
+  await setSettings(env, { images: true });
+  await addLocal("t4", "k1");
+  await waitAttr(page, "#t4", "blurred", COLD_MS);
+  assert.equal((await uiStatus(env)).vision.state, "ready");
+});
