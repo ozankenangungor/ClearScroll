@@ -173,10 +173,10 @@ browse. Chrome 116 or newer is required.
 ## Testing
 
 ```bash
-npm run check                     # typecheck, 106 unit tests, Rust tests
+npm run check                     # typecheck, 113 unit tests, Rust tests
 npx playwright install chromium
 npm run test:dom                  # 51 content-script tests in real Chromium (18 for images)
-npm run test:e2e                  # 37 end-to-end + accessibility (axe-core) tests, 11 with the real image model
+npm run test:e2e                  # 38 end-to-end + accessibility (axe-core) tests, 12 with the real image model
 CLEARSCROLL_BROWSER=chrome npm run test:e2e   # the same on Google Chrome stable
 npm run verify:privacy            # network capture: no requests from the extension
 npm run verify:privacy:images     # the same with image filtering on (and with downloads on)
