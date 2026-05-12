@@ -10,7 +10,7 @@
   "revision": "4649052661e53c7000355844105f8a1792088239",
   "license": "Apache-2.0",
   "license_note": "ONNX export of the Apache-2.0 upstream weights (the export repository declares base_model google/siglip-base-patch16-224 and no separate licence).",
-  "runtime": "onnxruntime-web (WebAssembly CPU execution provider, 1 thread)",
+  "runtime": "onnxruntime-web, non-bundled build (WebAssembly CPU execution provider; up to 4 threads in the cross-origin-isolated offscreen document)",
   "inputs": {
     "image": "pixel_values float32 [1, 3, 224, 224]",
     "text": "input_ids int64 [n, 64], padded with </s> (id 1)"

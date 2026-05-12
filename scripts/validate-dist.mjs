@@ -37,6 +37,9 @@ for (const p of manifest.permissions ?? []) if (!allowedPerms.includes(p)) err(`
 const csp = manifest.content_security_policy?.extension_pages ?? "";
 if (/'unsafe-eval'|'unsafe-inline'|https?:/.test(csp)) err(`extension CSP is too permissive: ${csp}`);
 if (!csp.includes("'wasm-unsafe-eval'")) err("extension CSP must allow 'wasm-unsafe-eval' for the engine");
+// Cross-origin isolation of the extension pages: SharedArrayBuffer for the
+// image model's WebAssembly threads.
+if (manifest.cross_origin_embedder_policy?.value !== "require-corp" || manifest.cross_origin_opener_policy?.value !== "same-origin") err("manifest must declare COEP require-corp and COOP same-origin (image-model threads)");
 
 const referenced = [
   manifest.background?.service_worker,
@@ -55,6 +58,7 @@ const referenced = [
   "offscreen/model/model.json",
   "offscreen/vision.worker.js",
   "offscreen/vision/ort-wasm-simd-threaded.wasm",
+  "offscreen/vision/ort-wasm-simd-threaded.mjs",
   "offscreen/vision/vision_model_quantized.onnx",
   "offscreen/vision/text_model_quantized.onnx",
   "offscreen/vision/tokenizer.json",
@@ -125,6 +129,9 @@ if (fs.existsSync(ortWasm)) {
   if (!fs.readFileSync(ortWasm).subarray(0, 4).equals(Buffer.from([0, 0x61, 0x73, 0x6d]))) err("ort-wasm-simd-threaded.wasm is not a WebAssembly binary");
   const ortPkg = path.join(REPO, "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm");
   if (fs.existsSync(ortPkg) && sha256(ortPkg) !== sha256(ortWasm)) err("ort-wasm-simd-threaded.wasm differs from the installed onnxruntime-web");
+  const gluePkg = path.join(REPO, "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs");
+  const glue = path.join(DIST, "offscreen/vision/ort-wasm-simd-threaded.mjs");
+  if (fs.existsSync(gluePkg) && fs.existsSync(glue) && sha256(gluePkg) !== sha256(glue)) err("ort-wasm-simd-threaded.mjs differs from the installed onnxruntime-web");
 }
 const bgPath = path.join(DIST, "offscreen/vision/background.json");
 if (fs.existsSync(bgPath) && !usableBackground(JSON.parse(fs.readFileSync(bgPath, "utf8")))) err("offscreen/vision/background.json does not match VISION_BACKGROUND_PROMPTS / the model id");

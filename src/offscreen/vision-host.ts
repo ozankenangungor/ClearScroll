@@ -100,6 +100,13 @@ export interface VisionHostDeps {
   onStatus(status: VisionStatus): void;
   now(): number;
   sha256(data: string): Promise<string>;
+  /**
+   * WebAssembly threads for the image encoder (used only where the worker is
+   * cross-origin isolated; default 1).
+   */
+  threads?: number;
+  /** Threads for the short-lived text encoder (default 1). */
+  textThreads?: number;
   /** offscreen/vision/background.json (optional; validated before use). */
   loadBackground?(): Promise<unknown>;
   initTimeoutMs?: number;
@@ -215,7 +222,7 @@ export class VisionHost {
     this.ready = null;
     this.failedAt = null;
     this.restarts = 0;
-    if (this.status.state !== "idle") this.setStatus({ state: "idle", backend: null, detail: null, loadMs: null });
+    if (this.status.state !== "idle") this.setStatus({ state: "idle", backend: null, threads: null, detail: null, loadMs: null });
   }
 
   /**
@@ -457,10 +464,10 @@ export class VisionHost {
     const epoch = this.epoch;
     this.setStatus({ state: "loading", backend: null, detail: null });
     try {
-      const [loadMs] = await Promise.all([this.spawn("image"), this.loadBackground(epoch)]);
+      const [{ loadMs, threads }] = await Promise.all([this.spawn("image"), this.loadBackground(epoch)]);
       // Shut down meanwhile: the new worker was already terminated; report nothing.
       if (epoch !== this.epoch) return false;
-      this.setStatus({ state: "ready", backend: "cpu", loadMs, detail: this.restarts ? `restarted ${this.restarts}×` : null });
+      this.setStatus({ state: "ready", backend: "cpu", threads, loadMs, detail: this.restarts ? `restarted ${this.restarts}×` : null });
       return true;
     } catch (err) {
       if (epoch !== this.epoch) return false;
@@ -505,16 +512,16 @@ export class VisionHost {
     }, this.textIdleMs);
   }
 
-  /** Create and initialise a worker for `role`; resolves with its load time. */
-  private spawn(role: Role): Promise<number> {
+  /** Create and initialise a worker for `role`; resolves with its load time and thread count. */
+  private spawn(role: Role): Promise<{ loadMs: number; threads: number }> {
     const worker = this.deps.createWorker();
     this.workers[role] = worker;
-    return new Promise<number>((resolve, reject) => {
-      const settle = (err: Error | null, loadMs = 0) => {
+    return new Promise<{ loadMs: number; threads: number }>((resolve, reject) => {
+      const settle = (err: Error | null, loaded = { loadMs: 0, threads: 1 }) => {
         clearTimeout(timer);
         if (this.initAborts[role] === abort) delete this.initAborts[role];
         if (err) reject(err);
-        else resolve(loadMs);
+        else resolve(loaded);
       };
       // stopWorker() (shutdown, crash) ends an initialisation still in progress.
       const abort = (err: Error) => settle(err);
@@ -525,7 +532,7 @@ export class VisionHost {
         if (m.type === "ready") {
           worker.onmessage = (e) => this.onWorkerMessage(e.data);
           worker.onerror = (e) => this.onWorkerCrash(role, new Error(e.message || `${role} worker crashed`));
-          settle(null, m.loadMs);
+          settle(null, { loadMs: m.loadMs, threads: m.threads ?? 1 });
         } else if (m.type === "init-failed") {
           settle(new Error(m.error));
         }
@@ -534,7 +541,8 @@ export class VisionHost {
       worker.postMessage({
         type: "init",
         role,
-        ortWasmUrl: this.deps.assetUrl("vision/ort-wasm-simd-threaded.wasm"),
+        ortPrefix: this.deps.assetUrl("vision/"),
+        threads: (role === "image" ? this.deps.threads : this.deps.textThreads) ?? 1,
         modelUrl: this.deps.assetUrl(role === "image" ? "vision/vision_model_quantized.onnx" : "vision/text_model_quantized.onnx"),
         tokenizerUrl: role === "text" ? this.deps.assetUrl("vision/tokenizer.json") : undefined,
       });

@@ -113,10 +113,15 @@ async function handle(req: VisionWorkerRequest): Promise<void> {
     const start = performance.now();
     try {
       if (session) throw new Error("worker already initialised");
-      ort.env.wasm.wasmPaths = { wasm: req.ortWasmUrl };
-      // Threads need cross-origin isolation (SharedArrayBuffer); a single
-      // thread keeps the extension pages free of COOP/COEP requirements.
-      ort.env.wasm.numThreads = 1;
+      // ONNX Runtime's glue (.mjs) and binary (.wasm) are loaded from this
+      // extension-owned prefix; with threads, its pthread workers start from
+      // the same .mjs (the non-bundled build: a bundled one would start them
+      // from this worker's own script).
+      ort.env.wasm.wasmPaths = req.ortPrefix;
+      // Threads need SharedArrayBuffer, i.e. a cross-origin-isolated context
+      // (the manifest's COOP/COEP); otherwise one thread. Results are
+      // identical for any thread count (tests/e2e/vision.test.ts).
+      ort.env.wasm.numThreads = scope.crossOriginIsolated ? Math.max(1, req.threads) : 1;
       ort.env.wasm.proxy = false;
       const opts: ort.InferenceSession.SessionOptions = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
       if (req.role === "text") {
@@ -127,7 +132,7 @@ async function handle(req: VisionWorkerRequest): Promise<void> {
       const bytes = await fetchOk(req.modelUrl).then((r) => r.arrayBuffer());
       session = await ort.InferenceSession.create(new Uint8Array(bytes), opts);
       role = req.role;
-      reply({ type: "ready", loadMs: Math.round(performance.now() - start) });
+      reply({ type: "ready", loadMs: Math.round(performance.now() - start), threads: ort.env.wasm.numThreads ?? 1 });
     } catch (err) {
       session = null;
       reply({ type: "init-failed", error: errorText(err) });

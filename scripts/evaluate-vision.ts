@@ -105,7 +105,7 @@ const result = usable ? cached : await page.evaluate(
           w.addEventListener("message", onMsg);
           w.postMessage({ ...msg, id }, transfer);
         });
-      const init = await call({ type: "init", role, ortWasmUrl: "/ort/ort-wasm-simd-threaded.wasm", modelUrl: role === "image" ? "/model/onnx/vision_model_quantized.onnx" : "/model/onnx/text_model_quantized.onnx", tokenizerUrl: role === "text" ? "/model/tokenizer.json" : undefined });
+      const init = await call({ type: "init", role, ortPrefix: "/ort/", threads: 1, modelUrl: role === "image" ? "/model/onnx/vision_model_quantized.onnx" : "/model/onnx/text_model_quantized.onnx", tokenizerUrl: role === "text" ? "/model/tokenizer.json" : undefined });
       if (init.type !== "ready") throw new Error(init.error);
       return { w, call, loadMs: init.loadMs as number };
     };

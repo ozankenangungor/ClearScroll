@@ -234,6 +234,7 @@ class FakeVisionWorker implements VisionWorkerLike {
   onerror: ((ev: ErrorEvent) => void) | null = null;
   terminated = false;
   role: "image" | "text" | null = null;
+  initThreads: number | null = null;
   images = 0;
   texts: string[][] = [];
   blobs: Blob[] = [];
@@ -249,8 +250,9 @@ class FakeVisionWorker implements VisionWorkerLike {
   postMessage(msg: VisionWorkerRequest): void {
     if (msg.type === "init") {
       this.role = msg.role;
+      this.initThreads = msg.threads;
       if (this.script.initHangs) return;
-      this.send(this.script.initFails ? { type: "init-failed", error: this.script.initFails } : { type: "ready", loadMs: 5 });
+      this.send(this.script.initFails ? { type: "init-failed", error: this.script.initFails } : { type: "ready", loadMs: 5, threads: 1 });
       return;
     }
     if (msg.type === "text") {
@@ -676,3 +678,13 @@ test("lifecycle: shutdown during model initialisation settles waiting work and d
     assert.equal(h.workers.length, 1, "no worker started after shutdown");
     assert.equal(calls.length, 0, "no download after shutdown");
   }));
+
+test("VisionHost: each model worker is started with its configured thread count", async () => {
+  const h = harness({}, undefined, { threads: 4, textThreads: 2 });
+  await h.host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.equal(h.image()[0]!.initThreads, 4);
+  assert.equal(h.text()[0]!.initThreads, 2);
+  const d = harness();
+  await d.host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.equal(d.image()[0]!.initThreads, 1, "default: one thread");
+});

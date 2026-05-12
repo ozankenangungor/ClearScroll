@@ -11,7 +11,7 @@
  *     worker inference time (median/p95) and wall time until all are analysed;
  *   - repeat visit: the same gallery again (image-embedding cache);
  *   - memory: proportional set size (PSS) of all browser processes, before
- *     image filtering and after the gallery (Linux only);
+ *     image filtering, peak (sampled every 250 ms) and steady (Linux only);
  *   - impact on text filtering: time until every on-screen paragraph of a long
  *     page is analysed, alone vs while the gallery is being analysed.
  * Writes docs/benchmarks/vision-<label>.json and prints a summary.
@@ -139,6 +139,11 @@ try {
   await textRun();
   const textAlone = [await textRun(), await textRun(), await textRun()].sort((a, b) => a - b)[1]!;
   const pssBefore = pss(profile);
+  // Peak: sampled every 250 ms from here on (a single reading at the end of
+  // the gallery depends on whether the short-lived text encoder has already
+  // been released, i.e. on how fast the gallery was analysed).
+  let pssPeak = pssBefore ?? 0;
+  const sampler = setInterval(() => (pssPeak = Math.max(pssPeak, pss(profile) ?? 0)), 250);
 
   // Cold start: image filtering turned on, a page with one cat picture.
   await set(sw, { images: true });
@@ -167,6 +172,7 @@ try {
   // Steady state: the text encoder is released after 20 s without new topics.
   await new Promise((r) => setTimeout(r, 25_000));
   const pssSteady = pss(profile);
+  clearInterval(sampler);
 
   // Repeat visit: embeddings are cached.
   const g2 = await ctx.newPage();
@@ -178,10 +184,11 @@ try {
 
   Object.assign(out, {
     modelLoadMs: afterCold.status.vision.loadMs,
+    imageModelThreads: afterCold.status.vision.threads ?? 1,
     coldFirstPictureMs,
     gallery: { photos: photos.length, inferred, wallMs: galleryMs, wallPerPictureMs: Math.round(galleryMs / photos.length), meanInferMs: Math.round((after.stats.inferMs - before.inferMs) / Math.max(1, inferred)) },
     repeatVisit: { wallMs: repeatMs, cacheHits: (await visionStats()).stats.cacheHits },
-    memory: pssBefore === null ? null : { pssBeforeImagesMiB: +(pssBefore / 1048576).toFixed(0), pssAfterGalleryMiB: +(pssAfter! / 1048576).toFixed(0), peakDeltaMiB: +((pssAfter! - pssBefore) / 1048576).toFixed(0), steadyDeltaMiB: +((pssSteady! - pssBefore) / 1048576).toFixed(0), note: "sum of PSS over all browser processes of the profile; steady = 25 s after the last new topic (text encoder released)" },
+    memory: pssBefore === null ? null : { pssBeforeImagesMiB: +(pssBefore / 1048576).toFixed(0), pssAfterGalleryMiB: +(pssAfter! / 1048576).toFixed(0), peakDeltaMiB: +((pssPeak - pssBefore) / 1048576).toFixed(0), steadyDeltaMiB: +((pssSteady! - pssBefore) / 1048576).toFixed(0), note: "sum of PSS over all browser processes of the profile; peak = maximum of 250 ms samples from turning images on until the steady reading; steady = 25 s after the last new topic (text encoder released)" },
     textFiltering: { aloneMs: textAlone, whileGalleryAnalysedMs: textDuringImages, note: "time until every paragraph within 2.5 viewports of long.html is analysed" },
     package: { distMiB: +(dirSize(DIST) / 1048576).toFixed(1) },
   });

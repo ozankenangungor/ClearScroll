@@ -34,6 +34,8 @@ export type VisionState = "off" | "idle" | "loading" | "ready" | "error";
 export interface VisionStatus {
   state: VisionState;
   backend: "cpu" | null;
+  /** WebAssembly threads used by the image model (null until loaded). */
+  threads?: number | null;
   model: string;
   detail: string | null;
   loadMs: number | null;
@@ -144,12 +146,12 @@ export interface TabImageState {
 // ── Worker protocol (offscreen ⇄ vision.worker) ──────────────────────────
 
 export type VisionWorkerRequest =
-  | { type: "init"; role: "image" | "text"; ortWasmUrl: string; modelUrl: string; tokenizerUrl?: string }
+  | { type: "init"; role: "image" | "text"; ortPrefix: string; threads: number; modelUrl: string; tokenizerUrl?: string }
   | { type: "text"; id: number; prompts: string[] }
   | { type: "image"; id: number; rgb?: Uint8Array; blob?: Blob; maxPixels: number };
 
 export type VisionWorkerResponse =
-  | { type: "ready"; loadMs: number }
+  | { type: "ready"; loadMs: number; threads: number }
   | { type: "init-failed"; error: string }
   | { type: "text-done"; id: number; vectors: Float32Array; ms: number }
   | { type: "image-done"; id: number; vector: Float32Array; ms: number }
@@ -392,7 +394,7 @@ export function describeVision(s: VisionStatus | null, enabled: boolean): string
     case "loading":
       return "Loading image model…";
     case "ready":
-      return "Image analysis active (CPU)";
+      return s?.threads && s.threads > 1 ? `Image analysis active (CPU, ${s.threads} threads)` : "Image analysis active (CPU)";
     case "error":
       return "Image analysis unavailable — images are not being checked";
   }
