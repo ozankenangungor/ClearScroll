@@ -10,6 +10,8 @@
  *   - per-picture cost on a gallery of distinct photos (no cache hits):
  *     worker inference time (median/p95) and wall time until all are analysed;
  *   - repeat visit: the same gallery again (image-embedding cache);
+ *   - restart: images off and on again (as after a pause or browser restart)
+ *     — time to the first hidden picture and peak memory;
  *   - memory: proportional set size (PSS) of all browser processes, before
  *     image filtering, peak (sampled every 250 ms) and steady (Linux only);
  *   - impact on text filtering: time until every on-screen paragraph of a long
@@ -181,6 +183,25 @@ try {
   await g2.goto(`${galleryBase}/gallery.html?again`);
   await waitAnalysed(g2, photos.length, "images");
   const repeatMs = Date.now() - tr;
+  for (const p of ctx.pages()) if (p.url().startsWith("http")) await p.close();
+
+  // Restart: images off, then on again (as after a pause or a browser
+  // restart): the image model reloads; a known topic's embedding may come
+  // from the persistent store instead of the text encoder.
+  await set(sw, { images: false });
+  await new Promise((r) => setTimeout(r, 1500));
+  const pssOff = pss(profile);
+  await set(sw, { images: true });
+  let restartPeak = pssOff ?? 0;
+  const restartSampler = setInterval(() => (restartPeak = Math.max(restartPeak, pss(profile) ?? 0)), 250);
+  const again = await ctx.newPage();
+  await again.setViewportSize({ width: 1000, height: 900 });
+  const ta = Date.now();
+  await again.goto(`${server.base}/images.html?restart`);
+  await again.waitForSelector('#cat[data-clearscroll="blurred"]', { timeout: 300_000 });
+  const restartFirstPictureMs = Date.now() - ta;
+  await new Promise((r) => setTimeout(r, 3000));
+  clearInterval(restartSampler);
 
   Object.assign(out, {
     modelLoadMs: afterCold.status.vision.loadMs,
@@ -188,6 +209,7 @@ try {
     coldFirstPictureMs,
     gallery: { photos: photos.length, inferred, wallMs: galleryMs, wallPerPictureMs: Math.round(galleryMs / photos.length), meanInferMs: Math.round((after.stats.inferMs - before.inferMs) / Math.max(1, inferred)) },
     repeatVisit: { wallMs: repeatMs, cacheHits: (await visionStats()).stats.cacheHits },
+    restart: { firstPictureMs: restartFirstPictureMs, peakOverImagesOffMiB: pssOff === null ? null : +((restartPeak - pssOff) / 1048576).toFixed(0), textWorkerStarts: (await visionStats()).stats.textWorkerStarts, note: "images turned off and on again with the same topic; peak = 250 ms samples for 3 s after the first picture" },
     memory: pssBefore === null ? null : { pssBeforeImagesMiB: +(pssBefore / 1048576).toFixed(0), pssAfterGalleryMiB: +(pssAfter! / 1048576).toFixed(0), peakDeltaMiB: +((pssPeak - pssBefore) / 1048576).toFixed(0), steadyDeltaMiB: +((pssSteady! - pssBefore) / 1048576).toFixed(0), note: "sum of PSS over all browser processes of the profile; peak = maximum of 250 ms samples from turning images on until the steady reading; steady = 25 s after the last new topic (text encoder released)" },
     textFiltering: { aloneMs: textAlone, whileGalleryAnalysedMs: textDuringImages, note: "time until every paragraph within 2.5 viewports of long.html is analysed" },
     package: { distMiB: +(dirSize(DIST) / 1048576).toFixed(1) },

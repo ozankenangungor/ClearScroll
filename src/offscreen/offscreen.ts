@@ -17,6 +17,7 @@
 
 import { EngineHost, type ModelMeta } from "./engine-host.ts";
 import { VisionHost } from "./vision-host.ts";
+import { indexedDbTopicStore } from "./topic-store.ts";
 import { isOffscreenMessage, type Backend, type OffscreenStatusChanged } from "../shared/protocol.ts";
 import { isOffscreenVisionMessage, type VisionStatusChanged } from "../shared/vision.ts";
 
@@ -88,6 +89,7 @@ const vision = new VisionHost({
   threads: MODEL_THREADS,
   // The text encoder is short-lived; threads shorten the first-picture path.
   textThreads: MODEL_THREADS,
+  topicStore: indexedDbTopicStore(),
   assetUrl: (path) => new URL(path, location.href).href,
   // Bound: the host calls fetch as a free function.
   fetch: (input, init) => fetch(input, init),

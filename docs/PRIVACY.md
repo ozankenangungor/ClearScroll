@@ -111,6 +111,13 @@ In `chrome.storage.local` on this device (not synced):
 * `clearscroll_migration_notes` — only if old IdeaBlocker site rules could
   not be converted: the rejected rule texts, until you dismiss the notice.
 
+In the extension's own IndexedDB (database `clearscroll-vision`, only when
+image filtering is used): for each topic you entered, its text and the 768
+numbers the image model computed from it, so the image text encoder does not
+have to be loaded again in a later session. Nothing from web pages is
+stored there; at most 128 topics (least recently used are removed); removed
+with the extension.
+
 In `chrome.storage.session` (memory only, cleared when the browser closes):
 `clearscroll_registration_error`, the last Chrome error message from
 registering the content script, if any — no page or browsing data.

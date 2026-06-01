@@ -214,6 +214,11 @@ model, its caches, pixel-based analysis and the text engine running.
 Caches, memory only: image embeddings by identity (`u:<url>` or `p:<sha256
 of the RGB frame>`; 1,000 entries; topic-independent, so changing topics
 re-scores without inference), topic embeddings by text (64). The background
+topic embeddings are also kept in the extension's IndexedDB
+(`src/offscreen/topic-store.ts`; keyed by model, prompt templates and topic
+text; ≤ 128 entries, LRU), so after a restart, a pause or images off/on a
+known topic needs no text encoder (first picture 1.9 → 0.85 s, peak memory
+−44 %, docs/BENCHMARKS.md). The background
 prompts' embeddings are computed at build time (`scripts/vision-background.ts`,
 same runtime and files → `offscreen/vision/background.json`, validated before
 use).

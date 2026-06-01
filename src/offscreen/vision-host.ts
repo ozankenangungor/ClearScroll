@@ -55,6 +55,7 @@
  */
 
 import { LruCache } from "./lru.ts";
+import type { TopicStore } from "./topic-store.ts";
 import {
   usableBackground,
   checkImageUrl,
@@ -64,6 +65,7 @@ import {
   topicPrompts,
   VISION_BACKGROUND_PROMPTS,
   VISION_LIMITS,
+  VISION_PROMPT_TEMPLATES,
   VISION_MODEL_ID,
   type OffscreenVision,
   type PreparedVisionTopic,
@@ -107,6 +109,11 @@ export interface VisionHostDeps {
   threads?: number;
   /** Threads for the short-lived text encoder (default 1). */
   textThreads?: number;
+  /**
+   * Persistent topic embeddings (IndexedDB in the offscreen document): a
+   * topic seen in an earlier session needs no text encoder.
+   */
+  topicStore?: TopicStore;
   /** offscreen/vision/background.json (optional; validated before use). */
   loadBackground?(): Promise<unknown>;
   initTimeoutMs?: number;
@@ -319,7 +326,7 @@ export class VisionHost {
     if (!ready) throw new Skip("unavailable", this.status.detail ?? "image model unavailable");
     // Image and topics in parallel: the text encoder (new topics only) and the
     // image encoder run in different workers.
-    const [image, text] = await Promise.allSettled([this.acquire(msg, epoch).then((input) => this.embedImage(input)), this.prepareTopics(msg.topics.map((t) => t.text))]);
+    const [image, text] = await Promise.allSettled([this.acquire(msg, epoch).then((input) => this.embedImage(input)), this.prepareTopics(msg.topics.map((t) => t.text), epoch)]);
     this.alive(epoch);
     if (image.status === "rejected") throw image.reason;
     if (text.status === "rejected") throw text.reason;
@@ -426,8 +433,19 @@ export class VisionHost {
   }
 
   /** Embeddings for topics (cached by text) and, if not precomputed, the background prompts. */
-  private async prepareTopics(texts: string[]): Promise<PreparedVisionTopic[]> {
-    const missing = [...new Set(texts.filter((t) => !this.topics.get(t)))];
+  private async prepareTopics(texts: string[], epoch: number): Promise<PreparedVisionTopic[]> {
+    let missing = [...new Set(texts.filter((t) => !this.topics.get(t)))];
+    const store = this.deps.topicStore;
+    if (missing.length > 0 && store) {
+      const dim = this.background?.[0]?.length;
+      const found = await Promise.all(missing.map((t) => store.get(topicStoreKey(t))));
+      this.alive(epoch);
+      missing.forEach((t, i) => {
+        const v = found[i];
+        if (v && v.length > 0 && (dim === undefined || v.length === dim) && v.every(Number.isFinite)) this.topics.set(t, v);
+      });
+      missing = missing.filter((t) => !this.topics.get(t));
+    }
     const prompts = missing.flatMap(topicPrompts);
     const needBackground = this.background === null;
     if (needBackground) prompts.push(...VISION_BACKGROUND_PROMPTS);
@@ -438,7 +456,12 @@ export class VisionHost {
       if (res.type !== "text-done") throw new Skip("inference", res.type === "failed" ? res.error : `unexpected worker reply ${res.type}`);
       const dim = res.vectors.length / prompts.length;
       const per = topicPrompts("x").length;
-      missing.forEach((t, i) => this.topics.set(t, meanVector(res.vectors.slice(i * per * dim, (i + 1) * per * dim), per)));
+      this.alive(epoch);
+      missing.forEach((t, i) => {
+        const v = meanVector(res.vectors.slice(i * per * dim, (i + 1) * per * dim), per);
+        this.topics.set(t, v);
+        void store?.set(topicStoreKey(t), v);
+      });
       if (needBackground) {
         const off = missing.length * per;
         this.background = VISION_BACKGROUND_PROMPTS.map((_, i) => res.vectors.slice((off + i) * dim, (off + i + 1) * dim));
@@ -610,6 +633,11 @@ export class VisionHost {
       this.pending.delete(id);
     }
   }
+}
+
+/** Persistent-store key: the embedding depends on the model, the prompt templates and the topic text. */
+export function topicStoreKey(topic: string): string {
+  return `${VISION_MODEL_ID}\u0000${VISION_PROMPT_TEMPLATES.join("\u0001")}\u0000${topic}`;
 }
 
 function errorText(err: unknown): string {
