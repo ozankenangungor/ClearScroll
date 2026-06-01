@@ -142,9 +142,10 @@ held-out Wikimedia Commons photos, default (precise) strictness
 | football (vs rugby, basketball) | 77 % | 77 % | | 1.6 % — 3 of 24 rugby/basketball photos hidden |
 | politics | 60 % | 38 % | | abstract; rarely visible in a photo |
 
-Per picture ≈ 0.6 s on one CPU thread (Intel i7-11800H); first picture
-≈ 2.4 s after turning images on; +0.36 GiB memory while active
-([benchmarks](docs/BENCHMARKS.md#image-filtering)).
+Per picture ≈ 0.17 s with 4 CPU threads (Intel i7-11800H; 0.56 s on one
+thread — fewer cores, fewer threads); first picture ≈ 1.9 s after turning
+images on; +0.36 GiB memory while active, ~+0.9 GiB for a few seconds when a
+new topic is embedded ([benchmarks](docs/BENCHMARKS.md#image-filtering)).
 
 ## Install (from source)
 
@@ -259,9 +260,10 @@ parity, real-model browser tests, image privacy checks).
   Downloads never follow redirects (pictures served through a redirect are
   left unchecked), and the address check cannot detect a public name that
   resolves to a private address (DNS rebinding).
-* **Cost:** ≈ 0.6 s CPU per new picture (one thread), pictures appear
-  unblurred until analysed, +217 MiB package size (≈ 273 MiB unpacked in total) and
-  ≈ 0.36–0.47 GiB extra memory while active.
+* **Cost:** ≈ 0.17 s per new picture on a 16-thread laptop (up to 4 CPU
+  threads; ≈ 0.6 s on one), pictures appear unblurred until analysed, +217
+  MiB package size (≈ 273 MiB unpacked in total) and ≈ 0.36 GiB extra memory
+  while active (~0.9 GiB briefly while a new topic is embedded).
 
 ## Troubleshooting
 

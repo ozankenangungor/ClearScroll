@@ -115,7 +115,7 @@ flowchart LR
     BG["Service worker<br/>validate · settings · site · URL checks"]
     subgraph OFF["Offscreen document"]
       VH["VisionHost<br/>queue · stale drop · caches · downloads · decision"]
-      IW["Image worker<br/>SigLIP image encoder<br/>ONNX Runtime Web (WASM, 1 thread)"]
+      IW["Image worker<br/>SigLIP image encoder<br/>ONNX Runtime Web (WASM, ≤ 4 threads)"]
       TW["Text worker (on demand, idle-released)<br/>SigLIP text encoder + tokenizer"]
     end
   end
@@ -223,11 +223,15 @@ image worker holds the image encoder for as long as image filtering is on.
 The text worker is started only when a topic has no cached embedding, embeds
 each prompt on its own (batching would change results: the int8 model
 quantises activations per tensor) and is terminated after 20 s without use,
-because a WebAssembly heap is only returned when its worker ends. ONNX
-Runtime uses one WebAssembly thread: multi-threading needs cross-origin
-isolation of the extension pages and crashed the renderer in the bundled
-configuration; the GPU is not used (the int8 operators have no WebGPU
-kernels and fp16 weights would double the size).
+because a WebAssembly heap is only returned when its worker ends. Both run
+ONNX Runtime multi-threaded (half the logical cores, at most 4): the
+manifest makes extension pages cross-origin isolated (COOP `same-origin`,
+COEP `require-corp`), which provides `SharedArrayBuffer`, and the workers
+use ONNX Runtime's non-bundled build so its threads start from a separate
+glue file (`offscreen/vision/ort-wasm-simd-threaded.mjs`) rather than from
+the worker's own script. Results are identical for any thread count. The
+GPU is not used (the int8 operators have no WebGPU kernels and fp16 weights
+would double the size).
 
 **7. Decision** (`decideImage`, `src/shared/vision.ts`, calibrated in
 `docs/evaluation/vision/`): match ⇔ cos(picture, topic) ≥ minSimilarity **and**
@@ -379,5 +383,5 @@ handles.
 * **Languages**: the shipped encoders are English-only (see `docs/MODEL.md`).
 * **Pictures**: see the image-filtering limitations in the README — coverage
   (no iframes, shadow roots, canvas, video frames; other-domain pictures only
-  with downloads), ≈ 0.6 s per new picture on one CPU thread, pictures visible
-  until analysed.
+  with downloads), ≈ 0.17 s per new picture with 4 CPU threads (≈ 0.6 s on
+  one), pictures visible until analysed.

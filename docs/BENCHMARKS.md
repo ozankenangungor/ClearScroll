@@ -110,32 +110,60 @@ weights).
 ## Image filtering
 
 `node scripts/benchmark-vision.ts` (raw: `docs/benchmarks/vision-*.json`):
-real extension, SigLIP base/16 int8 on the WebAssembly CPU backend (one
-thread), topic "cats", default strictness, gallery of 40 distinct photos from
-the development image set (no cache hits), same machine as above.
+real extension, SigLIP base/16 int8 on the WebAssembly CPU backend, topic
+"cats", default strictness, gallery of 40 distinct photos from the
+development image set (no cache hits), same machine as above, headless
+Chromium. Paired runs, same day, same workload: the build at `5743a93`
+(one WebAssembly thread) and the current build.
 
-| Metric | Chromium (headless) | Google Chrome stable (headless) |
+| Metric | 1 thread (`5743a93`) | 4 threads (Task 06) |
 |---|---|---|
-| Image model load (worker: fetch + session) | 594 ms | 620 ms |
-| Turning images on → first picture hidden (cold: offscreen document, model load, topic embedding, first inference) | 2,378 ms | 1,895 ms |
-| Per new picture, inference (mean of 40) | 636 ms | 616 ms |
-| Per new picture, wall time on a 40-photo page | 654 ms | 646 ms |
-| Same page again (cached embeddings), all 40 | 493 ms | 530 ms |
-| Memory, all browser processes (PSS), before → after the gallery | 633 → 1106 MiB (+473) | 651 → 1044 MiB (+394) |
-| Memory 25 s later (text encoder released), over text-only | +359 MiB | +328 MiB |
-| Text filtering of a long page: alone / while the gallery is analysed | 146 / 148 ms | 143 / 142 ms |
-| Unpacked package | 272.6 MiB (image model and runtime: 216.9 MiB) | same |
+| Image model threads (16 logical cores) | 1 | 4 |
+| Image model load (worker: fetch + session) | 460 ms | 476 ms |
+| Turning images on → first picture hidden (cold) | 1,856 ms | 1,854 ms |
+| Per new picture, inference (mean of 40) | 564 ms | **166 ms** |
+| Per new picture, wall time on a 40-photo page | 580 ms | **167 ms** |
+| Same page again (cached embeddings), all 40 | 359 ms | 358 ms |
+| Memory, all browser processes (PSS): peak over text-only (sampled every 250 ms) | +896 MiB | +952 MiB |
+| Memory 25 s later (text encoder released), over text-only | +352 MiB | +361 MiB |
+| Text filtering of a long page: alone / while the gallery is analysed | 131 / 138 ms | 137 / 154 ms |
 
-Optimisations and their measured effect (same benchmark):
+**Multi-threaded inference.** The extension pages are cross-origin isolated
+(`cross_origin_embedder_policy: require-corp`, `cross_origin_opener_policy:
+same-origin` in the manifest), which gives the offscreen document's workers
+`SharedArrayBuffer`, and the image worker uses ONNX Runtime's non-bundled
+build, whose WebAssembly threads start from a separate file
+(`offscreen/vision/ort-wasm-simd-threaded.mjs`). Threads = half the logical
+cores, at most 4 (`src/offscreen/offscreen.ts`); results are bit-identical
+for any thread count (`tests/e2e/vision.test.ts`). Thread sweep in the
+image worker (16 dev photos, median): 1 → 630 ms, 2 → 317 ms, 4 → 184 ms,
+8 → 207 ms. An earlier attempt (Task 05) failed because it ran the
+*bundled* build on the page's main thread; the bundled build starts its
+threads from its own script. Isolation does not affect anything else the
+extension pages load (all extension-owned); image downloads are CORS-mode
+requests, unaffected by COEP (end-to-end and privacy tests pass).
+
+**Memory, corrected method.** Earlier tables reported "peak" as a single
+reading at the end of the gallery. With the 1-thread build that reading came
+after the short-lived text encoder had already been released (the gallery
+took ~25 s), which made the peak look like +473 MiB; sampled every 250 ms,
+the real peak with both encoders loaded is ~+900 MiB in both builds. The
+steady cost (image encoder only) is unchanged at ~+360 MiB.
+
+Rejected: the 4-bit export of the image encoder (`vision_model_q4.onnx`,
+same pinned repository): 63 vs 99 MB and ~42 % less worker memory, but
+2.0× slower with 4 threads (367 vs 184 ms) and 2.3× on one thread, with
+measurably different outputs (would need a new independent evaluation). The
+uint8 export is the same size with no speed or memory gain; ONNX Runtime
+session options (no pre-packing, no memory arena, "extended" optimisation)
+changed memory by < 6 % and speed not at all.
+
+Optimisations of Task 05 (same benchmark, 1 thread):
 
 | Change | Before | After |
 |---|---|---|
 | Background prompt embeddings computed at build time instead of on the first picture (22 text-encoder runs ≈ 3.7 s) | first picture 6.4 s | 2.4 s |
-| Text encoder in its own worker, terminated 20 s after its last use (WebAssembly memory is only returned when a worker ends) | +592 MiB, permanent | +473 MiB peak, +359 MiB steady |
+| Text encoder in its own worker, terminated 20 s after its last use (WebAssembly memory is only returned when a worker ends) | encoder memory permanent | released 20 s after the last new topic |
 
-Not done: multi-threaded inference (needs cross-origin-isolated extension
-pages; the threaded build crashed the renderer in our bundled
-configuration) and WebGPU (no WebGPU kernels for the int8 operators; fp16
-files would double the package). Per-picture cost is therefore ≈ 0.6 s on
-one CPU core of a fast laptop and proportionally more on slower machines;
-pictures stay visible until analysed.
+Not done: WebGPU (no WebGPU kernels for the int8 operators; fp16 files would
+double the package). Pictures stay visible until analysed.
