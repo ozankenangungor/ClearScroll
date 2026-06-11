@@ -73,9 +73,12 @@ function renderImages(tab: TabStateReply | null, vision: VisionStatus | null): v
   const parts = [describeVision(vision, true)];
   const img = tab?.activity === "active" ? tab.images : null;
   if (img?.enabled) {
-    parts.push(`${img.blurred} picture${img.blurred === 1 ? "" : "s"} hidden`);
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    parts.push(`${plural(img.analyzed, "picture")} checked, ${img.blurred} hidden`);
+    const pending = (img.pipeline?.queued ?? 0) + (img.pipeline?.inflight ?? 0);
+    if (pending > 0) parts.push(`checking ${pending} more…`);
     const crossOrigin = img.skipped["cross-origin"] ?? 0;
-    if (crossOrigin) parts.push(`${crossOrigin} from other domains not checked (see Settings)`);
+    if (crossOrigin) parts.push(`${plural(crossOrigin, "picture")} from other domains not checked (turn on “Also check pictures from other domains” in Settings)`);
   }
   imageEl.textContent = `Pictures: ${parts.join(" · ")}.`;
 }

@@ -96,6 +96,22 @@ test("cats: a cat photo with no caption is blurred from its pixels; dog, landsca
   assert.equal(status.vision.threads, Math.max(1, Math.min(4, Math.floor(cores / 2))), `threads for ${cores} logical cores`);
 });
 
+test("popup: says how many pictures were checked and hidden on this page", async () => {
+  const page = env.ctx.pages().find((p) => p.url().includes("images.html"))!;
+  await page.bringToFront();
+  const popup = await env.ctx.newPage();
+  await popup.goto(`chrome-extension://${env.extId}/popup/popup.html`);
+  await page.bringToFront();
+  await popup.reload();
+  await popup.waitForFunction(() => /checked/.test(document.getElementById("image-state")!.textContent ?? ""));
+  const line = await popup.locator("#image-state").innerText();
+  assert.match(line, /Image analysis active \(CPU/);
+  const m = line.match(/(\d+) pictures? checked, (\d+) hidden/);
+  assert.ok(m, line);
+  assert.ok(Number(m[1]) >= 14 && Number(m[2]) >= 5, line);
+  await popup.close();
+});
+
 test("reveal: one click shows the photo (also inside a link, without navigating); keyboard works too", async () => {
   const page = env.ctx.pages().find((p) => p.url().includes("images.html"))!;
   await page.click("#cat");
