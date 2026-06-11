@@ -1,0 +1,14 @@
+{
+  "script": "node scripts/benchmark-scroll.ts --dist <dist> --speed <px/s>",
+  "machine": "Intel Core i7-11800H (16 logical cores), Chromium (Playwright 1.64), headless",
+  "workload": "64 distinct development photos (16 cats, 48 other subjects), 420x300 px, no captions; topic 'cats', default strictness; model loaded beforehand; constant-speed scrolling",
+  "date": "2026-10-16",
+  "runs": [
+    { "build": "5743a93 (1 thread)", "speedPxPerS": 1000, "recognisedAtRest": 9, "blurredBeforeVisible": 1, "recognisedButShownUnblurredThroughout": 8, "exposureMs": { "median": 942, "p90": 990, "mean": 842 }, "otherPhotosBlurred": 0 },
+    { "build": "Task 06 (4 threads)", "speedPxPerS": 1000, "recognisedAtRest": 9, "blurredBeforeVisible": 9, "recognisedButShownUnblurredThroughout": 0, "exposureMs": { "median": 0, "p90": 0, "mean": 0 }, "otherPhotosBlurred": 0 },
+    { "build": "5743a93 (1 thread)", "speedPxPerS": 2000, "recognisedAtRest": 9, "blurredBeforeVisible": 1, "recognisedButShownUnblurredThroughout": 8, "exposureMs": { "median": 468, "p90": 481, "mean": 418 }, "otherPhotosBlurred": 0 },
+    { "build": "Task 06 (4 threads)", "speedPxPerS": 2000, "recognisedAtRest": 9, "blurredBeforeVisible": 1, "recognisedButShownUnblurredThroughout": 6, "exposureMs": { "median": 468, "p90": 490, "mean": 393 }, "otherPhotosBlurred": 0 },
+    { "build": "Task 06, look-ahead 1.5 viewports (rejected)", "speedPxPerS": 2000, "recognisedAtRest": 9, "blurredBeforeVisible": 1, "recognisedButShownUnblurredThroughout": 5, "exposureMs": { "median": 466, "p90": 477, "mean": 363 }, "otherPhotosBlurred": 0 }
+  ],
+  "singlePictureLatencyMs": { "note": "picture inserted at rest -> blurred, 12 cat photos, model warm", "5743a93": { "median": 681, "min": 578, "max": 819 }, "task06": { "median": 201, "min": 187, "max": 259 } }
+}

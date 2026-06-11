@@ -143,6 +143,26 @@ threads from its own script. Isolation does not affect anything else the
 extension pages load (all extension-owned); image downloads are CORS-mode
 requests, unaffected by COEP (end-to-end and privacy tests pass).
 
+**What a user sees while scrolling** (`scripts/benchmark-scroll.ts`, raw:
+`docs/benchmarks/vision-scroll-chromium.json`): a feed of 64 distinct
+photos (16 cats) scrolled at constant speed, topic "cats". 9 of the 16 cat
+photos are recognised at rest (the others are recall misses, not latency);
+for those 9:
+
+| Scroll speed | Build | Blurred before appearing | Shown unblurred the whole time on screen | Exposure median |
+|---|---|---|---|---|
+| 1,000 px/s (≈ 3 photos/s) | 1 thread | 1 | 8 | 942 ms |
+| 1,000 px/s | 4 threads | **9** | **0** | **0 ms** |
+| 2,000 px/s (≈ 6 photos/s) | 1 thread | 1 | 8 | 468 ms |
+| 2,000 px/s | 4 threads | 1 | 6 | 468 ms |
+
+No other photo was blurred in any run. At 2,000 px/s the feed shows more
+photos per second than one CPU pipeline analyses (~5–6/s); a longer
+look-ahead (1.5 viewports) only changed 6 → 5 and would analyse — and, with
+downloads on, download — more pictures the user may never reach, so the
+look-ahead stays at half a viewport. Single picture at rest, inserted →
+blurred: median 681 → 201 ms.
+
 **Memory, corrected method.** Earlier tables reported "peak" as a single
 reading at the end of the gallery. With the 1-thread build that reading came
 after the short-lived text encoder had already been released (the gallery
