@@ -303,11 +303,24 @@ export interface VisionRule {
   minMargin: number;
 }
 
+const BALANCED_RULE: VisionRule = { minSimilarity: 0.04, minMargin: -0.005 };
+
+/**
+ * The rule calibrated for "Thorough" (minSimilarity 0.03, minMargin −0.015)
+ * is not used: on the held-out photos it raised recall 0.855 → 0.949 but cut
+ * precision 0.917 → 0.804 (football 0.71 → 0.46: most rugby photos hidden),
+ * i.e. the extra pictures it hid were mostly wrong. Hidden pictures are far
+ * more visible mistakes than hidden sentences, so for pictures "Thorough"
+ * uses the Balanced rule; text keeps its own Thorough threshold.
+ * (docs/evaluation/vision/RESULTS.md, "Thorough mode").
+ */
+export const REJECTED_AGGRESSIVE_RULE: VisionRule = { minSimilarity: 0.03, minMargin: -0.015 };
+
 /** Per strictness; "precision" (the default) hides the fewest images. */
 export const VISION_RULES: Record<FilterMode, VisionRule> = {
   precision: { minSimilarity: 0.04, minMargin: 0.0 },
-  balanced: { minSimilarity: 0.04, minMargin: -0.005 },
-  aggressive: { minSimilarity: 0.03, minMargin: -0.015 },
+  balanced: BALANCED_RULE,
+  aggressive: BALANCED_RULE,
 };
 
 export function topicPrompts(topic: string): string[] {

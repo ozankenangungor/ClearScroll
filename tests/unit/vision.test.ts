@@ -155,6 +155,10 @@ test("decision: an image must beat every generic background description, by the 
   // Strictness is ordered.
   assert.ok(VISION_RULES.precision.minMargin >= VISION_RULES.balanced.minMargin && VISION_RULES.balanced.minMargin >= VISION_RULES.aggressive.minMargin);
   assert.ok(VISION_RULES.precision.minSimilarity >= VISION_RULES.aggressive.minSimilarity);
+  // "Thorough" never hides more pictures than "Balanced" (its own rule was rejected on held-out photos).
+  assert.deepEqual(VISION_RULES.aggressive, VISION_RULES.balanced);
+  const rugbyLike = { similarity: 0.035, margin: -0.01 }; // passes only the rejected rule
+  assert.equal(isVisualMatch(rugbyLike, "aggressive"), false);
 });
 
 test("decision: background prompts that are synonyms of the topic are left out for that topic only", () => {

@@ -112,6 +112,23 @@ precision/recall 0.67/0.25 → 0.60/0.38, football recall 0.62 → 0.77. Footbal
 (below the 0.80 per-topic precision target) and politics remain the named
 limitations.
 
+## "Thorough" mode for pictures (Task 06)
+
+The pre-registered Thorough rule (minSimilarity 0.03, minMargin −0.015) is no
+longer used for pictures. Its held-out numbers above (production re-run):
+precision 0.804, recall 0.949, FPR 1.46 %, 27 false positives — football
+0.46 (15 of 24 rugby/basketball photos hidden) and politics 0.46. The extra
+recall over Balanced (+0.094) came with three times as many wrongly hidden
+pictures. Pictures in Thorough mode now use the Balanced rule; text keeps
+its own Thorough threshold, and the options page says so. This is a choice
+between two rules that were both evaluated before, not a new threshold: no
+value was tuned on the validation set.
+
+| Thorough mode, held-out photos | precision | recall | F1 | FPR | false positives |
+|---|---|---|---|---|---|
+| before (own rule) | 0.804 | 0.949 | 0.871 | 1.46 % | 27 |
+| now (Balanced rule) | 0.917 | 0.855 | 0.885 | 0.49 % | 9 |
+
 ## Live sites (qualitative, not a benchmark)
 
 `node scripts/live-vision.ts [--downloads]` (Chromium, CPU, default
