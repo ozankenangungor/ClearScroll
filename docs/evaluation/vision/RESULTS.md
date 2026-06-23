@@ -129,6 +129,30 @@ value was tuned on the validation set.
 | before (own rule) | 0.804 | 0.949 | 0.871 | 1.46 % | 27 |
 | now (Balanced rule) | 0.917 | 0.855 | 0.885 | 0.49 % | 9 |
 
+## Robustness to how pages show pictures (Task 06, development photos)
+
+`node scripts/evaluate-vision.ts --set dev --transform <t>` re-renders each
+development photo before analysis, labels unchanged (measurement only; no
+rule was changed because of it). Default (precise) strictness:
+
+| Rendering | precision | recall | FPR | unrelated photos hidden with all 10 topics active |
+|---|---|---|---|---|
+| original | 0.930 | 0.757 | 0.40 % | 2 / 74 |
+| 168 × 94 thumbnail (YouTube sidebar size) | 0.914 | 0.757 | 0.50 % | 3 / 74 |
+| 16:9 centre crop | 0.906 | 0.757 | 0.55 % | 3 / 74 |
+| caption bar + "LIVE" badge drawn over the photo | 0.849 | 0.843 | 1.05 % | **13 / 74** |
+
+Small thumbnails and wide crops are handled about as well as the original
+photos. **Text drawn over a picture is a real weakness**: SigLIP reads it,
+and gold bars and trading floors with a headline bar are taken for
+"cryptocurrency" (10 false positives instead of 2), portraits and stock
+images for "politics" (5 instead of 0). Generic extra background
+descriptions ("a picture with a caption.", "a video thumbnail with
+text.", "a news photo with a headline.") reduced this by at most 4 false
+positives; only topic-specific neighbours ("a photo of gold.") helped
+clearly, and adding neighbour lists for the evaluated topics would be
+tuning to this test. Not changed; listed as a limitation.
+
 ## Live sites (qualitative, not a benchmark)
 
 `node scripts/live-vision.ts [--downloads]` (Chromium, CPU, default

@@ -31,6 +31,14 @@ const outPath = arg("--out");
 const calibrate = process.argv.includes("--calibrate");
 /** Reuse embeddings from an earlier run (private; never committed). */
 const cachePath = arg("--cache");
+/**
+ * Robustness check (labels unchanged): re-render every photo the way real
+ * pages show pictures before analysing it — "thumb": a 168×94 16:9 thumbnail
+ * (YouTube sidebar size); "crop169": a 16:9 centre crop; "overlay": a caption
+ * bar and a badge drawn over the photo. Measurement only.
+ */
+const transform = arg("--transform", "none")!;
+if (!["none", "thumb", "crop169", "overlay"].includes(transform)) fail(`unknown --transform ${transform}`);
 const MODEL_DIR = path.join(REPO, "build/vision/siglip-base-p16-224-int8");
 
 function fail(msg: string): never {
@@ -78,7 +86,7 @@ const srv = http.createServer((req, res) => {
         ? path.join(imageRoot, u.slice(5))
         : null;
   if (!file || !fs.existsSync(file)) return void res.writeHead(404).end();
-  res.writeHead(200, { "content-type": file.endsWith(".wasm") ? "application/wasm" : "application/octet-stream" }).end(fs.readFileSync(file));
+  res.writeHead(200, { "content-type": file.endsWith(".wasm") ? "application/wasm" : file.endsWith(".mjs") ? "text/javascript" : "application/octet-stream" }).end(fs.readFileSync(file));
 });
 await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
@@ -87,9 +95,43 @@ const page = await browser.newPage();
 await page.goto(base + "/");
 const prompts = [...new Set([...Object.keys(EVAL_TOPICS).flatMap(topicPrompts), ...VISION_BACKGROUND_PROMPTS])];
 const cached = cachePath && fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : null;
-const usable = cached && prompts.every((p) => cached.text[p]) && items.every((m) => cached.images[m.file]);
+const usable = (cached?.transform ?? "none") === transform && cached && prompts.every((p) => cached.text[p]) && items.every((m) => cached.images[m.file]);
 const result = usable ? cached : await page.evaluate(
-  async ({ files, prompts }) => {
+  async ({ files, prompts, transform }) => {
+    const render = async (blob: Blob): Promise<Blob> => {
+      if (transform === "none") return blob;
+      const bmp = await createImageBitmap(blob);
+      const { width: w, height: h } = bmp;
+      // 16:9 centre crop of the source.
+      const cw = Math.min(w, (h * 16) / 9);
+      const ch = Math.min(h, (w * 9) / 16);
+      const sx = (w - cw) / 2;
+      const sy = (h - ch) / 2;
+      let c: OffscreenCanvas;
+      if (transform === "overlay") {
+        c = new OffscreenCanvas(w, h);
+        const g = c.getContext("2d")!;
+        g.drawImage(bmp, 0, 0);
+        g.fillStyle = "rgba(0,0,0,0.7)";
+        g.fillRect(0, h * 0.78, w, h * 0.22);
+        g.fillStyle = "#fff";
+        g.font = `bold ${Math.round(h * 0.09)}px sans-serif`;
+        g.fillText("You won't believe what happened next", w * 0.03, h * 0.93, w * 0.94);
+        g.fillStyle = "#d00";
+        g.fillRect(w * 0.03, h * 0.04, w * 0.16, h * 0.1);
+        g.fillStyle = "#fff";
+        g.font = `bold ${Math.round(h * 0.07)}px sans-serif`;
+        g.fillText("LIVE", w * 0.05, h * 0.12);
+      } else {
+        const [tw, th] = transform === "thumb" ? [168, 94] : [Math.round(cw), Math.round(ch)];
+        c = new OffscreenCanvas(tw, th);
+        const g = c.getContext("2d")!;
+        g.imageSmoothingQuality = "high";
+        g.drawImage(bmp, sx, sy, cw, ch, 0, 0, tw, th);
+      }
+      bmp.close();
+      return c.convertToBlob({ type: "image/jpeg", quality: 0.85 });
+    };
     const spawn = async (role: "image" | "text") => {
       const w = new Worker("/worker.js", { type: "module" });
       let next = 1;
@@ -123,7 +165,7 @@ const result = usable ? cached : await page.evaluate(
     const images: Record<string, number[] | string> = {};
     const ms: number[] = [];
     for (const f of files) {
-      const blob = await (await fetch("/img/" + f)).blob();
+      const blob = await render(await (await fetch("/img/" + f)).blob());
       const r = await img.call({ type: "image", blob, maxPixels: 24_000_000 });
       if (r.type === "image-done") {
         images[f] = Array.from(r.vector);
@@ -134,11 +176,11 @@ const result = usable ? cached : await page.evaluate(
     txtw.w.terminate();
     return { loadMs: init.loadMs, text, images, ms };
   },
-  { files: items.map((m) => m.file), prompts }
+  { files: items.map((m) => m.file), prompts, transform }
 );
 await browser.close();
 srv.close();
-if (cachePath && !usable) fs.writeFileSync(cachePath, JSON.stringify(result));
+if (cachePath && !usable) fs.writeFileSync(cachePath, JSON.stringify({ ...result, transform }));
 
 // ── Score ─────────────────────────────────────────────────────────────────
 const vec = (v: number[]) => Float32Array.from(v);
