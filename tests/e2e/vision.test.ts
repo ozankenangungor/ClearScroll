@@ -146,6 +146,25 @@ test("turning image filtering off restores every picture and unloads the image m
   assert.equal((await uiStatus(env)).vision.state, "idle");
 });
 
+test("three image-heavy tabs share one offscreen document and one image model", async () => {
+  await reset();
+  await setSettings(env, { topics: topic("cats"), images: true });
+  await waitRegistered(env, true);
+  const pages = await Promise.all([0, 1, 2].map(() => env.ctx.newPage()));
+  await Promise.all(pages.map((p, i) => p.goto(`${env.base}/images.html?tab=${i}`)));
+  for (const p of pages) {
+    await p.bringToFront();
+    await waitAttr(p, "#cat", "blurred", COLD_MS);
+  }
+  const offscreen = await env.sw.evaluate(async () => (await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT" as chrome.runtime.ContextType] })).length);
+  assert.equal(offscreen, 1);
+  const statsPage = await extensionPage(env);
+  const stats = await statsPage.evaluate(() => chrome.runtime.sendMessage({ type: "off:vision-stats", target: "offscreen" }));
+  await statsPage.close();
+  assert.equal(stats.imageWorkerStarts, 1, "one image model for all tabs");
+  assert.ok(stats.cacheHits > 0, "the same pictures in other tabs reuse cached embeddings");
+});
+
 test("football vs rugby and cryptocurrency vs gold/stock market, from pixels", async () => {
   await reset();
   await setSettings(env, { topics: topic("football"), images: true });
