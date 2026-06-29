@@ -16,7 +16,10 @@
  * missing or does not match, they are embedded by the text worker instead.
  *
  * Lifecycle: nothing is loaded until the first image request (image filtering
- * on, an eligible image near the viewport). `shutdown()` (image filtering
+ * on, an eligible image near the viewport). After IMAGE_IDLE_MS without image
+ * requests (e.g. reading text-only pages) the image encoder is unloaded too —
+ * not a shutdown: caches, grants and the epoch are kept, and the next picture
+ * reloads it (~0.9 s). `shutdown()` (image filtering
  * turned off) terminates both workers and drops every cache.
  *
  * Scheduling: one job at a time, FIFO, at most MAX_QUEUED_JOBS waiting
@@ -85,6 +88,8 @@ const IMAGE_CACHE_SIZE = 1000;
 const TOPIC_CACHE_SIZE = 64;
 /** The text encoder is released this long after its last use. */
 const TEXT_IDLE_MS = 20_000;
+/** The image encoder (≈ 0.33 GB) is released this long after the last image request. */
+const IMAGE_IDLE_MS = 5 * 60_000;
 /** Downloaded body types accepted (SVG is excluded: icons, and not decodable in workers). */
 const IMAGE_TYPES = /^image\/(jpeg|pjpeg|png|webp|avif|gif|bmp|x-ms-bmp)$/;
 
@@ -109,6 +114,8 @@ export interface VisionHostDeps {
   threads?: number;
   /** Threads for the short-lived text encoder (default 1). */
   textThreads?: number;
+  /** Idle time after which the image encoder is unloaded (default 5 min). */
+  imageIdleMs?: number;
   /**
    * Persistent topic embeddings (IndexedDB in the offscreen document): a
    * topic seen in an earlier session needs no text encoder.
@@ -134,8 +141,10 @@ export interface VisionStats {
   inferMs: number;
   /** How often the text encoder was started (new topics after it idled out). */
   textWorkerStarts: number;
-  /** How often the image encoder was started (once per load; restarts after failures or re-enabling). */
+  /** How often the image encoder was started (once per load; restarts after failures, idle unloads or re-enabling). */
   imageWorkerStarts: number;
+  /** How often the image encoder was unloaded after IMAGE_IDLE_MS without pictures. */
+  idleUnloads: number;
   backgroundPrecomputed: boolean | null;
 }
 
@@ -168,6 +177,7 @@ export class VisionHost {
   private ready: Promise<boolean> | null = null;
   private textReady: Promise<void> | null = null;
   private textIdle: ReturnType<typeof setTimeout> | null = null;
+  private imageIdle: ReturnType<typeof setTimeout> | null = null;
   private failedAt: number | null = null;
   private restarts = 0;
   private nextId = 1;
@@ -192,7 +202,7 @@ export class VisionHost {
   private imagesRevokedAt = 0;
   /** Rejects a worker initialisation that is still in progress. */
   private readonly initAborts: Partial<Record<Role, (err: Error) => void>> = {};
-  readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, imageWorkerStarts: 0, backgroundPrecomputed: null };
+  readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, imageWorkerStarts: 0, idleUnloads: 0, backgroundPrecomputed: null };
   private readonly deps: VisionHostDeps;
 
   constructor(deps: VisionHostDeps) {
@@ -221,6 +231,7 @@ export class VisionHost {
   shutdown(revokedAt = this.imagesRevokedAt): void {
     this.imagesRevokedAt = Math.max(this.imagesRevokedAt, revokedAt);
     this.epoch++;
+    this.cancelImageIdle();
     this.abortDownloads(new Skip("disabled", "image filtering turned off"));
     for (const job of this.queue.splice(0)) job.resolve(this.skipReply(job.msg, new Skip("disabled", "image filtering turned off")));
     this.stopWorker("image");
@@ -318,10 +329,34 @@ export class VisionHost {
     } finally {
       this.running = false;
     }
+    this.scheduleImageIdle();
+  }
+
+  private cancelImageIdle(): void {
+    if (this.imageIdle !== null) clearTimeout(this.imageIdle);
+    this.imageIdle = null;
+  }
+
+  /** Unload the image encoder after a period without image requests (memory). */
+  private scheduleImageIdle(): void {
+    this.cancelImageIdle();
+    if (!this.workers.image) return;
+    this.imageIdle = setTimeout(() => {
+      this.imageIdle = null;
+      if (this.running || this.queue.length > 0 || !this.workers.image) return;
+      if ([...this.pending.values()].some((p) => p.role === "image")) return this.scheduleImageIdle();
+      this.stopWorker("image");
+      this.stopWorker("text");
+      this.ready = null;
+      this.stats.idleUnloads++;
+      this.setStatus({ state: "idle", backend: null, threads: null, loadMs: null, detail: "unloaded after a while without pictures; loads again when needed" });
+    }, this.deps.imageIdleMs ?? IMAGE_IDLE_MS);
+    unref(this.imageIdle);
   }
 
   private async run(msg: OffscreenVision): Promise<VisionReply> {
     this.stats.jobs++;
+    this.cancelImageIdle();
     const epoch = this.epoch;
     const ready = await this.ensureReady();
     this.alive(epoch);
@@ -536,6 +571,7 @@ export class VisionHost {
       if ([...this.pending.values()].some((p) => p.role === "text")) return this.scheduleTextIdle();
       this.stopWorker("text");
     }, this.textIdleMs);
+    unref(this.textIdle);
   }
 
   /** Create and initialise a worker for `role`; resolves with its load time and thread count. */
@@ -641,6 +677,11 @@ export class VisionHost {
 /** Persistent-store key: the embedding depends on the model, the prompt templates and the topic text. */
 export function topicStoreKey(topic: string): string {
   return `${VISION_MODEL_ID}\u0000${VISION_PROMPT_TEMPLATES.join("\u0001")}\u0000${topic}`;
+}
+
+/** Idle timers must not keep a Node process (unit tests, tools) alive; no-op in browsers. */
+function unref(timer: unknown): void {
+  (timer as { unref?: () => void } | null)?.unref?.();
 }
 
 function errorText(err: unknown): string {
