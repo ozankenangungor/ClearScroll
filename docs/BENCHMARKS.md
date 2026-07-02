@@ -128,6 +128,11 @@ Chromium. Paired runs, same day, same workload: the build at `5743a93`
 | Memory 25 s later (text encoder released), over text-only | +352 MiB | +361 MiB |
 | Text filtering of a long page: alone / while the gallery is analysed | 131 / 138 ms | 137 / 154 ms |
 
+Google Chrome stable 153, same benchmark (`vision-cpu-chrome-stable.json`):
+4 threads, 190 ms per picture (616 ms with one thread before Task 06), cold
+first picture 1.9 s, images off → on again 0.87 s, memory +371 MiB steady
+and +947 MiB peak.
+
 **Multi-threaded inference.** The extension pages are cross-origin isolated
 (`cross_origin_embedder_policy: require-corp`, `cross_origin_opener_policy:
 same-origin` in the manifest), which gives the offscreen document's workers
