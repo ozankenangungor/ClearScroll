@@ -60,6 +60,50 @@ excluded from English metrics: English is the supported language).
 * null — the text may contain a plot point but the labeller cannot tell
   without watching the work.
 
+### cats (topic query: "cats"; Task 07)
+
+* 1 — domestic cats are a subject of the text: cats, kittens, cat breeds,
+  cat behaviour, health, care, food or products, cat videos, stories in
+  which a cat is one of the subjects ("cats and dogs").
+* 0 — other animals (dogs, horses, birds, wildlife), pets or animals in
+  general without cats, anything else, UI strings and metadata.
+* null — big cats (lions, tigers, leopards …) and wild felids; "Cats" the
+  musical or the film; a cat mentioned only in passing in a text about
+  something else; a bare file name or code from which the subject cannot
+  be told ("Taska-model-6.jpg"); channel names that only hint at a subject
+  ("Meow & Paws").
+
+### dogs (topic query: "dogs"; Task 07)
+
+The same rules with dogs and cats exchanged: 1 — domestic dogs and puppies,
+breeds, training, care, dog videos, stories in which a dog is a subject;
+0 — cats and other animals, pets in general without dogs; null — wolves,
+foxes and other wild canids, passing mentions, uninformative file names.
+
+### basketball (topic query: "basketball"; Task 07)
+
+* 1 — basketball: NBA, WNBA, EuroLeague, college and national-team
+  basketball, games, results, players, coaches, trades — including texts
+  that only name basketball clubs or players.
+* 0 — every other sport (association and American football, rugby,
+  cricket, tennis …), sport in general, UI strings and metadata.
+* null — a multi-sport club or person named without saying which sport.
+
+### stock market (topic query: "stock market"; Task 07)
+
+* 1 — stocks and shares: stock indices (S&P 500, Nasdaq, Dow, FTSE …),
+  share prices and trading, company results reported as market news, IPOs,
+  stock-market rallies and sell-offs, investing in shares — also when
+  stocks are one of several subjects ("Bitcoin, stocks and gold fall").
+* 0 — cryptocurrency, gold, commodities, currencies, interest rates or the
+  economy without stocks; companies without their shares; personal finance
+  without shares; UI strings and metadata.
+* null — "markets" or "investing" without saying what is traded.
+
+`lang` is `en` unless non-English words carry the meaning (Polish or Spanish
+file names on Wikimedia Commons, YouTube's Turkish interface strings such as
+"görüntüleme" or "bölüm", which appear because pages are served by location).
+
 ## Splits
 
 * `dev.jsonl` — pages captured first; used for error analysis and for
@@ -70,5 +114,14 @@ excluded from English metrics: English is the supported language).
   `docs/evaluation/realworld/PREREGISTRATION.md`, captured after it was
   pushed, at most 120 texts per page with the card each text belongs to,
   labelled (checksum published in `MANIFEST.json`) before any prediction.
+
+* `task07-dev.jsonl` — Task 07: pages for the topic "cats" (cat, dog,
+  horse and wildlife pages, a news page), captured with no topic active
+  (so no verdict existed) and labelled before any prediction; development
+  data for the sibling veto, like the three splits above.
+* `task07-heldout.jsonl` — Task 07 final held-out split: pages listed in
+  `docs/evaluation/realworld/PREREGISTRATION-task07.md`, captured after it
+  was pushed with no topic active, at most 100 distinct texts per page,
+  labelled (checksum in `MANIFEST.json`) before any prediction.
 
 The files themselves are private; see `README.md`.
