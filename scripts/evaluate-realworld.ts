@@ -4,8 +4,8 @@
  * classifier exactly as the extension ships it — same decide(), same
  * background topics and thresholds.
  *
- *   node scripts/evaluate-realworld.ts [--splits test,dev] [--config shipped|previous|task04-candidate] [--mode balanced]
- *                                      [--out docs/evaluation/realworld/RESULTS.md] [--json out.json]
+ *   node scripts/evaluate-realworld.ts [--splits test,dev] [--config shipped|no-siblings|previous|task04-candidate] [--mode balanced]
+ *                                      [--pool <name>] [--out docs/evaluation/realworld/RESULTS.md] [--json out.json]
  *                                      [--errors 10] [--calibrate docs/evaluation/realworld/calibration.json]
  *
  * The labelled texts are third-party page text and are not published: they
@@ -14,6 +14,9 @@
  * The written report holds aggregates only; --errors prints example errors
  * to the console.
  *
+ * --config no-siblings scores the shipped classifier without the sibling
+ * veto (src/shared/siblings.ts) — the classifier as of Task 06.
+ * --pool <name> adds one section that pools all listed splits.
  * --config previous scores with the classifier as it was before the broad
  * background taxonomy (docs/evaluation/realworld/previous-classifier.json),
  * so before/after comparisons use the same frozen data; --config
@@ -34,12 +37,13 @@ import path from "node:path";
 
 import { BACKGROUND_SIMILARITY_CUTOFF, decide, LEXICAL_PARAMS, prepareTopic, type Background, type ModeParams } from "../src/shared/classifier.ts";
 import { applyTopicTemplate, BACKGROUND_TOPICS, MIN_SEMANTIC_CHARS, MODEL_PROFILES, TOPIC_TEMPLATE } from "../src/shared/models.ts";
+import { planSiblings, SIBLING_PHRASES, topicParts } from "../src/shared/siblings.ts";
 import { FILTER_MODES, type FilterMode } from "../src/shared/settings.ts";
 import { DTYPE, MODEL, modelDir } from "./lib.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const CLI = path.join(REPO, "target/release/clearscroll-embed");
-const KNOWN = new Set(["splits", "config", "mode", "out", "json", "errors", "calibrate"]);
+const KNOWN = new Set(["splits", "config", "mode", "out", "json", "errors", "calibrate", "pool"]);
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i += 2) {
   const key = process.argv[i]!.replace(/^--/, "");
@@ -57,11 +61,12 @@ const mode = (args.get("mode") ?? "balanced") as FilterMode;
 const configName = args.get("config") ?? "shipped";
 const showErrors = Number(args.get("errors") ?? "0");
 
-interface ClassifierConfig { background: string[]; cutoff: number; thresholds: Record<FilterMode, number> }
+interface ClassifierConfig { background: string[]; cutoff: number; thresholds: Record<FilterMode, number>; siblingRatio?: Record<FilterMode, number> }
 const profile = MODEL_PROFILES[MODEL];
 if (!profile) throw new Error(`no profile for ${MODEL}`);
 const configs: Record<string, ClassifierConfig> = {
-  shipped: { background: [...BACKGROUND_TOPICS], cutoff: BACKGROUND_SIMILARITY_CUTOFF, thresholds: profile.thresholds },
+  shipped: { background: [...BACKGROUND_TOPICS], cutoff: BACKGROUND_SIMILARITY_CUTOFF, thresholds: profile.thresholds, siblingRatio: profile.siblingRatio },
+  "no-siblings": { background: [...BACKGROUND_TOPICS], cutoff: BACKGROUND_SIMILARITY_CUTOFF, thresholds: profile.thresholds },
 };
 /** Recorded configurations: previous (before Task 04), task04-candidate (tried, not shipped). */
 function recorded(file: string): ClassifierConfig {
@@ -75,8 +80,8 @@ if (configName === "task04-candidate") configs["task04-candidate"] = recorded("t
 const config = configs[configName];
 if (!config) throw new Error(`--config must be one of ${Object.keys(configs).join(", ")}`);
 
-interface Item { id: string; topic: string; label: 0 | 1 | null; lang: string; source: string; captured: string; text: string; card?: string }
-type Row = Item & { score: number; lexical: boolean; predicted: boolean; via: string | null };
+interface Item { id: string; topic: string; label: 0 | 1 | null; lang: string; source: string; captured: string; text: string; card?: string; split?: string }
+type Row = Item & { score: number; lexical: boolean; rivalled: boolean; predicted: boolean; via: string | null };
 
 function loadSplit(split: string): Item[] {
   const file = path.join(DATA, `${split}.jsonl`);
@@ -90,7 +95,7 @@ function loadSplit(split: string): Item[] {
     console.error(`evaluate-realworld.ts: ${file} has sha256 ${sha}, eval/realworld/MANIFEST.json lists ${want ?? "nothing"} — not the published data.`);
     process.exit(2);
   }
-  return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => ({ ...JSON.parse(l), split }));
 }
 
 function embed(texts: string[]): { dim: number; vectors: Float32Array[] } {
@@ -107,29 +112,35 @@ function embed(texts: string[]): { dim: number; vectors: Float32Array[] } {
 }
 
 function params(m: FilterMode, threshold: number): ModeParams {
-  return { threshold, minSemanticChars: MIN_SEMANTIC_CHARS[m], lexical: LEXICAL_PARAMS[m] };
+  return { threshold, minSemanticChars: MIN_SEMANTIC_CHARS[m], lexical: LEXICAL_PARAMS[m], siblingRatio: config!.siblingRatio?.[m] };
 }
 
 /** Score every item with decide() at threshold −Infinity → score and lexical verdict; thresholds are applied later. */
 function score(items: Item[], m: FilterMode): Row[] {
   const topics = [...new Set(items.map((i) => i.topic))];
   const queries = topics.map((t) => applyTopicTemplate(t, TOPIC_TEMPLATE));
+  const parts = [...new Set(topics.flatMap((t) => (topicParts(t).length > 1 ? topicParts(t).map((p) => applyTopicTemplate(p, TOPIC_TEMPLATE)) : [])))];
   const texts = [...new Set(items.map((i) => i.text))];
-  const { dim, vectors } = embed([...queries, ...config!.background, ...texts]);
-  const nb = config!.background.length;
+  const { dim, vectors } = embed([...queries, ...config!.background, ...SIBLING_PHRASES, ...parts, ...texts]);
+  const nb = config!.background.length, ns = SIBLING_PHRASES.length;
   const background: Background | null = profile!.scoring === "margin"
     ? { vectors: Float32Array.from(vectors.slice(queries.length, queries.length + nb).flatMap((v) => [...v])), count: nb }
     : null;
-  const tVec = new Map(texts.map((t, i) => [t, vectors[queries.length + nb + i]!]));
+  const siblings = { vectors: Float32Array.from(vectors.slice(queries.length + nb, queries.length + nb + ns).flatMap((v) => [...v])), count: ns };
+  const pVec = new Map(parts.map((p, i) => [p, vectors[queries.length + nb + ns + i]!]));
+  const tVec = new Map(texts.map((t, i) => [t, vectors[queries.length + nb + ns + parts.length + i]!]));
   const lexicalOnly = params(m, Infinity);
   const rows: Row[] = [];
   topics.forEach((topic, q) => {
-    const prepared = [prepareTopic({ id: topic, text: topic }, vectors[q]!, lexicalOnly, background, config!.cutoff)];
+    // Same plan as the engine (engine-host.ts siblingPlan), only when this configuration vetoes.
+    const tp = topicParts(topic);
+    const plan = config!.siblingRatio ? planSiblings(vectors[q]!, tp.length > 1 ? tp.map((p) => pVec.get(applyTopicTemplate(p, TOPIC_TEMPLATE))!) : [vectors[q]!], siblings, dim) : null;
+    const prepared = [prepareTopic({ id: topic, text: topic }, vectors[q]!, lexicalOnly, background, config!.cutoff, plan)];
     const its = items.filter((i) => i.topic === topic);
     const flat = new Float32Array(its.length * dim);
     its.forEach((it, i) => flat.set(tVec.get(it.text)!, i * dim));
     decide(its.map((i) => i.text), flat, dim, prepared, lexicalOnly, background).forEach((d, i) =>
-      rows.push({ ...its[i]!, score: d.score, lexical: d.matched, predicted: false, via: null }));
+      rows.push({ ...its[i]!, score: d.score, lexical: d.matched, rivalled: d.rivalled, predicted: false, via: null }));
   });
   return rows;
 }
@@ -137,7 +148,7 @@ function score(items: Item[], m: FilterMode): Row[] {
 /** decide() semantics at a threshold: semantic if long enough and score ≥ t, else lexical. */
 function apply(rows: Row[], m: FilterMode, t: number): Row[] {
   return rows.map((r) => {
-    const semantic = r.text.trim().length >= MIN_SEMANTIC_CHARS[m] && r.score >= t;
+    const semantic = !r.rivalled && r.text.trim().length >= MIN_SEMANTIC_CHARS[m] && r.score >= t;
     return { ...r, predicted: semantic || r.lexical, via: semantic ? "semantic" : r.lexical ? "lexical" : null };
   });
 }
@@ -167,7 +178,7 @@ const HEAD = ["| Group | Texts | Positives | Precision | Recall | F1 | FPR | TP 
 /** Cards: hidden if any text is predicted; on topic if any text is labelled 1 (null if undecided). */
 function cards(rows: Row[]) {
   const by = new Map<string, Row[]>();
-  for (const r of rows) if (r.card) by.set(`${r.topic}|${r.source}|${r.card}`, [...(by.get(`${r.topic}|${r.source}|${r.card}`) ?? []), r]);
+  for (const r of rows) if (r.card) by.set(`${r.split}|${r.topic}|${r.source}|${r.card}`, [...(by.get(`${r.split}|${r.topic}|${r.source}|${r.card}`) ?? []), r]);
   return [...by.values()].map((rs) => ({
     predicted: rs.some((r) => r.predicted),
     label: rs.some((r) => r.label === 1) ? 1 : rs.some((r) => r.label === null) ? null : 0,
@@ -202,9 +213,16 @@ if (args.has("calibrate")) {
   process.exit(0);
 }
 
+const pooled: Item[] = [];
 for (const split of splits) {
   const items = loadSplit(split);
-  const rows = apply(score(items, mode), mode, config.thresholds[mode]);
+  pooled.push(...items);
+  section(split, items);
+}
+if (args.has("pool")) section(`${args.get("pool")} (${splits.join(" + ")})`, pooled);
+
+function section(split: string, items: Item[]): void {
+  const rows = apply(score(items, mode), mode, config!.thresholds[mode]);
   const en = rows.filter((r) => r.lang === "en");
   const topics = [...new Set(items.map((i) => i.topic))];
   const sources = [...new Set(items.map((i) => i.source))];
@@ -231,7 +249,7 @@ for (const split of splits) {
     if (rs.length) lines.push(row(`${t} · \`${src}\``, summary(count(rs))));
   }
   lines.push("");
-  json[split] = { ...splitJson, rows: rows.map(({ id, predicted, score, via }) => ({ id, predicted, score, via })) };
+  json[split] = { ...splitJson, rows: rows.map(({ id, predicted, score, via, rivalled }) => ({ id, predicted, score, via, rivalled })) };
   if (showErrors > 0) {
     for (const topic of topics) {
       const rs = en.filter((r) => r.topic === topic && r.label !== null);

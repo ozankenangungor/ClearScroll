@@ -7,6 +7,7 @@
 
 import { compileLexicalRule, matchLexical, prepareLexicalText, type LexicalParams, type LexicalRule } from "./lexical.ts";
 import type { FilterMode } from "./settings.ts";
+import { rivalled, type SiblingPlan } from "./siblings.ts";
 
 export type MatchVia = "semantic" | "lexical";
 
@@ -22,6 +23,12 @@ export interface Decision {
   /** Raw cosine similarity of the best topic (diagnostics). */
   similarity: number;
   via: MatchVia | null;
+  /**
+   * The semantic match was withheld because the text is closer to a sibling
+   * subject of the topic than to the topic (siblings.ts). Keyword matches are
+   * never withheld.
+   */
+  rivalled: boolean;
 }
 
 /**
@@ -48,6 +55,12 @@ export interface ModeParams {
   /** Texts shorter than this never match semantically (too little signal). */
   minSemanticChars: number;
   lexical: LexicalParams;
+  /**
+   * Sibling veto (siblings.ts): a semantic match is withheld when the best
+   * rival similarity exceeds this many times the topic side's. Absent or
+   * Infinity: off.
+   */
+  siblingRatio?: number;
 }
 
 export interface PreparedTopic {
@@ -58,6 +71,8 @@ export interface PreparedTopic {
   vector: Float32Array | null;
   /** Indices of background topics that compete with this topic. */
   background: number[];
+  /** Sibling subjects that compete with this topic (null: none). */
+  siblings: SiblingPlan | null;
 }
 
 export const LEXICAL_PARAMS: Record<FilterMode, LexicalParams> = {
@@ -71,7 +86,8 @@ export function prepareTopic(
   vector: Float32Array | null,
   params: ModeParams,
   background: Background | null = null,
-  cutoff: number = BACKGROUND_SIMILARITY_CUTOFF
+  cutoff: number = BACKGROUND_SIMILARITY_CUTOFF,
+  siblings: SiblingPlan | null = null
 ): PreparedTopic {
   const competing: number[] = [];
   if (vector && background && background.count > 0) {
@@ -92,7 +108,7 @@ export function prepareTopic(
     // cosine — which would match almost any text.
     if (competing.length === 0) competing.push(leastSimilar);
   }
-  return { id: topic.id, text: topic.text, lexical: compileLexicalRule(topic.text, params.lexical), vector, background: competing };
+  return { id: topic.id, text: topic.text, lexical: compileLexicalRule(topic.text, params.lexical), vector, background: competing, siblings: vector ? siblings : null };
 }
 
 export function dot(a: Float32Array, aOffset: number, b: Float32Array, dim: number): number {
@@ -122,13 +138,17 @@ export function decide(
     throw new Error(`expected ${background.count * dim} background values, got ${background.vectors.length}`);
   }
   const bg = new Float64Array(background?.count ?? 0);
+  const ratio = params.siblingRatio ?? Infinity;
   return texts.map((text, i) => {
     let bestScore = 0;
     let bestSimilarity = 0;
     let bestTopic: PreparedTopic | null = null;
+    // A topic whose sibling veto applies to this text only counts when no
+    // other topic remains (then for diagnostics: it never matches).
+    let bestRivalled = false;
     if (textVectors) {
+      const row = textVectors.subarray(i * dim, (i + 1) * dim);
       if (background) {
-        const row = textVectors.subarray(i * dim, (i + 1) * dim);
         for (let k = 0; k < background.count; k++) bg[k] = dot(background.vectors, k * dim, row, dim);
       }
       bestScore = -Infinity;
@@ -139,25 +159,27 @@ export function decide(
         if (background) for (const k of t.background) offset = Math.max(offset, bg[k]!);
         // No background (raw-cosine model or lexical-only) → raw similarity.
         const s = offset === -Infinity ? similarity : similarity - offset;
-        if (s > bestScore) {
+        const vetoed = t.siblings !== null && Number.isFinite(ratio) && rivalled(row, t.siblings, ratio, dim);
+        if (bestTopic === null || (bestRivalled && !vetoed) || (vetoed === bestRivalled && s > bestScore)) {
           bestScore = s;
           bestSimilarity = similarity;
           bestTopic = t;
+          bestRivalled = vetoed;
         }
       }
       if (!bestTopic) bestScore = 0;
     }
 
-    if (bestTopic && bestScore >= params.threshold && text.trim().length >= params.minSemanticChars) {
-      return { matched: true, topicId: bestTopic.id, score: bestScore, similarity: bestSimilarity, via: "semantic" };
+    if (bestTopic && !bestRivalled && bestScore >= params.threshold && text.trim().length >= params.minSemanticChars) {
+      return { matched: true, topicId: bestTopic.id, score: bestScore, similarity: bestSimilarity, via: "semantic", rivalled: false };
     }
 
     const lex = prepareLexicalText(text);
     for (const t of topics) {
       if (matchLexical(t.lexical, lex)) {
-        return { matched: true, topicId: t.id, score: bestScore, similarity: bestSimilarity, via: "lexical" };
+        return { matched: true, topicId: t.id, score: bestScore, similarity: bestSimilarity, via: "lexical", rivalled: bestRivalled };
       }
     }
-    return { matched: false, topicId: null, score: bestScore, similarity: bestSimilarity, via: null };
+    return { matched: false, topicId: null, score: bestScore, similarity: bestSimilarity, via: null, rivalled: bestRivalled };
   });
 }

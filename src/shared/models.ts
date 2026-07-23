@@ -18,6 +18,12 @@ export interface ModelProfile {
    */
   scoring: "margin" | "raw";
   thresholds: Record<FilterMode, number>;
+  /**
+   * Sibling veto ratio per mode (siblings.ts); absent: no veto. Calibrated on
+   * the real-world dev split: per mode the smallest ratio in {1.2, 1.3, 1.4,
+   * 1.5} whose recall loss is ≤ 2.5 points (docs/evaluation/realworld/).
+   */
+  siblingRatio?: Record<FilterMode, number>;
 }
 
 /**
@@ -60,6 +66,7 @@ export const MODEL_PROFILES: Record<string, ModelProfile> = {
     id: "minilm-l6",
     scoring: "margin",
     thresholds: { precision: 0.055, balanced: 0.005, aggressive: -0.04 },
+    siblingRatio: { precision: 1.2, balanced: 1.3, aggressive: 1.4 },
   },
   "minilm-l3": {
     id: "minilm-l3",

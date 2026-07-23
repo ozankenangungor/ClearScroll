@@ -133,6 +133,34 @@
         "youtube.com/results?search_query=official+teaser+trailer",
         "youtube.com/results?search_query=movie+twist+ending+breakdown"
       ]
+    },
+    "task07-dev": {
+      "description": "Task 07 development pages (topic cats: cat, dog, horse and wildlife pages, news), captured with no topic active and labelled before any prediction; used for error analysis and for choosing the sibling veto",
+      "sha256": "afe5b0824a2a29b32140b05c89390c9d0e1ea870f34eed7c8793233a2c563e04",
+      "texts": 687,
+      "captured": [
+        "2026-10-17"
+      ],
+      "cards": true,
+      "by_topic": {
+        "cats": {
+          "en_positive": 99,
+          "en_negative": 434,
+          "en_ambiguous": 13,
+          "other_language": 141
+        }
+      },
+      "pages": [
+        "bbc.com/news",
+        "commons.wikimedia.org/wiki/Category:Quality_images_of_cats",
+        "commons.wikimedia.org/wiki/Category:Quality_images_of_dogs",
+        "theguardian.com/lifeandstyle/cats",
+        "theguardian.com/lifeandstyle/dogs",
+        "theguardian.com/environment/wildlife",
+        "youtube.com/results?search_query=dog+training+tips",
+        "youtube.com/results?search_query=funny+cats+compilation",
+        "youtube.com/results?search_query=horse+riding+lesson"
+      ]
     }
   }
 }
