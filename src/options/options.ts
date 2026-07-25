@@ -27,6 +27,7 @@ import {
   type Topic,
 } from "../shared/settings.ts";
 import { parseSiteRules } from "../shared/sites.ts";
+import { browserMajor, formatDiagnostics } from "./diagnostics.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -261,9 +262,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ── Engine status ─────────────────────────────────────────────────────────
 
+let lastStatus: UiStatusReply | null = null;
+
 async function refreshStatus(): Promise<void> {
   try {
     const status = (await chrome.runtime.sendMessage({ type: "ui:status" })) as UiStatusReply;
+    lastStatus = status;
     engineStatusEl.dataset.state = status.engine.state;
     engineStatusEl.textContent = !saved?.enabled ? "Filtering off" : describeEngine(status.engine);
     const rows: [string, string][] = [
@@ -288,6 +292,31 @@ async function refreshStatus(): Promise<void> {
     engineStatusEl.textContent = "Status unavailable";
   }
 }
+
+// ── Copy diagnostics (explicit click only; see diagnostics.ts) ────────────
+
+const copyStatus = $<HTMLSpanElement>("copy-status");
+$<HTMLButtonElement>("copy-diagnostics").addEventListener("click", async () => {
+  if (!saved || !lastStatus) {
+    copyStatus.textContent = "Status not available yet — try again in a moment.";
+    return;
+  }
+  const text = formatDiagnostics({
+    version: chrome.runtime.getManifest().version,
+    browser: browserMajor(navigator.userAgent),
+    settings: saved,
+    engine: lastStatus.engine,
+    vision: lastStatus.vision,
+    registered: lastStatus.registration.registered,
+    includeTopics: $<HTMLInputElement>("diag-topics").checked,
+  });
+  try {
+    await navigator.clipboard.writeText(text);
+    copyStatus.textContent = "Copied to the clipboard.";
+  } catch {
+    copyStatus.textContent = "Could not copy to the clipboard.";
+  }
+});
 
 // ── Migration notes ───────────────────────────────────────────────────────
 

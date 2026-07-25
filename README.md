@@ -188,6 +188,10 @@ Then open `chrome://extensions`, enable *Developer mode*, choose *Load
 unpacked* and select `dist/`. Open the extension's settings, add a topic and
 browse. Chrome 116 or newer is required.
 
+Testing a private build? [docs/ALPHA_TESTING.md](docs/ALPHA_TESTING.md)
+explains installation, topics, picture filtering and its cost, how to report
+mistakes without sharing private data, and a manual test checklist.
+
 ## Testing
 
 ```bash
