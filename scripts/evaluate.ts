@@ -248,7 +248,8 @@ for (const model of models) {
     + `ROC-AUC (threshold-free ranking quality): ${aucEn.toFixed(3)} English, ${aucTr.toFixed(3)} Turkish, ${auc.toFixed(3)} combined.`, "");
   modelResult.similarity = { meanPositive: mean(pos), meanNegative: mean(neg), auc, aucEn, aucTr };
 
-  report.push("English test split (the supported language). Lexical = keyword rules only; semantic = embedding similarity only; hybrid = what the extension ships.", "");
+  report.push("English test split (the supported language). Lexical = keyword rules only; semantic = embedding similarity only; hybrid = what the extension ships."
+    + (veto ? ` Semantic and hybrid include the sibling veto (src/shared/siblings.ts, ratio ${veto.ratio.precision} / ${veto.ratio.balanced} / ${veto.ratio.aggressive}); thresholds are calibrated without it, its ratio on the real-world dev split.` : ""), "");
   report.push("| Mode | Threshold (calibrated) | System | Precision | Recall | F1 | FPR | TP | FP | FN | TN |", "|---|---|---|---|---|---|---|---|---|---|---|");
   const modes: Record<string, unknown> = {};
   for (const mode of MODES) {

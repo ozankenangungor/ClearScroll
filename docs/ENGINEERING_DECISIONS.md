@@ -222,6 +222,25 @@ a learned classifier head (needs labelled training data we do not have).
 cases, CI gates on F1 and UI false positives, and a test pinning the
 shipped thresholds to the published calibration.
 
+## 13a. Siblings from a domain list, not from a cosine cutoff (Task 07)
+
+Real-world false positives are mostly neighbouring subjects. Which subjects
+neighbour which is world knowledge the encoder does not expose through
+similarity ("cats"–"kittens" 0.78 > "cats"–"dogs" 0.72; "football"–"sports"
+0.79 > "football"–"basketball" 0.68), so Task 04's cutoff-built
+competitors failed. A short domain list (six domains, 58 members) supplies
+the structure; the user's topic only has to be anchored to a member. The
+alternatives — a larger flat taxonomy, topic-specific keyword lists, a
+second model — are either measured failures (Task 04), brittle, or too
+heavy. Guard rails: the veto only removes semantic matches (never keyword
+matches), topics without a clear anchor or that are broader than a member
+are unchanged, compound topics own all their parts, and the ratio is the
+only tuned number (per mode, on development data). It was accepted only
+after a pre-registered held-out evaluation with topics never used in
+development (`docs/MODEL.md#sibling-veto-task-07`). Card-level voting,
+margin variants and absolute-similarity exemptions were measured and
+rejected.
+
 ## 14. Keyboard focus survives reveal and unblur
 
 An axe-core audit and keyboard tests found that revealing an item with Enter

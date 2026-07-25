@@ -89,6 +89,12 @@ model instead of loading it per tab.
    `model.json`); a text matches if the best topic's score ≥ the model- and
    mode-specific threshold and the text is long enough, otherwise lexical
    rules apply. See `docs/MODEL.md#margin-scoring-against-background-topics`.
+   A semantic match is withheld when the text is clearly closer to a
+   sibling subject of the topic (rugby for "football", dogs for "cats"):
+   `siblings.ts` plans each topic's rivals from six domains (69 phrases,
+   precomputed vectors in `model.json`), and parts of compound topics are
+   embedded with the job. Keyword matches are never withheld
+   (`docs/MODEL.md#sibling-veto-task-07`).
 5. The content script applies a verdict only if the reply's generation is still
    current, filtering is still active, the element is still connected and its
    text equals the text that was classified. Everything else is dropped and

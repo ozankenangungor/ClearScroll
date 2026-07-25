@@ -192,7 +192,7 @@ work better than broad ones ("football" or "soccer" rather than "sports").
 
 The synthetic set above is written to be clean; this one is what the
 extension actually meets: 5,135 text units in three splits (dev, test,
-held-out) captured with the built extension in Google Chrome from public
+held-out; two more were added in Task 07, see [Sibling veto](#sibling-veto-task-07)) captured with the built extension in Google Chrome from public
 pages (BBC, The Guardian, Sky Sports, The Independent, CoinDesk, Hacker
 News, YouTube search results; `scripts/live-capture.ts`), each labelled by hand for one
 topic — "cryptocurrency", "football" or "movie spoilers" — following
@@ -320,7 +320,7 @@ competitors around a weak one-word topic. The implementation is kept as
 `node scripts/evaluate-realworld.ts --config task04-candidate` reproduces
 its numbers.
 
-**Smallest viable next step** (not implemented): make the topic, not a
+**Smallest viable next step** (implemented in Task 07, next section): make the topic, not a
 cosine cutoff, decide what competes — map the user's topic onto an explicit
 two-level taxonomy (e.g. sport → association football / rugby / basketball,
 finance → crypto / precious metals / stocks), represent it by a few short
@@ -329,7 +329,101 @@ unrelated subjects compete, never its parent or children. It reuses this
 encoder and the precomputed-vector mechanism; it needs a new held-out set to
 validate.
 
+## Sibling veto (Task 07)
+
+**What it does** (`src/shared/siblings.ts`, `src/shared/topic-siblings.json`).
+Six general domains — sports, animals, finance, film and TV, technology,
+music — list 58 member subjects ("soccer", "rugby", "basketball" …; "cats",
+"dogs", "horses" …) under 11 labels ("sports", "animals", "pets and
+animals" …), 69 phrases whose vectors `tools/prepare_model.py` stores in
+model.json. For each part of the user's topic (both parts of "football and
+basketball"):
+
+1. its most similar member is its *anchor* if cosine ≥ 0.6;
+2. if a label of that domain is at least as close (− 0.02), the part is
+   *broad* ("sports", "pets") and that domain gives no rivals;
+3. the topic, its parts, their anchors and members within 0.1 of an anchor
+   (or ≥ 0.8) are the topic's side; the other members of anchored domains
+   are its *rivals*.
+
+`decide()` withholds a semantic match when the text's best rival
+similarity exceeds *ratio* × its best similarity to the topic's side
+(precise 1.2, balanced 1.3, thorough 1.4). Keyword matches are never
+withheld; margin scoring, background topics and thresholds are unchanged,
+so the veto can only remove matches, and a topic without rivals (no anchor:
+"politics", "Elon Musk", "Netflix"; broad: "sports", "movies") behaves
+exactly as before. Cost: one extra dot product per rival (≤ 15) per text.
+
+**Why not a cutoff.** A cosine cutoff cannot build the competitors: "cats"
+is closer to "kittens" (0.78) than to "dogs" (0.72), "football" closer to
+"sports" (0.79) and "American football" (0.83) than to "basketball"
+(0.68). Task 04's flat taxonomy therefore dropped rugby and basketball as
+"synonyms" of football while "the Olympic Games" and "motor racing" stayed
+and beat Serie A titles. The domain list says what is a sibling of what;
+the rules above decide only *which* domain a topic belongs to and whether
+it is broad. Other choices measured on development data:
+
+| Variant (dev, pooled, balanced) | Precision | Recall | FPR | |
+|---|---|---|---|---|
+| without the veto | 54.8 % | 80.0 % | 22.0 % | |
+| rival > own + d, d ∈ {0, −0.02, −0.04}, topic alone on its side | 69–71 % | 62–71 % | 9–10 % | football recall 44–59 % |
+| same, anchor and near members on the topic's side | 71 % | 69–76 % | 9–11 % | two parameters |
+| **ratio 1.3, anchor and near members on the topic's side** | **74.9 %** | **77.8 %** | **8.7 %** | shipped |
+| + "keep if similarity to the topic ≥ 0.4–0.5" | ≈ same | +0.1 | ≈ same | no effect, dropped |
+| without the "movie and TV spoilers" member | 69.1 % | 78.2 % | 11.7 % | spoilers FPR stays 36 % |
+| card voting (hide a card only if most texts match) | cards 67.5 % | cards 79.2 % | cards 8.5 % | card recall −5.5, rejected |
+
+Sensitivity: anchor minimum 0.55–0.65, synonym limit 0.75–0.85 and broad
+margin 0–0.05 change nothing; rewording 12 members with synonyms costs 0.7
+points of recall and 3 of precision (before the "near members" rule it cost
+4.6 points of recall — "association football" would have become a rival
+of "football").
+
+**Held-out validation** (pre-registered:
+[PREREGISTRATION-task07.md](evaluation/realworld/PREREGISTRATION-task07.md)).
+22 new pages, captured with no topic active after the pre-registration was
+pushed, labelled for 7 topics (basketball, stock market and dogs never used
+in development), checksum published before any prediction; one run per
+classifier ([with](evaluation/realworld/RESULTS.md),
+[without](evaluation/realworld/RESULTS-no-siblings.md) the veto):
+
+| Held-out, balanced, English (2,681 texts) | without veto | with veto | criterion |
+|---|---|---|---|
+| precision | 44.2 % | 81.1 % | ≥ +8 points ✔ |
+| recall | 83.4 % | 82.1 % | ≥ −3.0 points ✔ |
+| false-positive rate | 28.7 % | 5.2 % | ≥ 30 % lower ✔ |
+| worst topic recall (stock market) | 94.3 % | 88.7 % | ≥ −8 points ✔ (investigated: 3 mixed texts) |
+| cards: FPR / recall | 33.0 % / 89.2 % | 6.6 % / 87.3 % | lower / ≥ −4 points ✔ |
+| unseen topics: recall / FPR | 90.9 % / 28.8 % | 88.8 % / 4.7 % | ≥ −4 points / lower ✔ |
+| synthetic CI gate (F1 / UI FPR) | 63.7 % / 1.8 % | 62.5 % / 1.5 % | ≥ 60 % / ≤ 5 % ✔ |
+| warm batch of 24 / package | 680 ms | 680 ms / +0.47 MiB unpacked | < +5 % / < 0.5 MiB ✔ |
+
+Paired bootstrap over (topic, page) clusters, 2,000 resamples (95 %):
+precision +25.0 to +46.3 points, recall −3.2 to −0.3, FPR −31.2 to −15.2.
+Other modes, held-out: precise P 57.4 → 89.6 %, R 74.4 → 73.7 %, FPR
+15.0 → 2.3 %; thorough P 36.9 → 67.0 %, R 89.4 → 88.2 %, FPR 41.6 →
+11.8 %. Texts under 40 characters: P 41.9 → 79.0 %, R 47.6 → 47.6 %.
+
+The 8 matches lost: 3 mixed stock-market texts ("Gold and silver prices
+seesaw as FTSE 100 hits record high", "Interest Rates FALLING! Nasdaq
+SUPPORT levels BREAKING!", "Stocks Fall After Hot Inflation Report"), 3
+football texts that name only clubs and players, one dog-breed file name,
+one basketball player headline. The veto added no match (by construction).
+**Decision: shipped.**
+
+In the browser (same build, Wikimedia Commons "Quality images of dogs",
+topic "cats"): 56 of 167 units hidden before, 21 after (9 of them Polish
+or Spanish file names, which English metrics exclude).
+
 ## Known failure modes
+
+* **Texts about a topic and its sibling** can lose to the sibling ("Bitcoin
+  Is LOSING SUPPORT! (Inflation Is Getting WORSE)" for "cryptocurrency",
+  "Stocks Fall After Hot Inflation Report" for "stock market").
+* **Words with two meanings** in a sibling's name: "Ethereum gas fees
+  dropped" is closer to "oil and gas prices" than to "cryptocurrency".
+* **Domains the sibling list does not cover** (politics, people, places,
+  hobbies) keep the older behaviour: close neighbours are confused.
 
 * **Mixed-subject texts can lose to a background topic** (cost of margin
   scoring): "Dogecoin spiked again after a celebrity posted a picture of a

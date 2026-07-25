@@ -97,7 +97,8 @@ design rationale: [docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md)
 
 | Classifier | Precision | Recall | F1 | False-positive rate | FPR on UI strings |
 |---|---|---|---|---|---|
-| ClearScroll (MiniLM-L6, margin scoring + keywords) | 66.1 % | 61.4 % | 63.7 % | 3.0 % | 1.8 % |
+| ClearScroll (MiniLM-L6, margin scoring + sibling veto + keywords) | 69.1 % | 57.1 % | 62.5 % | 2.5 % | 1.5 % |
+| Same, without the sibling veto (until Task 06) | 66.1 % | 61.4 % | 63.7 % | 3.0 % | 1.8 % |
 | Same model, plain cosine similarity | 52.0 % | 56.5 % | 54.2 % | 5.0 % | 17.6 % |
 | Keywords only | 50.0 % | 1.1 % | 2.1 % | 0.1 % | — |
 | Previous model (bert-tiny), calibrated | 23.9 % | 55.4 % | 33.4 % | 17.0 % | 29.4 % |
@@ -106,29 +107,45 @@ Texts are scored by how much more they resemble your topic than a set of
 unrelated background topics; this removes most false positives on page
 furniture at a small cost on clean content (trade-off in
 [docs/MODEL.md](docs/MODEL.md#margin-scoring-against-background-topics)).
+A text is also not matched when it is clearly closer to a *sibling* of your
+topic — rugby or basketball for "football", dogs for "cats", gold or stocks
+for "cryptocurrency" ([sibling veto](docs/MODEL.md#sibling-veto-task-07)).
+This synthetic set has few such neighbours; the real-world pages below
+show the effect.
 The Rust engine reproduces the Hugging Face reference implementation:
 0/24 token-id mismatches, max embedding difference 3 × 10⁻⁷.
 
 **On real pages** — text units captured with the extension from public
-pages and labelled by hand (5,135 in three splits; the texts themselves are
-kept private, [method](eval/realworld/README.md)). Latest held-out split:
-1,735 English texts from 14 pages captured and labelled after the method
-was fixed, balanced mode ([report](docs/evaluation/realworld/RESULTS.md)):
+pages and labelled by hand (9,041 in five splits; the texts themselves are
+kept private, [method](eval/realworld/README.md)). Latest held-out split
+(Task 07): 2,681 English texts from 22 new pages and 7 topics — 3 of them
+never used in development — captured and labelled after the method and the
+acceptance criteria were
+[pre-registered](docs/evaluation/realworld/PREREGISTRATION-task07.md),
+balanced mode ([report](docs/evaluation/realworld/RESULTS.md); before:
+[without the sibling veto](docs/evaluation/realworld/RESULTS-no-siblings.md)):
 
-| Topic | Precision | Recall | F1 | False-positive rate |
-|---|---|---|---|---|
-| cryptocurrency | 55.5 % | 74.5 % | 63.6 % | 13.8 % |
-| football | 56.1 % | 67.3 % | 61.2 % | 17.3 % |
-| movie spoilers | 32.8 % | 95.6 % | 48.9 % | 25.8 % |
-| all (texts / hidden cards) | 47.0 % / 49.4 % | 75.6 % / 85.5 % | 58.0 % / 62.6 % | 19.3 % / 19.7 % |
+| Topic | Precision | Recall | False-positive rate |
+|---|---|---|---|
+| cats | 44.0 → 84.0 % | 90.3 → 90.3 % | 34.2 → 5.1 % |
+| dogs *(unseen)* | 47.5 → 92.3 % | 92.4 → 91.3 % | 31.4 → 2.3 % |
+| football | 58.6 → 76.7 % | 89.1 → 85.9 % | 17.7 → 7.3 % |
+| basketball *(unseen)* | 50.7 → 90.4 % | 87.4 → 86.2 % | 23.3 → 2.5 % |
+| cryptocurrency | 37.5 → 93.3 % | 44.2 → 44.2 % | 23.2 → 1.0 % |
+| stock market *(unseen)* | 32.9 → 61.8 % | 94.3 → 88.7 % | 31.7 → 9.0 % |
+| movie spoilers | 37.7 → 72.3 % | 96.8 → 96.8 % | 43.6 → 10.1 % |
+| **all texts** | **44.2 → 81.1 %** | **83.4 → 82.1 %** | **28.7 → 5.2 %** |
+| hidden cards | 43.9 → 79.3 % | 89.2 → 87.3 % | 33.0 → 6.6 % |
 
-General news front pages are almost untouched (≤ 6 % of their texts), but
-pages full of a neighbouring subject are not: silver-price videos for
-"cryptocurrency" (57 % hidden), basketball (58 %) and rugby (25 %) for
-"football", trailers (63 %) and spoiler-free reviews (72 %) for "movie
-spoilers". A classifier that also scores texts against a broad taxonomy of
-competing subjects was tried: it cut false positives to 8.7 % but lowered
-recall to 62.8 % and is **not shipped**
+604 false positives became 110 for 8 lost matches. On a page of puppy
+videos "cats" now hides 12 % of the texts instead of 70 %, "basketball" 5 %
+instead of 58 % of Champions League goals, "movie spoilers" 14 % instead of
+72 % of trailers. What remains: mixed texts ("Gold and silver prices seesaw
+as FTSE 100 hits record high" is no longer hidden for "stock market"),
+tennis for "football" (22 %), and the model's limited knowledge of coin
+names (cryptocurrency recall 29 % on a page of Solana videos, unchanged).
+Earlier attempt with a flat taxonomy of 106 subjects: false positives
+8.7 %, recall 62.8 %, **not shipped**
 ([details](docs/MODEL.md#reducing-false-positives-task-04)).
 
 **Pictures** — SigLIP base/16 (int8), from pixels only, 10 topics, 223
@@ -213,11 +230,14 @@ parity, real-model browser tests, image privacy checks).
 * **English only.** All bundled encoders use an English vocabulary; on
   Turkish text ranking quality is at chance level (ROC-AUC ≈ 0.53).
   Keyword rules still work in any language.
-* **Neighbouring subjects are confused.** The model separates broad
-  domains well but not close ones: for "football" it also hides rugby and
-  basketball; for "cryptocurrency", gold, silver and stock-market items
-  (25–58 % of such texts on pages full of them). Because whole items are
-  hidden, each such mistake hides a whole card.
+* **Neighbouring subjects are only partly separated.** The sibling veto
+  knows six domains (sports, animals, finance, film and TV, technology,
+  music). Inside them most confusions are gone, but texts about two
+  siblings at once can be missed, and a neighbouring sport with no word in
+  common can still slip through (tennis for "football": 22 % of a tennis
+  page). Topics outside those domains (politics, people, places, hobbies)
+  behave as before — for them the model separates broad domains, not close
+  ones. Because whole items are hidden, each mistake hides a whole card.
 * **Topics are matched by what a text is about, not what it does.** Requests
   that need interpretation — "spoilers" (what a text reveals), "negative
   reviews", "clickbait" — are not detected as such: "movie spoilers" hides

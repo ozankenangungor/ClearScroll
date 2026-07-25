@@ -24,7 +24,9 @@ their directory, then:
 
 ```bash
 cargo build --release --no-default-features --features cli
-node scripts/evaluate-realworld.ts --splits heldout,dev --out docs/evaluation/realworld/RESULTS.md
+node scripts/evaluate-realworld.ts --splits task07-heldout,task07-dev,heldout,test,dev --out docs/evaluation/realworld/RESULTS.md
+node scripts/evaluate-realworld.ts --splits task07-heldout --config no-siblings   # the classifier before Task 07 (no sibling veto)
+node scripts/evaluate-realworld.ts --splits dev,test,heldout,task07-dev --pool dev-pool   # all development data pooled
 node scripts/evaluate-realworld.ts --splits heldout --config previous   # the classifier before Task 04
 ```
 
