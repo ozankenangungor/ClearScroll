@@ -18,9 +18,14 @@ import {
   isVisualMatch,
   meanVector,
   prepareVisionTopic,
+  rivalledImage,
+  topicMatches,
   topicPrompts,
+  usableSiblings,
   VISION_BACKGROUND_PROMPTS,
+  VISION_PROMPT_TEMPLATES,
   VISION_RULES,
+  VISION_SIBLING_RULES,
   visionScores,
   type OffscreenVision,
   type VisionReply,
@@ -30,6 +35,7 @@ import {
 } from "../../src/shared/vision.ts";
 import { base64ToBytes, bytesToBase64, IMAGE_MEAN, IMAGE_STD, INPUT_SIZE, RGB_FRAME_BASE64_CHARS, RGB_FRAME_BYTES, rgbaToRgb, rgbToTensor } from "../../src/vision/preprocess.ts";
 import { canonicalizeText } from "../../src/vision/siglip-tokenizer.ts";
+import { SIBLING_PHRASES } from "../../src/shared/siblings.ts";
 
 // ── Preprocessing ─────────────────────────────────────────────────────────
 
@@ -749,4 +755,85 @@ test("VisionHost: the idle timer never unloads the model while a picture is bein
   assert.ok(okDecision(await slow).matched);
   assert.equal(h.host.stats.idleUnloads, 0);
   h.host.shutdown();
+});
+
+// ── Sibling veto for pictures (Task 07) ─────────────────────────────────────
+
+test("decision: a picture closer to a rival of the topic is never hidden for it; topics with rivals use their own rules", () => {
+  // axes: 0 = cat, 1 = dog, 2 = generic animal, 3 = other
+  const background = [unit(0, 0, 1, 0), unit(0, 0, 0, 1)];
+  const plain = prepareVisionTopic("cats", unit(1, 0, 0, 0), background);
+  const withRivals = prepareVisionTopic("cats", unit(1, 0, 0, 0), background, { own: [], rivals: [unit(0, 1, 0, 0)] });
+  assert.equal(plain.siblings, undefined);
+  assert.equal(prepareVisionTopic("cats", unit(1, 0, 0, 0), background, { own: [], rivals: [] }).siblings, undefined, "no rivals → no plan");
+  const dogLike = unit(0.35, 0.6, 0.1, 0);
+  assert.equal(rivalledImage(dogLike, withRivals), true);
+  assert.equal(rivalledImage(dogLike, plain), false);
+  assert.equal(topicMatches(dogLike, withRivals, visionScores(dogLike, withRivals), "aggressive"), false, "vetoed");
+  const catPhoto = unit(0.6, 0.2, 0.1, 0);
+  assert.equal(topicMatches(catPhoto, withRivals, visionScores(catPhoto, withRivals), "precision"), true);
+  // An anchor on the topic's side counts as the topic.
+  const anchored = prepareVisionTopic("kittens", unit(0.5, 0, 0, 1), background, { own: [unit(1, 0, 0, 0)], rivals: [unit(0, 1, 0, 0)] });
+  assert.equal(rivalledImage(unit(0.7, 0.6, 0, 0), anchored), false, "closer to the anchor cats than to dogs");
+  // Rule choice: a borderline picture passes the looser rule only for topics with rivals.
+  const borderline = { similarity: VISION_SIBLING_RULES.balanced.minSimilarity, margin: VISION_SIBLING_RULES.balanced.minMargin };
+  assert.equal(isVisualMatch(borderline, "balanced", true), true);
+  assert.equal(isVisualMatch(borderline, "balanced", false), false);
+  // Strictness stays ordered for topics with rivals; precise keeps its rule.
+  assert.deepEqual(VISION_SIBLING_RULES.precision, VISION_RULES.precision);
+  assert.ok(VISION_SIBLING_RULES.balanced.minMargin >= VISION_SIBLING_RULES.aggressive.minMargin && VISION_SIBLING_RULES.balanced.minSimilarity >= VISION_SIBLING_RULES.aggressive.minSimilarity);
+});
+
+test("decision: precomputed sibling vectors are used only if they match the phrases, templates and model", () => {
+  const phrases = ["dogs", "cats"];
+  const good = { model: "siglip-base-p16-224-int8", prompts: [], vectors: [], siblings: { templates: [...VISION_PROMPT_TEMPLATES], phrases, vectors: [[1, 0], [0, 1]] } };
+  assert.equal(usableSiblings(good, phrases)?.get("cats")?.[1], 1);
+  for (const bad of [
+    { ...good, model: "other" },
+    { ...good, siblings: { ...good.siblings, phrases: ["cats", "dogs"] } },
+    { ...good, siblings: { ...good.siblings, templates: ["{topic}"] } },
+    { ...good, siblings: { ...good.siblings, vectors: [[1, 0], [NaN, 1]] } },
+    { ...good, siblings: undefined },
+    null,
+  ]) assert.equal(usableSiblings(bad, phrases), null, JSON.stringify(bad)?.slice(0, 80));
+});
+
+/** background.json with sibling vectors in which "dogs" looks exactly like the scripted cat frame. */
+function backgroundWithSiblings() {
+  const cat = [0.9, 0.1, 0, 0].map((x, _, a) => x / Math.hypot(...a));
+  return {
+    model: "siglip-base-p16-224-int8",
+    prompts: [...VISION_BACKGROUND_PROMPTS],
+    vectors: VISION_BACKGROUND_PROMPTS.map(textVec),
+    siblings: { templates: [...VISION_PROMPT_TEMPLATES], phrases: [...SIBLING_PHRASES], vectors: SIBLING_PHRASES.map((p) => (p === "dogs" ? cat : p === "cats" ? [1, 0, 0, 0] : [0, 0, 1, 0])) },
+  };
+}
+
+test("VisionHost: rivals from the text engine's plan veto a picture; the plan is asked once per topic", async () => {
+  let asked = 0;
+  const { host } = harness({}, undefined, {
+    loadBackground: async () => backgroundWithSiblings(),
+    siblingNames: async (t) => (asked++, t === "cats" ? { anchors: ["cats"], rivals: ["dogs", "horses"] } : null),
+  });
+  const d = okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) })));
+  assert.equal(d.matched, false, "the cat frame is closer to the rival \"dogs\" here");
+  await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.equal(asked, 1, "cached per topic");
+  // Without sibling vectors in background.json the text engine is not even asked.
+  let asked2 = 0;
+  const plain = harness({}, undefined, { loadBackground: async () => ({ ...backgroundWithSiblings(), siblings: undefined }), siblingNames: async () => (asked2++, { anchors: ["cats"], rivals: ["dogs"] }) });
+  assert.equal(okDecision(await plain.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true);
+  assert.equal(asked2, 0);
+});
+
+test("VisionHost: a text engine that does not answer in time means no veto for now, and is asked again", async () => {
+  let asked = 0;
+  const { host } = harness({}, undefined, {
+    loadBackground: async () => backgroundWithSiblings(),
+    siblingPlanTimeoutMs: 20,
+    siblingNames: () => (asked++, new Promise(() => {})),
+  });
+  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true, "plain rule, no veto");
+  await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.equal(asked, 2, "a timeout is not cached");
 });

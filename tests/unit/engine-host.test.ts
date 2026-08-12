@@ -666,3 +666,13 @@ test("compound topics embed their parts once and never treat a part as a rival",
   assert.equal(r.decisions[0]!.rivalled, false, "stock market is the user's own subject here");
   assert.ok(workers[0]!.embedTexts.some((b) => b.includes("cryptocurrency") && b.includes("stock market")), "parts are embedded with the job");
 });
+
+test("siblingNames: the text plan's anchors and rivals for image filtering; null for broad topics or without a semantic engine", async () => {
+  const { host } = makeHost({}, ["cpu"]);
+  const p = await host.siblingNames("cryptocurrency");
+  assert.deepEqual(p?.anchors, ["cryptocurrency"]);
+  assert.ok(p?.rivals.includes("stock market") && !p.rivals.includes("cryptocurrency"));
+  assert.equal(await host.siblingNames("sports"), null, "broad: no rivals");
+  const off = makeHost({ initFails: ["webgpu", "cpu"] }, ["webgpu", "cpu"]);
+  assert.equal(await off.host.siblingNames("cryptocurrency"), null, "keyword-only engine");
+});

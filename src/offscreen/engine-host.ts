@@ -284,6 +284,25 @@ export class EngineHost {
     return { ok: true, generation: msg.generation, decisions, engine: this.status };
   }
 
+  /**
+   * The sibling plan's anchors and rivals for a topic, for image filtering
+   * (vision.ts uses them in the image model's space). Null when the engine is
+   * not semantic, the profile has no sibling veto or the topic has no rivals.
+   */
+  async siblingNames(topic: string): Promise<{ anchors: string[]; rivals: string[] } | null> {
+    if (!(await this.ensureReady()) || !this.siblings || !this.profile?.siblingRatio) return null;
+    const parts = topicParts(topic);
+    const keys = [topicKey(topic), ...(parts.length > 1 ? parts.map(topicKey) : [])];
+    let vectors: Map<string, Float32Array>;
+    try {
+      vectors = await this.embedCached(keys);
+    } catch {
+      return null;
+    }
+    const plan = this.siblingPlan(topic, vectors.get(topicKey(topic))!, vectors);
+    return plan ? { anchors: plan.anchors, rivals: plan.rivalNames } : null;
+  }
+
   private siblingPlan(topic: string, vector: Float32Array, vectors: Map<string, Float32Array>): SiblingPlan | null {
     if (!this.siblings || !this.profile?.siblingRatio) return null;
     const parts = topicParts(topic);

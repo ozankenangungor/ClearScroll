@@ -59,8 +59,10 @@
 
 import { LruCache } from "./lru.ts";
 import type { TopicStore } from "./topic-store.ts";
+import { SIBLING_PHRASES } from "../shared/siblings.ts";
 import {
   usableBackground,
+  usableSiblings,
   checkImageUrl,
   decideImage,
   meanVector,
@@ -88,6 +90,8 @@ const IMAGE_CACHE_SIZE = 1000;
 const TOPIC_CACHE_SIZE = 64;
 /** The text encoder is released this long after its last use. */
 const TEXT_IDLE_MS = 20_000;
+/** How long a picture waits for the text engine's sibling plan before going without a veto. */
+const SIBLING_PLAN_TIMEOUT_MS = 3_000;
 /** The image encoder (≈ 0.33 GB) is released this long after the last image request. */
 const IMAGE_IDLE_MS = 5 * 60_000;
 /** Downloaded body types accepted (SVG is excluded: icons, and not decodable in workers). */
@@ -121,6 +125,14 @@ export interface VisionHostDeps {
    * topic seen in an earlier session needs no text encoder.
    */
   topicStore?: TopicStore;
+  /**
+   * Anchors and rivals of a topic from the text engine's sibling plan
+   * (EngineHost.siblingNames). Optional: without it, or when it answers null,
+   * topics keep the plain rule and no sibling veto.
+   */
+  siblingNames?(topic: string): Promise<{ anchors: string[]; rivals: string[] } | null>;
+  /** How long a picture waits for siblingNames (default SIBLING_PLAN_TIMEOUT_MS). */
+  siblingPlanTimeoutMs?: number;
   /** offscreen/vision/background.json (optional; validated before use). */
   loadBackground?(): Promise<unknown>;
   initTimeoutMs?: number;
@@ -145,6 +157,8 @@ export interface VisionStats {
   imageWorkerStarts: number;
   /** How often the image encoder was unloaded after IMAGE_IDLE_MS without pictures. */
   idleUnloads: number;
+  /** Topics for which the text engine supplied sibling rivals (image sibling veto active). */
+  siblingTopics: number;
   backgroundPrecomputed: boolean | null;
 }
 
@@ -188,6 +202,10 @@ export class VisionHost {
   private readonly images = new LruCache<string, Float32Array>(IMAGE_CACHE_SIZE);
   private readonly topics = new LruCache<string, Float32Array>(TOPIC_CACHE_SIZE);
   private background: Float32Array[] | null = null;
+  /** Precomputed sibling-phrase vectors (background.json; Task 07). */
+  private siblingTable: Map<string, Float32Array> | null = null;
+  /** Sibling plan per topic text, once the text engine has answered (null: no rivals). */
+  private readonly siblingPlans = new Map<string, { own: Float32Array[]; rivals: Float32Array[] } | null>();
   private readonly initTimeoutMs: number;
   private readonly jobTimeoutMs: number;
   private readonly textIdleMs: number;
@@ -202,7 +220,7 @@ export class VisionHost {
   private imagesRevokedAt = 0;
   /** Rejects a worker initialisation that is still in progress. */
   private readonly initAborts: Partial<Record<Role, (err: Error) => void>> = {};
-  readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, imageWorkerStarts: 0, idleUnloads: 0, backgroundPrecomputed: null };
+  readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, imageWorkerStarts: 0, idleUnloads: 0, siblingTopics: 0, backgroundPrecomputed: null };
   private readonly deps: VisionHostDeps;
 
   constructor(deps: VisionHostDeps) {
@@ -239,6 +257,8 @@ export class VisionHost {
     this.images.clear();
     this.topics.clear();
     this.background = null;
+    this.siblingTable = null;
+    this.siblingPlans.clear();
     this.ready = null;
     this.failedAt = null;
     this.restarts = 0;
@@ -504,7 +524,32 @@ export class VisionHost {
         this.background = VISION_BACKGROUND_PROMPTS.map((_, i) => res.vectors.slice((off + i) * dim, (off + i + 1) * dim));
       }
     }
-    return texts.map((t) => prepareVisionTopic(t, this.topics.get(t)!, this.background!));
+    const plans = await Promise.all(texts.map((t) => this.siblingPlan(t)));
+    this.alive(epoch);
+    return texts.map((t, i) => prepareVisionTopic(t, this.topics.get(t)!, this.background!, plans[i]!));
+  }
+
+  /**
+   * Rivals for a topic, as image-model vectors. Waits for the text engine at
+   * most SIBLING_PLAN_TIMEOUT_MS; a timeout or failure means "no veto" for
+   * this picture and is asked again for the next one.
+   */
+  private async siblingPlan(topic: string): Promise<{ own: Float32Array[]; rivals: Float32Array[] } | null> {
+    if (!this.siblingTable || !this.deps.siblingNames) return null;
+    if (this.siblingPlans.has(topic)) return this.siblingPlans.get(topic)!;
+    const table = this.siblingTable;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => (timer = setTimeout(() => resolve("timeout"), this.deps.siblingPlanTimeoutMs ?? SIBLING_PLAN_TIMEOUT_MS)));
+    const names = await Promise.race([this.deps.siblingNames(topic).catch(() => "timeout" as const), timeout]);
+    clearTimeout(timer);
+    if (names === "timeout") return null;
+    const vec = (p: string) => table.get(p);
+    const plan = names && names.rivals.every((r) => vec(r)) && names.anchors.every((a) => vec(a))
+      ? { own: names.anchors.map((a) => vec(a)!), rivals: names.rivals.map((r) => vec(r)!) }
+      : null;
+    this.siblingPlans.set(topic, plan);
+    if (plan) this.stats.siblingTopics++;
+    return plan;
   }
 
   // ── Workers ─────────────────────────────────────────────────────────────
@@ -541,10 +586,12 @@ export class VisionHost {
 
   private async loadBackground(epoch: number): Promise<void> {
     if (this.background || !this.deps.loadBackground) return;
-    const vectors = usableBackground(await this.deps.loadBackground().catch(() => null));
+    const raw = await this.deps.loadBackground().catch(() => null);
+    const vectors = usableBackground(raw);
     if (epoch !== this.epoch) return;
     this.stats.backgroundPrecomputed = vectors !== null;
     if (vectors) this.background = vectors;
+    this.siblingTable = usableSiblings(raw, SIBLING_PHRASES);
   }
 
   private ensureTextWorker(): Promise<void> {

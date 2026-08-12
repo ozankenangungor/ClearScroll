@@ -90,6 +90,8 @@ const vision = new VisionHost({
   // The text encoder is short-lived; threads shorten the first-picture path.
   textThreads: MODEL_THREADS,
   topicStore: indexedDbTopicStore(),
+  // Rivals of a topic from the text engine's sibling plan (Task 07).
+  siblingNames: (topic) => host.siblingNames(topic),
   assetUrl: (path) => new URL(path, location.href).href,
   // Bound: the host calls fetch as a free function.
   fetch: (input, init) => fetch(input, init),
