@@ -316,7 +316,10 @@ const BALANCED_RULE: VisionRule = { minSimilarity: 0.04, minMargin: -0.005 };
  */
 export const REJECTED_AGGRESSIVE_RULE: VisionRule = { minSimilarity: 0.03, minMargin: -0.015 };
 
-/** Per strictness; "precision" (the default) hides the fewest images. */
+/**
+ * Per strictness; "precision" (the default) hides the fewest images. For
+ * topics without sibling rivals; topics with rivals use VISION_SIBLING_RULES.
+ */
 export const VISION_RULES: Record<FilterMode, VisionRule> = {
   precision: { minSimilarity: 0.04, minMargin: 0.0 },
   balanced: BALANCED_RULE,

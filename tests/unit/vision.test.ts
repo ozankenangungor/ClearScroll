@@ -826,14 +826,27 @@ test("VisionHost: rivals from the text engine's plan veto a picture; the plan is
   assert.equal(asked2, 0);
 });
 
-test("VisionHost: a text engine that does not answer in time means no veto for now, and is asked again", async () => {
+test("VisionHost: pictures never wait long for a slow text engine; its plan applies once it arrives", async () => {
   let asked = 0;
+  let answer: (v: { anchors: string[]; rivals: string[] }) => void = () => {};
   const { host } = harness({}, undefined, {
     loadBackground: async () => backgroundWithSiblings(),
     siblingPlanTimeoutMs: 20,
-    siblingNames: () => (asked++, new Promise(() => {})),
+    siblingNames: () => (asked++, new Promise((resolve) => (answer = resolve))),
   });
-  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true, "plain rule, no veto");
+  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true, "no plan yet: Task 06 rule, no veto");
+  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true);
+  assert.equal(asked, 1, "the request in flight is shared, not repeated");
+  answer({ anchors: ["cats"], rivals: ["dogs"] });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, false, "the plan applies from now on");
+  assert.equal(asked, 1);
+});
+
+test("VisionHost: a failed plan request is asked again by the next picture", async () => {
+  let asked = 0;
+  const { host } = harness({}, undefined, { loadBackground: async () => backgroundWithSiblings(), siblingNames: async () => (asked++, Promise.reject(new Error("engine gone"))) });
   await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
-  assert.equal(asked, 2, "a timeout is not cached");
+  await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.equal(asked, 2);
 });
