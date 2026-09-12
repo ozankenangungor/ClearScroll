@@ -50,8 +50,11 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   sibling of the topic (a rugby photo for "football", a dog for "cats") is
   never hidden for it, which lets these topics use a looser rule. Pre-
   registered held-out run on 285 new photos, balanced: precision 0.916 →
-  0.975, recall 0.801 → 0.892, neighbouring-subject mistakes 12 → 3. Topics
-  without siblings keep the previous rules.
+  0.975, recall 0.801 → 0.892, neighbouring-subject mistakes 12 → 3
+  (offline, every plan available). Topics without siblings, and pictures
+  when the text engine is keyword-only, keep the previous rules; while the
+  text engine is still starting, a picture is deferred rather than decided
+  without the veto.
 - *Thorough* now filters pictures like *Balanced*: its looser picture rule
   mostly hid the wrong photos (held-out: 27 → 9 false positives).
 - Image privacy checks (`npm run verify:privacy:images`), real-model browser

@@ -436,7 +436,10 @@ the 21 are Polish or Spanish file names, which English metrics exclude.
 text space cannot tell siblings from synonyms (SigLIP: "cats"–"dogs" 0.92 =
 "cats"–"animals"), so the rivals come from the text plan and are compared in
 the image model's space. Pre-registered held-out run on 285 new photos,
-balanced: precision 0.916 → 0.975, recall 0.801 → 0.892
+balanced, offline: precision 0.916 → 0.975, recall 0.801 → 0.892. In the
+browser the plan must first come from the text engine: until it has answered
+a picture is deferred, and topics without rivals or a keyword-only text
+engine keep the previous rule
 ([details](evaluation/vision/RESULTS.md#sibling-veto-for-pictures-task-07)).
 
 ## Known failure modes

@@ -259,8 +259,17 @@ sibling plan (`EngineHost.siblingNames`, the same rivals as for text); the
 rivals' image-model vectors are precomputed in `vision/background.json`. A
 picture closer to a rival than to the topic and its anchors is not hidden for
 it, and such topics use `VISION_SIBLING_RULES` (looser for balanced and
-thorough). A picture waits at most 250 ms for the plan; until it arrives
-(right after the text engine starts), the Task 06 rule applies.
+thorough). Exact behaviour (`VisionHost.siblingPlan`):
+
+* The question goes to the text engine when the image job starts, in
+  parallel with loading the image model; the answer is cached per topic.
+* While it is pending, a picture waits for it (at most 10 s). If there is
+  still no answer, the picture is **not** decided by the plain rule but
+  answered with the transient skip `plan-pending`: it stays visible and the
+  content script retries it with backoff.
+* The plain Task 06 rule (no veto) applies only when no plan will come: the
+  topic has no rivals, the text engine is keyword-only or failed
+  (`siblingNames` answers null), or `background.json` lacks sibling vectors.
 
 **8. Applying verdicts.** Same rules as text: current generation, still
 active, still connected, **same picture identity** (a changed source drops

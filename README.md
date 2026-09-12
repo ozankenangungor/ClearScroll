@@ -160,9 +160,11 @@ held-out Wikimedia Commons photos, default (precise) strictness
 | politics | 60 % | 38 % | | abstract; rarely visible in a photo |
 
 With the sibling veto (Task 07; [pre-registered held-out run](docs/evaluation/vision/RESULTS.md#sibling-veto-for-pictures-task-07),
-285 new photos, balanced): precision 0.916 → 0.975, recall 0.801 → 0.892;
-football hides 1 instead of 7 rugby or basketball photos, and cats, dogs and
-basketball are now all found.
+285 new photos, balanced, offline): precision 0.916 → 0.975, recall 0.801 →
+0.892; football hides 1 instead of 7 rugby or basketball photos, and cats,
+dogs and basketball are now all found. It applies to topics with sibling
+subjects and needs the semantic text engine; other topics, and pictures when
+text matching is keyword-only, keep the previous rule.
 
 Per picture ≈ 0.17 s with 4 CPU threads (Intel i7-11800H; 0.56 s on one
 thread — fewer cores, fewer threads); first picture ≈ 1.9 s after turning
