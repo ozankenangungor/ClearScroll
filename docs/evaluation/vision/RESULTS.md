@@ -203,6 +203,14 @@ turning images on 1,910 / 1,920 vs 1,364 / 1,904 ms; per picture 211 / 209
 vs 176 / 209 ms; images off → on 887 / 876 vs 875 / 884 ms — no difference
 beyond run-to-run noise.
 
+Live pages (Google Chrome stable, pictures and downloads from other domains
+on, balanced, `CLEARSCROLL_LIVE_IMAGES=1 node scripts/live-capture.ts`; the
+same build with the image veto disconnected vs connected, minutes apart;
+pictures inside a card hidden by its text are counted with the card, not
+here): Wikimedia Commons "Quality images of dogs", topic "cats": 1 → 0
+pictures hidden; "Quality images of cats": 7 → 8; BBC Sport rugby union,
+topic "football": 4 → 0.
+
 Deviations from the pre-registration: the query "stock ticker display"
 returned no usable photo (stocks has 9 photos from the other query). After
 the held-out run, the time a picture waits for the text engine's plan was
