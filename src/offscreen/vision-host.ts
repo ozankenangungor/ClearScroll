@@ -91,12 +91,15 @@ const TOPIC_CACHE_SIZE = 64;
 /** The text encoder is released this long after its last use. */
 const TEXT_IDLE_MS = 20_000;
 /**
- * How long a picture waits for the text engine's sibling plan before it is
- * decided without the veto (Task 06 rule). The request itself is not
- * cancelled: later pictures use the plan once it has arrived, so a cold text
- * engine never delays the first picture by more than this.
+ * How long a picture waits for the text engine's answer about a topic's
+ * siblings. The request starts with the job (in parallel with loading the
+ * image model), so a starting text engine normally answers in time. If it
+ * does not, the picture is not decided with the plain rule — that could hide
+ * a rugby photo for "football" only because the plan was late — but answered
+ * with the transient skip "plan-pending": it stays visible and the content
+ * script retries it with backoff (image-filter.ts).
  */
-const SIBLING_PLAN_TIMEOUT_MS = 250;
+const SIBLING_PLAN_WAIT_MS = 10_000;
 /** The image encoder (≈ 0.33 GB) is released this long after the last image request. */
 const IMAGE_IDLE_MS = 5 * 60_000;
 /** Downloaded body types accepted (SVG is excluded: icons, and not decodable in workers). */
@@ -136,7 +139,7 @@ export interface VisionHostDeps {
    * topics keep the plain rule and no sibling veto.
    */
   siblingNames?(topic: string): Promise<{ anchors: string[]; rivals: string[] } | null>;
-  /** How long a picture waits for siblingNames (default SIBLING_PLAN_TIMEOUT_MS). */
+  /** How long a picture waits for siblingNames before "plan-pending" (default SIBLING_PLAN_WAIT_MS). */
   siblingPlanTimeoutMs?: number;
   /** offscreen/vision/background.json (optional; validated before use). */
   loadBackground?(): Promise<unknown>;
@@ -209,10 +212,12 @@ export class VisionHost {
   private background: Float32Array[] | null = null;
   /** Precomputed sibling-phrase vectors (background.json; Task 07). */
   private siblingTable: Map<string, Float32Array> | null = null;
-  /** Sibling plan per topic text, once the text engine has answered (null: no rivals). */
-  private readonly siblingPlans = new Map<string, { own: Float32Array[]; rivals: Float32Array[] } | null>();
-  /** Plans being asked for (shared by the pictures that arrive meanwhile). */
+  /** The text engine's answer per topic text (null: no rivals, or no semantic text engine). */
+  private readonly siblingAnswers = new Map<string, { anchors: string[]; rivals: string[] } | null>();
+  /** Answers being asked for (shared by the pictures that arrive meanwhile). */
   private readonly siblingRequests = new Map<string, Promise<void>>();
+  /** Answers turned into image-model vectors (null: no veto for that topic). */
+  private readonly siblingPlans = new Map<string, { own: Float32Array[]; rivals: Float32Array[] } | null>();
   private readonly initTimeoutMs: number;
   private readonly jobTimeoutMs: number;
   private readonly textIdleMs: number;
@@ -266,6 +271,7 @@ export class VisionHost {
     this.background = null;
     this.siblingTable = null;
     this.siblingPlans.clear();
+    this.siblingAnswers.clear();
     this.siblingRequests.clear();
     this.ready = null;
     this.failedAt = null;
@@ -385,6 +391,8 @@ export class VisionHost {
   private async run(msg: OffscreenVision): Promise<VisionReply> {
     this.stats.jobs++;
     this.cancelImageIdle();
+    // Ask the text engine about siblings now, while the image model loads.
+    for (const t of msg.topics) this.requestSiblingNames(t.text);
     const epoch = this.epoch;
     const ready = await this.ensureReady();
     this.alive(epoch);
@@ -532,44 +540,54 @@ export class VisionHost {
         this.background = VISION_BACKGROUND_PROMPTS.map((_, i) => res.vectors.slice((off + i) * dim, (off + i + 1) * dim));
       }
     }
-    const plans = await Promise.all(texts.map((t) => this.siblingPlan(t)));
+    const plans = await Promise.all(texts.map((t) => this.siblingPlan(t, epoch)));
     this.alive(epoch);
     return texts.map((t, i) => prepareVisionTopic(t, this.topics.get(t)!, this.background!, plans[i]!));
   }
 
+  private requestSiblingNames(topic: string): void {
+    if (!this.deps.siblingNames || this.siblingAnswers.has(topic) || this.siblingRequests.has(topic)) return;
+    const epoch = this.epoch;
+    const request = this.deps.siblingNames(topic).then(
+      (names) => {
+        this.siblingRequests.delete(topic);
+        if (epoch === this.epoch) this.siblingAnswers.set(topic, names);
+      },
+      // A failed request is asked again by the next picture.
+      () => void this.siblingRequests.delete(topic)
+    );
+    this.siblingRequests.set(topic, request);
+  }
+
   /**
-   * Rivals for a topic, as image-model vectors. Waits for the text engine at
-   * most SIBLING_PLAN_TIMEOUT_MS; a timeout or failure means "no veto" for
-   * this picture and is asked again for the next one.
+   * Rivals for a topic, as image-model vectors; null when the topic has none
+   * (or there is no semantic text engine, or no precomputed vectors): then
+   * the plain rule applies. Throws the transient Skip "plan-pending" when the
+   * text engine has not answered within SIBLING_PLAN_WAIT_MS.
    */
-  private async siblingPlan(topic: string): Promise<{ own: Float32Array[]; rivals: Float32Array[] } | null> {
-    if (!this.siblingTable || !this.deps.siblingNames) return null;
+  private async siblingPlan(topic: string, epoch: number): Promise<{ own: Float32Array[]; rivals: Float32Array[] } | null> {
+    if (!this.deps.siblingNames) return null;
     if (this.siblingPlans.has(topic)) return this.siblingPlans.get(topic)!;
-    let request = this.siblingRequests.get(topic);
-    if (!request) {
-      const table = this.siblingTable;
-      const epoch = this.epoch;
-      request = this.deps.siblingNames(topic).then(
-        (names) => {
-          this.siblingRequests.delete(topic);
-          // Shut down meanwhile: the table it refers to is gone.
-          if (epoch !== this.epoch) return;
-          const vec = (p: string) => table.get(p);
-          const plan = names && names.rivals.every((r) => vec(r)) && names.anchors.every((a) => vec(a))
-            ? { own: names.anchors.map((a) => vec(a)!), rivals: names.rivals.map((r) => vec(r)!) }
-            : null;
-          this.siblingPlans.set(topic, plan);
-          if (plan) this.stats.siblingTopics++;
-        },
-        // A failed request is asked again by the next picture.
-        () => void this.siblingRequests.delete(topic)
-      );
-      this.siblingRequests.set(topic, request);
+    // The request was started with the job (run); a failed one is not repeated within the same job.
+    const request = this.siblingRequests.get(topic);
+    if (!this.siblingAnswers.has(topic) && request) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([request, new Promise<void>((resolve) => (timer = setTimeout(resolve, this.deps.siblingPlanTimeoutMs ?? SIBLING_PLAN_WAIT_MS)))]);
+      clearTimeout(timer);
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([request, new Promise<void>((resolve) => (timer = setTimeout(resolve, this.deps.siblingPlanTimeoutMs ?? SIBLING_PLAN_TIMEOUT_MS)))]);
-    clearTimeout(timer);
-    return this.siblingPlans.get(topic) ?? null;
+    this.alive(epoch);
+    if (!this.siblingAnswers.has(topic)) throw new Skip("plan-pending", "the text engine has not said yet which subjects compete with this topic");
+    const names = this.siblingAnswers.get(topic)!;
+    const table = this.siblingTable;
+    // Without precomputed vectors this cannot change; cache only real decisions.
+    if (!table) return null;
+    const vec = (p: string) => table.get(p);
+    const plan = names && names.rivals.every((r) => vec(r)) && names.anchors.every((a) => vec(a))
+      ? { own: names.anchors.map((a) => vec(a)!), rivals: names.rivals.map((r) => vec(r)!) }
+      : null;
+    this.siblingPlans.set(topic, plan);
+    if (plan) this.stats.siblingTopics++;
+    return plan;
   }
 
   // ── Workers ─────────────────────────────────────────────────────────────
