@@ -174,6 +174,259 @@ test("a verdict from a superseded settings generation is never applied", async (
   await page.close();
 });
 
+/** Wait for observable scheduler progress, without triggering a controller flush. */
+async function waitPipeline(page: Page, expected: { inflight: number; queued: number; analyzed?: number }): Promise<void> {
+  await page.waitForFunction((e) => {
+    const s = (window as any).harness.state().images;
+    return s.pipeline.inflight === e.inflight && s.pipeline.queued === e.queued && (e.analyzed === undefined || s.analyzed === e.analyzed);
+  }, expected, { timeout: 5000 });
+}
+
+async function assertImageIdle(page: Page, requests: number): Promise<void> {
+  await waitPipeline(page, { inflight: 0, queued: 0 });
+  assert.equal(await H(page).pending(), 0);
+  assert.equal((await H(page).log()).length, requests, "no duplicate requests");
+  assert.ok(await page.evaluate(() => (window as any).harness.imageInflightMax() <= 2), "physical concurrency stays at most two");
+  assert.equal(await page.evaluate(() => (window as any).harness.controller.images.waiting.size), 0, "completed waiter groups are removed");
+}
+
+const GENERATION_IMAGES = `${STYLE}<main><img id="a" data-color="red"><img id="b" data-color="blue"><img id="c" data-color="green"></main>`;
+
+for (const reverse of [false, true]) {
+  test(`generation lifecycle: two old slots release three queued images (${reverse ? "reverse" : "forward"} completion order)`, async (t) => {
+    const page = await harnessPage(browser, GENERATION_IMAGES);
+    t.after(() => page.close());
+    const h = H(page);
+    await paint(page);
+    await h.mode("manual");
+    await h.apply();
+    await waitImages(page, 2);
+    const oldGeneration = (await h.log())[0]!.generation;
+    await h.apply({ mode: "aggressive" });
+    await waitPipeline(page, { inflight: 2, queued: 3, analyzed: 0 });
+    // No scrolling, mutations or manual flushing after this point.
+    await h.respond(reverse ? 1 : 0, true);
+    await h.respond(0, true); // the other old request, before any new one
+    await waitImages(page, 4);
+    assert.equal(await h.state("a"), null, "old match did not blur a current image");
+    assert.equal(await h.state("b"), null);
+    assert.equal((await h.imgState()).vision, null, "old diagnostics are ignored");
+    assert.ok((await h.log()).slice(2).every((r) => r.generation > oldGeneration));
+    await h.respond(0);
+    await waitImages(page, 5);
+    await h.respond(0);
+    await h.respond(0);
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 3 });
+    assert.deepEqual(await Promise.all(["a", "b", "c"].map(h.state)), ["blurred", null, null]);
+    await assertImageIdle(page, 5);
+  });
+}
+
+for (const oldFirst of [true, false]) {
+  test(`generation lifecycle: same identity and duplicate waiters (old reply ${oldFirst ? "first" : "last"})`, async (t) => {
+    const page = await harnessPage(browser, `${STYLE}<main><img id="a" data-color="red"><img id="b" data-color="red"><img id="c" data-color="red"></main>`);
+    t.after(() => page.close());
+    const h = H(page);
+    await paint(page);
+    await h.mode("manual");
+    await h.apply();
+    await waitPipeline(page, { inflight: 1, queued: 0 });
+    await waitImages(page, 1);
+    await h.apply({ mode: "balanced" });
+    await waitImages(page, 2); // same identity, different generation
+    if (oldFirst) {
+      await h.respond(0, false); // must not delete the new group
+      await waitPipeline(page, { inflight: 1, queued: 0 });
+      assert.equal((await h.log()).length, 2, "duplicates joined the current request, not a third request");
+      await h.respond(0, true);
+    } else {
+      await h.respond(1, true);
+      await waitPipeline(page, { inflight: 1, queued: 0, analyzed: 3 });
+      const vision = (await h.imgState()).vision;
+      await h.respond(0, false); // must not overwrite the current cache or diagnostics
+      await waitPipeline(page, { inflight: 0, queued: 0 });
+      assert.deepEqual((await h.imgState()).vision, vision);
+    }
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 3 });
+    assert.deepEqual(await Promise.all(["a", "b", "c"].map(h.state)), ["blurred", "blurred", "blurred"]);
+    // A late duplicate must use the current verdict rather than the old non-match.
+    await page.evaluate(async () => {
+      const img = document.createElement("img");
+      img.id = "d";
+      img.src = (document.getElementById("a") as HTMLImageElement).src;
+      document.querySelector("main")!.append(img);
+      await img.decode();
+    });
+    await page.waitForFunction(() => document.getElementById("d")!.getAttribute("data-clearscroll") === "blurred", null, { timeout: 5000 });
+    await assertImageIdle(page, 2);
+  });
+}
+
+test("generation lifecycle: repeated settings changes discard intermediate verdicts and retries", async (t) => {
+  const page = await harnessPage(browser, GENERATION_IMAGES);
+  t.after(() => page.close());
+  const h = H(page);
+  await paint(page);
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 2);
+  await h.apply({ mode: "balanced" });
+  await waitPipeline(page, { inflight: 2, queued: 3 });
+  await h.respond(1, true);
+  await waitImages(page, 3); // second generation starts while first is unresolved
+  await h.apply({ mode: "aggressive" });
+  await waitPipeline(page, { inflight: 2, queued: 3 });
+  await h.apply({ mode: "precision" }); // fourth generation; third never got a slot
+  await h.fail(1, "unavailable"); // obsolete second generation must not retry/count
+  await waitImages(page, 4);
+  await h.fail(0, "decode"); // obsolete first generation must not skip current elements
+  await waitImages(page, 5);
+  assert.deepEqual((await h.imgState()).skipped, {});
+  assert.equal((await h.imgState()).vision, null);
+  await h.respond(0, false);
+  await waitImages(page, 6);
+  await h.respond(0, false);
+  await h.respond(0, false);
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 3 });
+  assert.deepEqual(await Promise.all(["a", "b", "c"].map(h.state)), [null, null, null]);
+  const generations = (await h.log()).map((r) => r.generation);
+  assert.ok(generations[0]! < generations[2]! && generations[2]! < generations[3]!);
+  assert.equal(new Set(generations.slice(3)).size, 1, "only newest work starts after the last settings change");
+  assert.equal(await page.evaluate(() => (window as any).harness.controller.images.retry.size), 0);
+  await assertImageIdle(page, 6);
+});
+
+test("generation lifecycle: stop and re-enable retains physical slots and advances new work", async (t) => {
+  const page = await harnessPage(browser, GENERATION_IMAGES);
+  t.after(() => page.close());
+  const h = H(page);
+  await paint(page);
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 2);
+  await page.evaluate(() => (window as any).harness.controller.stop());
+  await waitPipeline(page, { inflight: 2, queued: 0 });
+  await h.respond(1, true);
+  await waitPipeline(page, { inflight: 1, queued: 0, analyzed: 0 });
+  assert.equal(await h.state("b"), null, "stopped request cannot blur");
+  await h.apply();
+  await waitImages(page, 3);
+  await waitPipeline(page, { inflight: 2, queued: 2 });
+  await h.respond(0, true); // last request from before stop
+  await waitImages(page, 4);
+  assert.equal(await h.state("a"), null, "obsolete match cannot blur after restart");
+  await h.respond(0, false);
+  await waitImages(page, 5);
+  await h.respond(0, false);
+  await h.respond(0, false);
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 3 });
+  assert.deepEqual(await Promise.all(["a", "b", "c"].map(h.state)), [null, null, null]);
+  await assertImageIdle(page, 5);
+});
+
+test("generation lifecycle: the queue stays bounded across settings changes", async (t) => {
+  // Overlap eligible images so all 205 are near the viewport, with distinct identities.
+  const imgs = Array.from({ length: 205 }, (_, i) => `<img id="i${i}" data-color="blue" data-size="${320 + i}x240">`).join("");
+  const page = await harnessPage(browser, `${STYLE}<style>img { position:absolute; top:0; left:0; }</style><main>${imgs}</main>`);
+  t.after(() => page.close());
+  const h = H(page);
+  await paint(page);
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 2);
+  const initialQueue = (await h.imgState()).pipeline.queued;
+  assert.ok(initialQueue >= 198 && initialQueue <= 200, `initial queue is bounded (${initialQueue})`);
+  await h.apply({ mode: "balanced" });
+  await waitPipeline(page, { inflight: 2, queued: 200 });
+  await h.respond(1, true);
+  await h.respond(0, true);
+  await waitImages(page, 4);
+  assert.ok((await h.imgState()).pipeline.queued <= 200);
+  // Drain exactly the admitted current queue: overflow retains the existing dirty policy.
+  for (let n = 0; n < 200; n++) {
+    await page.waitForFunction(() => (window as any).harness.imagePendingCount() > 0, null, { timeout: 5000 });
+    await h.respond(0, false);
+    assert.ok((await h.imgState()).pipeline.queued <= 200);
+  }
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 200 });
+  await assertImageIdle(page, 202);
+});
+
+for (const outcome of ["decode", "unavailable", "stale", "mismatched", "exception"]) {
+  test(`generation lifecycle: ${outcome} completion frees capacity and preserves retries`, async (t) => {
+    const page = await harnessPage(browser, GENERATION_IMAGES);
+    t.after(() => page.close());
+    const h = H(page);
+    await paint(page);
+    await h.mode("manual");
+    if (outcome === "exception") {
+      // Keep the harness's manual response control, but simulate a transport rejection.
+      await page.evaluate(() => {
+        const deps = (window as any).harness.controller.images.deps;
+        const classify = deps.classifyImage;
+        let first = true;
+        deps.classifyImage = async (req: unknown) => {
+          const reject = first;
+          first = false;
+          const reply = await classify(req);
+          if (reject) throw new Error("scripted transport failure");
+          return reply;
+        };
+      });
+    }
+    await h.apply();
+    await waitImages(page, 2);
+    if (outcome === "mismatched") await h.respond(0, true, -1);
+    else if (outcome === "exception") await h.respond(0, true);
+    else await h.fail(0, outcome);
+    await waitImages(page, 3); // queued third image uses the freed slot
+    if (outcome === "mismatched") {
+      assert.equal(await h.state("a"), null, "wrong-generation success is not applied");
+      assert.equal((await h.imgState()).vision, null, "wrong-generation diagnostics are not applied");
+    }
+    await h.respond(0, false);
+    await h.respond(0, false);
+    if (outcome !== "decode") {
+      await waitImages(page, 4); // transient / stale / exception retries once answered
+      await h.respond(0, false);
+    }
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: outcome === "decode" ? 2 : 3 });
+    assert.deepEqual(await Promise.all(["a", "b", "c"].map(h.state)), [null, null, null]);
+    const skipped = (await h.imgState()).skipped;
+    assert.deepEqual(skipped, outcome === "stale" || outcome === "mismatched" ? {} : { [outcome === "exception" ? "unavailable" : outcome]: 1 });
+    await assertImageIdle(page, outcome === "decode" ? 3 : 4);
+  });
+}
+
+test("generation lifecycle: context invalidation stops scheduling while old physical slots drain", async (t) => {
+  const page = await harnessPage(browser, GENERATION_IMAGES);
+  t.after(() => page.close());
+  const h = H(page);
+  await paint(page);
+  await h.mode("manual");
+  await page.evaluate(() => {
+    const deps = (window as any).harness.controller.images.deps;
+    const classify = deps.classifyImage;
+    let first = true;
+    deps.classifyImage = async (req: unknown) => {
+      const reject = first;
+      first = false;
+      const reply = await classify(req);
+      if (reject) throw new Error("Extension context invalidated");
+      return reply;
+    };
+  });
+  await h.apply();
+  await waitImages(page, 2);
+  await h.respond(0, true);
+  await waitPipeline(page, { inflight: 1, queued: 0, analyzed: 0 });
+  assert.equal((await h.imgState()).enabled, false);
+  await h.respond(0, true);
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 0 });
+  assert.deepEqual(await Promise.all(["a", "b", "c"].map(h.state)), [null, null, null]);
+  await assertImageIdle(page, 2);
+});
+
 test("icons, tiny or extreme-shaped images, SVG, hidden and protected images are never analysed", async () => {
   const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="red"/></svg>');
   const page = await harnessPage(
