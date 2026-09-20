@@ -1,6 +1,6 @@
 {
   "name": "clearscroll",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local-first Chrome extension that blurs content about topics you choose, using an on-device Rust/WebAssembly sentence encoder.",
   "type": "module",
@@ -28,7 +28,7 @@
     "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/**/*.test.ts\"",
     "evaluate": "cargo build --release --no-default-features --features cli && node scripts/evaluate.ts",
     "check": "npm run typecheck && npm test && npm run test:rust",
-    "release:prepare": "npm run check && npm run build && npm run validate && npm run test:dom && npm run test:e2e && npm run verify:privacy && npm run verify:privacy:images && node scripts/package.mjs",
+    "release:prepare": "npm run check && npm run build && npm run validate && npm run test:dom && npm run test:e2e && npm run verify:privacy && npm run verify:privacy:feedback && npm run verify:privacy:images && node scripts/package.mjs",
     "test:dom": "node --test --test-concurrency=1 \"tests/dom/**/*.test.ts\"",
     "verify:privacy": "node scripts/verify-no-egress.ts",
     "benchmark": "node scripts/benchmark.ts",
@@ -36,7 +36,8 @@
     "setup:vision": "node scripts/setup-vision-model.mjs",
     "evaluate:vision": "node scripts/evaluate-vision.ts",
     "verify:privacy:images": "node scripts/verify-no-egress.ts --images && node scripts/verify-no-egress.ts --images --downloads",
-    "benchmark:vision": "node scripts/benchmark-vision.ts"
+    "benchmark:vision": "node scripts/benchmark-vision.ts",
+    "verify:privacy:feedback": "node scripts/verify-no-egress.ts --feedback"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.37",

@@ -64,7 +64,18 @@ async function render(): Promise<void> {
     engineEl.textContent = "Status unavailable";
   }
   renderImages(tab, vision);
+  $<HTMLButtonElement>("report-feedback").disabled = tab?.activity !== "active";
 }
+
+$<HTMLButtonElement>("report-feedback").addEventListener("click", async () => {
+  try {
+    const reply = await chrome.tabs.sendMessage(tabId!, { type: "tab:feedback" });
+    if (!reply?.ok) throw Error("unavailable");
+    window.close();
+  } catch {
+    $("feedback-status").textContent = "Feedback unavailable. Reload this page and check that filtering is active.";
+  }
+});
 
 /** One line about pictures: model state, and how many were hidden or could not be checked. */
 function renderImages(tab: TabStateReply | null, vision: VisionStatus | null): void {

@@ -30,6 +30,10 @@ import { STORAGE_KEYS, SETTINGS_KEY, LEGACY_TARGET_KEY, LEGACY_V1_KEY, MIGRATION
 import { isUrlExcluded, rulesToExcludeMatches } from "../shared/sites.ts";
 import { isVisionRequest, type VisionStatus } from "../shared/vision.ts";
 import { VisionGate } from "./vision-gate.ts";
+import { FeedbackStore } from "./feedback-store.ts";
+
+const feedbackStore = new FeedbackStore();
+void feedbackStore.run("feedback:prune", null, loadSettings).catch(() => undefined);
 
 const TAG = "[ClearScroll/background]";
 const SCRIPT_ID = "clearscroll-content";
@@ -271,6 +275,14 @@ const visionGate = new VisionGate({
 chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
   const type = (msg as { type?: unknown } | null)?.type;
+
+  if (type === "feedback:save" || type === "feedback:list" || type === "feedback:clear") {
+    const optionsSender = sender.url === chrome.runtime.getURL("options/options.html");
+    if (type === "feedback:save" ? !sender.tab || sender.frameId !== 0 : !optionsSender) return false;
+    feedbackStore.run(type, (msg as { draft?: unknown }).draft, loadSettings, sender.url)
+      .then(sendResponse).catch(() => sendResponse({ ok: false, error: "Feedback unavailable. Check settings and try again." }));
+    return true;
+  }
 
   if (type === "cs:classify") {
     if (!sender.tab?.id || !isClassifyRequest(msg)) {

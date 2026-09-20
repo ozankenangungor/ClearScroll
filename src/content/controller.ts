@@ -23,6 +23,8 @@
  */
 
 import { decide, LEXICAL_PARAMS, prepareTopic } from "../shared/classifier.ts";
+import type { Decision } from "../shared/classifier.ts";
+import type { FeedbackDraft } from "../shared/feedback.ts";
 import type { ClassifyReply, ClassifyRequest, EngineStatus, TabActivity, TabStateReply } from "../shared/protocol.ts";
 import type { VisionReply, VisionRequest } from "../shared/vision.ts";
 import { ImageFilter } from "./image-filter.ts";
@@ -71,6 +73,8 @@ export interface ControllerDeps {
 const MEDIA_ATTRIBUTES = ["src", "srcset", "sizes", "poster", "style"];
 
 interface UnitState {
+  decision?: Decision;
+  engine?: EngineStatus;
   /** Text of the most recent classification request or verdict. */
   text: string;
   generation: number;
@@ -124,6 +128,51 @@ export class FilterController {
 
   get currentGeneration(): number {
     return this.generation;
+  }
+
+  /** Explicit feedback only; no page strings or arbitrary DOM attributes leave here. */
+  feedbackUnits(): Element[] {
+    if (this.activity !== "active") return [];
+    const units = new Set<Element>();
+    if (this.deps.doc.body) collectUnits(this.deps.doc.body, this.protectedSelector, units);
+    return [...units].filter(u => this.feedbackEligible(u)).slice(0, 200);
+  }
+
+  private feedbackEligible(u: Element): boolean {
+    if (this.activity !== "active" || unitText(u, this.protectedSelector) === null) return false;
+    if (u.closest("[hidden], [inert], [role='log'], [role='textbox']")) return false;
+    const r = u.getBoundingClientRect();
+    const style = this.deps.doc.defaultView!.getComputedStyle(u);
+    return r.width > 0 && r.height > 0 && style.visibility === "visible" && style.display !== "none";
+  }
+
+  feedbackUnit(node: Element): Element | null {
+    if (node.closest(this.protectedSelector) || node.closest("[hidden], [inert], [role='log'], [role='textbox']")) return null;
+    const hidden = node.closest(`[${OWNER_ATTR}="${this.instanceId}"]`);
+    const unit = hidden ? [...(this.items.get(hidden) ?? [hidden])][0] : unitOf(node);
+    return unit && this.feedbackEligible(unit) ? unit : null;
+  }
+
+  feedbackDraft(unit: Element, topicId: string, diagnostics: boolean): FeedbackDraft | null {
+    if (!this.feedbackEligible(unit) || !activeTopics(this.settings!).some(t => t.id === topicId)) return null;
+    const st = this.states.get(unit);
+    const target = st?.target ?? unit;
+    const state = visualState(target);
+    const decision = state === "blurred" ? "hidden" : state === "revealed" ? "revealed" : "visible";
+    const current = st?.generation === this.generation && st.text === unitText(unit, this.protectedSelector);
+    const d = current ? st?.decision : undefined;
+    const engine = current ? st?.engine : undefined;
+    const path: string[] = [];
+    for (let el: Element | null = unit; el && path.length < 6; el = el.parentElement) {
+      const ordinal = el.parentElement ? [...el.parentElement.children].filter(s => s.tagName === el!.tagName).indexOf(el) + 1 : 1;
+      path.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${ordinal})`);
+    }
+    return {
+      kind: decision === "visible" ? "should-hide" : "wrongly-hidden", topicId, mode: this.settings!.mode, decision,
+      target: { tag: unit.tagName.toLowerCase(), ordinal: [...this.deps.doc.getElementsByTagName(unit.tagName)].indexOf(unit) + 1 },
+      diagnostics: diagnostics ? { path: path.join(" > "), analyzed: !!d, matched: d?.matched ?? null, via: d?.via ?? null,
+        score: d?.score ?? null, similarity: d?.similarity ?? null, rivalled: d?.rivalled ?? null, backend: engine?.backend ?? null, state: engine?.state ?? "idle" } : null,
+    };
   }
 
   /** Apply (new) settings for the page at `url`. Idempotent. */
@@ -465,6 +514,8 @@ export class FilterController {
         return;
       }
       st.phase = "done";
+      st.decision = reply.decisions[i]!;
+      st.engine = reply.engine;
       this.analyzed++;
       if (reply.decisions[i]!.matched) this.show(u, st);
       else this.hide(u, st);
@@ -590,7 +641,7 @@ export class FilterController {
   private handleKey(e: KeyboardEvent): void {
     if (e.key !== "Enter" && e.key !== " ") return;
     const unit = this.blurredTarget(e.target);
-    if (!unit || unit !== e.target) return;
+    if (!unit) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     this.reveal(unit);

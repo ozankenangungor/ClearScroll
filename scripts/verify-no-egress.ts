@@ -36,6 +36,7 @@ import { DIST, launchContext, startServer } from "../tests/helpers/extension.ts"
 const browser = (process.argv.includes("--browser") ? process.argv[process.argv.indexOf("--browser") + 1] : "chromium") as "chromium" | "chrome";
 const images = process.argv.includes("--images");
 const downloads = images && process.argv.includes("--downloads");
+const feedback = process.argv.includes("--feedback");
 // The image model's first load adds time; both sessions stay equally long.
 const SESSION_MS = images ? 75_000 : 45_000;
 /** Pictures served from a second, "other-domain" host (mapped to the test server). */
@@ -94,6 +95,25 @@ async function session(dist: string, isClearScroll: boolean) {
       await page.waitForTimeout(1500);
       blurred += await page.locator('[data-clearscroll="blurred"]').count();
       blurredImages += await page.locator('img[data-clearscroll="blurred"]').count();
+    }
+    if (isClearScroll && feedback) {
+      const id = new URL(sw.url()).host;
+      const popup = await ctx.newPage();
+      await popup.goto(`chrome-extension://${id}/popup/popup.html`);
+      const reply = await popup.evaluate(async url => {
+        const tab = (await chrome.tabs.query({})).find(t => t.url === url)!;
+        return chrome.tabs.sendMessage(tab.id!, { type: "tab:feedback" });
+      }, page.url());
+      if (!reply?.ok) throw Error("Feedback picker unavailable");
+      await page.locator('[data-clearscroll="blurred"]').first().click();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Space"); // Explicit diagnostic consent.
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Space"); // Explicit local save.
+      await popup.waitForFunction(async () => ((await chrome.storage.local.get("clearscroll_feedback")).clearscroll_feedback as any[])?.length === 1);
+      await page.keyboard.press("Escape");
+      console.log("Feedback with optional diagnostics saved locally during offline privacy session.");
+      await popup.close();
     }
     const left = SESSION_MS - (Date.now() - t0);
     if (left < 0) throw new Error(`session exceeded ${SESSION_MS} ms; raise SESSION_MS so both runs are equally long`);

@@ -173,11 +173,15 @@ export async function launchContext(profile: string, opts: LaunchOptions = {}): 
   const browser = opts.browser ?? (process.env.CLEARSCROLL_BROWSER as LaunchOptions["browser"]) ?? "chromium";
   const headless = opts.headless ?? true;
   const extra = opts.extraArgs ?? [];
+  const sandbox = process.env.CLEARSCROLL_SANDBOX === "1";
+  const safeDefaults = sandbox ? ["--enable-unsafe-swiftshader", "--disable-ipc-flooding-protection", "--unsafely-disable-devtools-self-xss-warnings"] : [];
   if (browser === "chromium") {
     const ctx = await chromium.launchPersistentContext(profile, {
       channel: "chromium",
       headless,
-      args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`, "--enable-unsafe-webgpu", ...extra],
+      chromiumSandbox: sandbox,
+      ignoreDefaultArgs: safeDefaults,
+      args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`, ...(sandbox ? [] : ["--enable-unsafe-webgpu"]), ...extra],
     });
     let [sw] = ctx.serviceWorkers();
     sw ??= await ctx.waitForEvent("serviceworker");
@@ -187,8 +191,9 @@ export async function launchContext(profile: string, opts: LaunchOptions = {}): 
   const ctx = await chromium.launchPersistentContext(profile, {
     executablePath: process.env.CHROME_PATH ?? "/usr/bin/google-chrome-stable",
     headless,
-    ignoreDefaultArgs: ["--disable-extensions"],
-    args: ["--enable-unsafe-extension-debugging", "--enable-unsafe-webgpu", ...extra],
+    chromiumSandbox: sandbox,
+    ignoreDefaultArgs: ["--disable-extensions", ...safeDefaults],
+    args: ["--enable-unsafe-extension-debugging", ...(sandbox ? [] : ["--enable-unsafe-webgpu"]), ...extra],
   });
   const cdp = await ctx.browser()!.newBrowserCDPSession();
   const { id } = (await cdp.send("Extensions.loadUnpacked" as never, { path: dist } as never)) as { id: string };

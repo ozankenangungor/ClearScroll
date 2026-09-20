@@ -27,6 +27,7 @@ import {
   type Topic,
 } from "../shared/settings.ts";
 import { parseSiteRules } from "../shared/sites.ts";
+import { FEEDBACK_KEY, type FeedbackRecord } from "../shared/feedback.ts";
 import { browserMajor, formatDiagnostics } from "./diagnostics.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -249,8 +250,8 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-form.addEventListener("input", (e) => {
-  if (e.target !== newTopicInput) markDirty();
+form.addEventListener("input", () => {
+  markDirty();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -340,3 +341,43 @@ chrome.storage.local.get([...STORAGE_KEYS]).then((stored) => {
   void refreshStatus();
 });
 setInterval(refreshStatus, 3000);
+
+// Explicit local export, without clipboard or network transmission.
+let feedback: FeedbackRecord[] = [];
+async function refreshFeedback(): Promise<void> {
+  feedback = [];
+  try {
+    const reply = await chrome.runtime.sendMessage({ type: "feedback:list" });
+    if (!reply?.ok) throw Error("unavailable");
+    feedback = reply.records;
+    $("feedback-summary").textContent = `${feedback.length} local report${feedback.length === 1 ? "" : "s"}. Unreviewed user observations, not confirmed accuracy labels.`;
+    $<HTMLButtonElement>("export-feedback").disabled = feedback.length === 0;
+    $<HTMLButtonElement>("delete-feedback").disabled = feedback.length === 0;
+    $("feedback-list").replaceChildren(...feedback.slice(-10).reverse().map(r => Object.assign(document.createElement("li"), {
+      textContent: `${new Date(r.createdAt).toLocaleDateString()} — ${r.kind === "wrongly-hidden" ? "Wrongly hidden" : "Should be hidden"}: ${r.topic} (${r.target.tag} ${r.target.ordinal})${r.diagnostics ? "; diagnostics included" : ""}`,
+    })));
+  } catch {
+    $("feedback-summary").textContent = "Could not read local feedback. Reload Settings to try again.";
+  }
+}
+$("export-feedback").addEventListener("click", async () => {
+  await refreshFeedback();
+  if (!feedback.length) return;
+  const blob = new Blob([JSON.stringify({ schema: 1, exportedAt: new Date().toISOString(), records: feedback }, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href: url, download: "clearscroll-local-feedback.json" });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+$("delete-feedback").addEventListener("click", async () => {
+  try {
+    const reply = await chrome.runtime.sendMessage({ type: "feedback:clear" });
+    if (!reply?.ok) throw Error("unavailable");
+    feedback = [];
+    await refreshFeedback();
+  } catch { $("feedback-summary").textContent = "Could not delete feedback. Try again."; }
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[FEEDBACK_KEY]) void refreshFeedback();
+});
+void refreshFeedback();

@@ -27,6 +27,16 @@
       <button type="button" class="btn" id="dismiss-migration">Dismiss</button>
     </section>
 
+    <section class="card" aria-labelledby="h-feedback">
+      <h2 id="h-feedback">Local feedback</h2>
+      <p class="small">To report wrongly hidden or missed text, open the toolbar popup on a public page and choose “Report a text filtering mistake”. Reports contain your selected topic and item metadata, never page text or addresses. Feedback does not change filtering.</p>
+      <p class="small">Kept on this device: the latest 100 reports, up to 30 days (expired reports are removed on the next extension activity). Nothing is sent. Export only if you want to review or share it; topic names may be personal. Add a public reproduction example separately after checking it for private information. Image-only mistakes are not supported yet.</p>
+      <p id="feedback-summary" role="status" aria-live="polite">Loading local feedback…</p>
+      <button type="button" class="btn" id="export-feedback" disabled>Export local feedback (JSON)</button>
+      <button type="button" class="btn" id="delete-feedback" disabled>Delete all local feedback</button>
+      <ul id="feedback-list" aria-label="Saved feedback"></ul>
+    </section>
+
     <form id="settings-form" novalidate>
       <section class="card" aria-labelledby="h-general">
         <h2 id="h-general">Filtering</h2>
