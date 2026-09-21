@@ -415,7 +415,7 @@ export class FilterController {
       type: "cs:classify",
       generation,
       mode: settings.mode,
-      topics: activeTopics(settings).map((t) => ({ id: t.id, text: t.text })),
+      topics: activeTopics(settings).map((t) => ({ id: t.id, text: t.text, ...(t.excludedPhrases?.length ? { excludedPhrases: [...t.excludedPhrases] } : {}) })),
       texts,
     };
     this.inflight++;

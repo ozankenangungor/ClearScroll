@@ -70,7 +70,8 @@ for (const scheme of ["light", "dark"] as const) {
     await page.fill("#new-topic", "x");
     await page.click("#add-topic");
     await page.fill("#excluded-sites", "*bad.com");
-    await page.click("summary");
+    await page.click(".advanced > summary");
+    for (const summary of await page.locator(".topic-scope > summary").all()) await summary.click();
     await page.fill("#protected-selectors", "div[[");
     await page.click("#save");
     await page.waitForTimeout(300);
@@ -107,8 +108,9 @@ test("blurred items on a web page introduce no WCAG A/AA violations", async () =
 test("keyboard: every options control is reachable with Tab and shows a visible focus indicator", async () => {
   await seedOptions();
   const page = await extensionPage(env);
-  await page.click("summary"); // open Advanced so its controls are in the tab order
-  await page.locator("body").focus();
+  await page.click(".advanced > summary"); // open Advanced so its controls are in the tab order
+  for (const summary of await page.locator(".topic-scope > summary").all()) await summary.click();
+  await page.evaluate(() => { document.body.tabIndex = -1; document.body.focus(); });
   const expected = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>("input, select, textarea, button, summary")]
       .filter((el) => el.offsetParent !== null && !(el as HTMLButtonElement).disabled)

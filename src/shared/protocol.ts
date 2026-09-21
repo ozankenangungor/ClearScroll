@@ -37,6 +37,7 @@ export interface EngineStatus {
 export interface TopicSnapshot {
   id: string;
   text: string;
+  excludedPhrases?: string[];
 }
 
 export interface ClassifyRequest {
@@ -141,7 +142,10 @@ function isTopicList(v: unknown): v is TopicSnapshot[] {
   return (
     Array.isArray(v) &&
     v.length <= LIMITS.maxTopics &&
-    v.every((t) => isObject(t) && typeof t.id === "string" && typeof t.text === "string" && t.text.length <= LIMITS.maxTopicChars)
+    v.every((t) => isObject(t) && typeof t.id === "string" && typeof t.text === "string" && t.text.length <= LIMITS.maxTopicChars &&
+      (t.excludedPhrases === undefined || (Array.isArray(t.excludedPhrases) &&
+        t.excludedPhrases.length <= LIMITS.maxExcludedPhrases &&
+        t.excludedPhrases.every(p => typeof p === "string" && p.trim().length > 0 && p.length <= LIMITS.maxExcludedPhraseChars))))
   );
 }
 

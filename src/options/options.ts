@@ -18,6 +18,7 @@ import {
   migrateSettings,
   newTopicId,
   normalizeTopicText,
+  normalizeExcludedPhrases,
   parseLines,
   validateSelector,
   validateTopicText,
@@ -116,7 +117,28 @@ function renderTopics(): void {
         newTopicInput.focus();
       });
 
-      li.append(toggle, text, remove, err);
+      const scope = document.createElement("details");
+      scope.className = "topic-scope";
+      const summary = document.createElement("summary");
+      summary.textContent = "Text exclusions (optional)";
+      const label = document.createElement("label");
+      label.textContent = "Leave this topic visible when the text contains any of these phrases (one per line)";
+      const exclusions = document.createElement("textarea");
+      exclusions.rows = 3;
+      exclusions.value = (topic.excludedPhrases ?? []).join("\n");
+      exclusions.setAttribute("aria-label", `Text exclusions for “${topic.text}”`);
+      const help = document.createElement("p");
+      help.className = "hint";
+      help.id = `scope-help-${topic.id}`;
+      help.textContent = "Exact whole phrases, ignoring case and accents. For example, exclude ‘car review’ from ‘jaguar’. No meaning is inferred from negative wording. Mixed text containing an exclusion is also left visible for this topic. Other topics or a matching parent card can still blur it. Images are unaffected. Up to 10 phrases, 120 characters each.";
+      exclusions.setAttribute("aria-describedby", help.id);
+      exclusions.addEventListener("input", () => {
+        topic.excludedPhrases = parseLines(exclusions.value);
+        markDirty();
+      });
+      label.append(exclusions);
+      scope.append(summary, label, help);
+      li.append(toggle, text, remove, err, scope);
       return li;
     })
   );
@@ -171,13 +193,18 @@ function readForm(): Settings | null {
   const cleanTopics: Topic[] = [];
   for (const t of topics) {
     const row = topicList.querySelector<HTMLLIElement>(`[data-topic-id="${CSS.escape(t.id)}"]`);
-    const err = validateTopicText(t.text, seen);
+    const phraseError = (t.excludedPhrases?.length ?? 0) > LIMITS.maxExcludedPhrases ? "At most 10 text exclusions." :
+      t.excludedPhrases?.some(p => p.length > LIMITS.maxExcludedPhraseChars) ? "Text exclusions must be at most 120 characters each." : null;
+    const err = validateTopicText(t.text, seen) ?? phraseError;
     if (row) {
       row.querySelector(".row-error")!.textContent = err ?? "";
       row.querySelector('input[type="text"]')!.setAttribute("aria-invalid", err ? "true" : "false");
     }
     if (err) ok = false;
     const clean = { ...t, text: normalizeTopicText(t.text) };
+    const phrases = normalizeExcludedPhrases(t.excludedPhrases);
+    if (phrases.length) clean.excludedPhrases = phrases;
+    else delete clean.excludedPhrases;
     seen.push(clean);
     cleanTopics.push(clean);
   }

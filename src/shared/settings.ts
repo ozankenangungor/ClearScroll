@@ -22,6 +22,8 @@ export interface Topic {
   id: string;
   text: string;
   enabled: boolean;
+  /** Optional literal phrases that leave this topic unmatched in a text unit. Text only. */
+  excludedPhrases?: string[];
 }
 
 export interface Settings {
@@ -57,6 +59,8 @@ export const MIGRATION_NOTES_KEY = "clearscroll_migration_notes";
 
 export const LIMITS = {
   maxTopics: 20,
+  maxExcludedPhrases: 10,
+  maxExcludedPhraseChars: 120,
   maxTopicChars: 120,
   minTopicChars: 2,
   maxSites: 500,
@@ -153,6 +157,12 @@ function stringList(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean);
 }
 
+export function normalizeExcludedPhrases(value: unknown): string[] {
+  return [...new Set(stringList(value).map(normalizeTopicText))]
+    .filter(s => s.length <= LIMITS.maxExcludedPhraseChars)
+    .slice(0, LIMITS.maxExcludedPhrases);
+}
+
 function normalizeMode(v: unknown): FilterMode {
   return FILTER_MODES.includes(v as FilterMode) ? (v as FilterMode) : "precision";
 }
@@ -171,6 +181,7 @@ function normalizeTopics(v: unknown): Topic[] {
       id: typeof item.id === "string" && item.id ? item.id.slice(0, 64) : newTopicId(),
       text,
       enabled: item.enabled !== false,
+      ...(normalizeExcludedPhrases(item.excludedPhrases).length ? { excludedPhrases: normalizeExcludedPhrases(item.excludedPhrases) } : {}),
     });
     if (out.length >= LIMITS.maxTopics) break;
   }

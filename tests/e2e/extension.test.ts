@@ -278,7 +278,7 @@ test("options page: validation blocks bad input, valid settings persist", async 
   await page.fill("#new-topic", "");
   await page.locator("input[name=mode][value=aggressive]").check();
   await page.fill("#excluded-sites", "example.com\n*bad.com");
-  await page.click("summary");
+  await page.click(".advanced > summary");
   await page.fill("#protected-selectors", ".ok\ndiv[[");
   await page.click("#save");
   assert.match(await page.locator("#save-status").innerText(), /Not saved/);

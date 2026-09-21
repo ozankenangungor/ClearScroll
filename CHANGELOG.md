@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4 — local alpha
+
+- Optional per-topic literal text exclusions in Settings, applied to semantic
+  and keyword matching. Existing topics retain their behavior. See
+  [scope controls and limitations](docs/PHASE4E-QUALITY.md).
+- Short-heading rescue and selective long-tail inference were evaluated and
+  rejected because they introduced false positives; existing safeguards remain.
+
 ## 0.3.0 — unreleased (release candidate)
 
 First version under the ClearScroll name (previously "IdeaBlocker").

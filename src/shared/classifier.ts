@@ -74,6 +74,8 @@ export interface PreparedTopic {
   background: number[];
   /** Sibling subjects that compete with this topic (null: none). */
   siblings: SiblingPlan | null;
+  /** Exact literal exclusions, never semantic negative prompts. */
+  exclusions: RegExp[];
 }
 
 export const LEXICAL_PARAMS: Record<FilterMode, LexicalParams> = {
@@ -83,7 +85,7 @@ export const LEXICAL_PARAMS: Record<FilterMode, LexicalParams> = {
 };
 
 export function prepareTopic(
-  topic: { id: string; text: string },
+  topic: { id: string; text: string; excludedPhrases?: readonly string[] },
   vector: Float32Array | null,
   params: ModeParams,
   background: Background | null = null,
@@ -109,7 +111,10 @@ export function prepareTopic(
     // cosine — which would match almost any text.
     if (competing.length === 0) competing.push(leastSimilar);
   }
-  return { id: topic.id, text: topic.text, lexical: compileLexicalRule(topic.text, params.lexical), vector, background: competing, siblings: vector ? siblings : null };
+  return { id: topic.id, text: topic.text, lexical: compileLexicalRule(topic.text, params.lexical), vector, background: competing, siblings: vector ? siblings : null, exclusions: (topic.excludedPhrases ?? []).flatMap(p => {
+    const phrase = compileLexicalRule(p, params.lexical).phrase;
+    return phrase ? [phrase] : [];
+  }) };
 }
 
 export function dot(a: Float32Array, aOffset: number, b: Float32Array, dim: number): number {
@@ -141,6 +146,10 @@ export function decide(
   const bg = new Float64Array(background?.count ?? 0);
   const ratio = params.siblingRatio ?? Infinity;
   return texts.map((text, i) => {
+    // Prepare once for both gates. Exclusions apply before topic selection so
+    // an excluded high score cannot suppress another allowed topic.
+    let lex = topics.some(t => t.exclusions.length > 0) ? prepareLexicalText(text) : null;
+    const allowed = (t: PreparedTopic) => !t.exclusions.some(p => p.test(lex!.normalized));
     let bestScore = 0;
     let bestSimilarity = 0;
     let bestTopic: PreparedTopic | null = null;
@@ -154,7 +163,7 @@ export function decide(
       }
       bestScore = -Infinity;
       for (const t of topics) {
-        if (!t.vector) continue;
+        if (!t.vector || !allowed(t)) continue;
         const similarity = dot(textVectors, i * dim, t.vector, dim);
         let offset = -Infinity;
         if (background) for (const k of t.background) offset = Math.max(offset, bg[k]!);
@@ -175,9 +184,9 @@ export function decide(
       return { matched: true, topicId: bestTopic.id, score: bestScore, similarity: bestSimilarity, via: "semantic", rivalled: false };
     }
 
-    const lex = prepareLexicalText(text);
+    lex ??= prepareLexicalText(text);
     for (const t of topics) {
-      if (matchLexical(t.lexical, lex)) {
+      if (allowed(t) && matchLexical(t.lexical, lex)) {
         return { matched: true, topicId: t.id, score: bestScore, similarity: bestSimilarity, via: "lexical", rivalled: bestRivalled };
       }
     }
