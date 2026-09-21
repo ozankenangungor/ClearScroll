@@ -113,6 +113,22 @@ export function normalizeText(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** BR is a rendered word boundary; inline formatting and WBR are not. */
+function textWithLineBreaks(unit: Element): string {
+  if (!unit.querySelector("br")) return unit.textContent ?? "";
+  const walker = unit.ownerDocument.createTreeWalker(unit, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.nodeType === Node.TEXT_NODE || (node as Element).tagName === "BR"
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  const parts: string[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    parts.push(node.nodeType === Node.TEXT_NODE ? (node as Text).data : " ");
+  }
+  return parts.join("");
+}
+
 /**
  * Returns the unit's text if it should be classified, or null with no side
  * effects. `protectedSelector` comes from compileProtectedSelector().
@@ -127,7 +143,7 @@ export function unitText(unit: Element, protectedSelector: string): string | nul
   }
   if ((unit as HTMLElement).isContentEditable) return null;
   if (unit.querySelector(BLOCK_DESCENDANTS)) return null;
-  const text = normalizeText(unit.textContent ?? "");
+  const text = normalizeText(textWithLineBreaks(unit));
   if (text.length < MIN_TEXT_CHARS || text.length > MAX_UNIT_CHARS) return null;
   return text.slice(0, MAX_SENT_CHARS);
 }
