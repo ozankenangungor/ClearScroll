@@ -1,36 +1,13 @@
-/**
- * Privacy check: does ClearScroll cause any network traffic?
- *
- *   npm run build && node scripts/verify-no-egress.ts [--browser chromium|chrome]
- *
- * Runs the same browsing session twice — once with ClearScroll and once with
- * a generated no-op control extension — recording every request the browser
- * makes from any process (--log-net-log). Remote host names are unresolvable,
- * so filtering must work fully offline.
- *
- * Both sessions load an extension and last exactly SESSION_MS: browsers make
- * timer-driven background requests (e.g. Chrome's GCM check-in ~5 s and
- * ~26 s after start) and requests tied to having any extension installed, so
- * a control without an extension or with a shorter session would wrongly
- * attribute them to ClearScroll (observed before this design).
- *
- * Fails if
- *   (a) any request is initiated by a chrome-extension:// origin, or
- *   (b) any external host is contacted only in the ClearScroll session.
- *
- * Image filtering (opt-in) is verified with two extra modes:
- *   --images              image filtering on, downloads off: exactly the same
- *                         zero-request contract as text-only filtering, and a
- *                         picture must be hidden from its pixels, offline.
- *   --images --downloads  downloads on: the only requests the extension may
- *                         make are for the other-domain pictures the page
- *                         displays (here: two, on a mapped test host), each
- *                         once, without cookies; anything else fails (a).
+/** Offline extension-egress gate. Raw NetLogs and browser/process metadata are retained.
+ * Known browser activity reports require a complete measured caller fingerprint;
+ * every other extension request and unexpected external differential still fails.
+ * No Google-domain wildcard or blanket browser-traffic exemption exists.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { networkRequests, type NetLog } from "./privacy-attribution.ts";
 import { DIST, launchContext, startServer } from "../tests/helpers/extension.ts";
 
 const browser = (process.argv.includes("--browser") ? process.argv[process.argv.indexOf("--browser") + 1] : "chromium") as "chromium" | "chrome";
@@ -42,11 +19,8 @@ const SESSION_MS = images ? 75_000 : 45_000;
 /** Pictures served from a second, "other-domain" host (mapped to the test server). */
 const REMOTE_HOST = "cdn.example";
 
-interface NetEvent {
-  type: number;
-  params?: { url?: string; initiator?: string };
-}
-
+const evidence = path.resolve(process.env.CS_PRIVACY_OUT ?? `build/privacy-${Date.now()}-${process.pid}`);
+fs.mkdirSync(evidence, { recursive: true });
 /** A minimal MV3 extension with a service worker and an options page. */
 function noopExtension(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clearscroll-noop-ext-"));
@@ -58,15 +32,18 @@ function noopExtension(): string {
 }
 
 async function session(dist: string, isClearScroll: boolean) {
-  const netlog = path.join(os.tmpdir(), `clearscroll-netlog-${process.pid}-${isClearScroll}.json`);
+  const netlog = path.join(evidence, `${isClearScroll}-netlog.json`);
   const server = await startServer();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "clearscroll-egress-"));
   const t0 = Date.now();
   const { ctx, sw } = await launchContext(profile, {
     dist,
     browser,
-    extraArgs: [`--log-net-log=${netlog}`, `--host-resolver-rules=MAP ${REMOTE_HOST} 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`],
+    extraArgs: [`--log-net-log=${netlog}`, "--enable-logging", `--log-file=${path.join(evidence, `${isClearScroll}-chrome.log`)}`, "--vmodule=update_client*=2,component_updater*=2", `--host-resolver-rules=MAP ${REMOTE_HOST} 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`],
   });
+  const cdp = await ctx.browser()!.newBrowserCDPSession();
+  const metadata = { browser: await cdp.send("Browser.getVersion"), system: await cdp.send("SystemInfo.getInfo"), processes: await cdp.send("SystemInfo.getProcessInfo"), sessionMs: SESSION_MS };
+  fs.writeFileSync(path.join(evidence, `${isClearScroll}-metadata.json`), JSON.stringify(metadata, null, 2));
   let blurred = 0;
   let blurredImages = 0;
   const pages = ["news.html", "feed.html", "csp/news.html"];
@@ -84,8 +61,16 @@ async function session(dist: string, isClearScroll: boolean) {
     }
     const page = await ctx.newPage();
     await page.setViewportSize({ width: 1000, height: 1400 });
-    for (const p of pages) {
+    for (const [index, p] of pages.entries()) {
+      // Identical navigation and activity schedule: Chrome activity reporting is
+      // triggered by interactive sessions, including synthetic mouse/keyboard input.
+      const due = t0 + 4000 + index * (images ? 13000 : 9000);
+      if (Date.now() > due + 2000) throw Error("Missed matched navigation window");
+      await page.waitForTimeout(Math.max(0, due - Date.now()));
       await page.goto(`${server.base}/${p}`);
+      await page.mouse.click(950, 1300);
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
       if (isClearScroll) await page.waitForSelector('[data-clearscroll="blurred"]', { timeout: 30_000 });
       if (isClearScroll && p.startsWith("images.html")) {
         // The first picture waits for the image model to load.
@@ -115,6 +100,13 @@ async function session(dist: string, isClearScroll: boolean) {
       console.log("Feedback with optional diagnostics saved locally during offline privacy session.");
       await popup.close();
     }
+    if (isClearScroll && process.argv.includes("--probe-egress")) {
+      // Deliberate negative control in this isolated test profile. Must fail the gate,
+      // even when trying to imitate the browser reporter's destination and headers.
+      await sw.evaluate(() => fetch("https://update.googleapis.com/service/update2/json", {
+        method: "POST", headers: { "X-Goog-Update-Updater": "activity_reporter-157.0.8103.38", "X-Goog-Update-AppId": "{cd7cc169-013a-4c79-94bc-cf5c8d78cccf}", "X-Goog-Update-Interactivity": "bg" }, body: "synthetic-test-only"
+      }).catch(() => undefined));
+    }
     const left = SESSION_MS - (Date.now() - t0);
     if (left < 0) throw new Error(`session exceeded ${SESSION_MS} ms; raise SESSION_MS so both runs are equally long`);
     await page.waitForTimeout(left);
@@ -125,23 +117,16 @@ async function session(dist: string, isClearScroll: boolean) {
   }
   let raw = fs.readFileSync(netlog, "utf8").trim();
   if (!raw.endsWith("}")) raw = raw.replace(/,\s*$/, "") + "]}";
-  fs.rmSync(netlog, { force: true });
-  const log = JSON.parse(raw) as { constants: { logEventTypes: Record<string, number> }; events: NetEvent[] };
-  const START = log.constants.logEventTypes.URL_REQUEST_START_JOB;
-  const external = new Set<string>();
-  const requests: { url: string; initiator: string }[] = [];
-  const fromExtension: string[] = [];
-  for (const e of log.events) {
-    if (e.type !== START || !e.params?.url) continue;
-    const u = new URL(e.params.url);
-    if (e.params.initiator?.startsWith("chrome-extension://")) fromExtension.push(e.params.url);
-    if ((u.protocol === "http:" || u.protocol === "https:") && u.hostname !== "127.0.0.1") {
-      external.add(u.hostname);
-      requests.push({ url: e.params.url, initiator: e.params.initiator ?? "?" });
-    }
-  }
+  fs.writeFileSync(netlog, raw);
+  const log = JSON.parse(raw) as NetLog;
+  const all = networkRequests(log);
+  const requests = all.filter(r => r.external);
+  const browserOwned = requests.filter(r => r.activityReporter);
+  const external = new Set(requests.filter(r => !r.activityReporter).map(r => new URL(r.url).hostname));
+  const fromExtension = all.filter(r => r.extension).map(r => r.url);
+  fs.writeFileSync(path.join(evidence, `${isClearScroll}-requests.json`), JSON.stringify(all, null, 2));
   const remoteMedia = server.mediaRequests.filter((r) => r.host.startsWith(REMOTE_HOST));
-  return { external, requests, fromExtension, blurred, blurredImages, remoteMedia };
+  return { external, requests, browserOwned, fromExtension, blurred, blurredImages, remoteMedia };
 }
 
 const noop = noopExtension();
@@ -160,8 +145,9 @@ const extensionDownloads = withExt.fromExtension.filter(isExpectedDownload);
 const unexpected = withExt.fromExtension.filter((u) => !isExpectedDownload(u));
 
 console.log(`browser: ${browser}; mode: ${downloads ? "text + images + downloads" : images ? "text + images (downloads off)" : "text only (default settings)"}; both sessions ${SESSION_MS / 1000} s with an extension loaded (control: no-op extension)`);
-console.log(`hosts contacted by the browser itself (control session): ${[...control.external].sort().join(", ") || "none"}`);
+console.log(`control external hosts (excluding attributed browser activity reports): ${[...control.external].sort().join(", ") || "none"}`);
 console.log(`hosts contacted only in the ClearScroll session: ${onlyWithExtension.join(", ") || "none"}`);
+console.log(`attributed Chrome activity reports: control ${control.browserOwned.length}; ClearScroll ${withExt.browserOwned.length}; raw evidence ${evidence}`);
 console.log(`requests initiated by an extension origin: ${withExt.fromExtension.length}`);
 console.log(`blurred items across ${images ? 4 : 3} pages with remote DNS disabled: ${withExt.blurred}${images ? ` (pictures: ${withExt.blurredImages})` : ""}`);
 if (downloads) console.log(`expected picture downloads by the extension: ${extensionDownloads.length} (${extensionDownloads.map((u) => new URL(u).pathname + new URL(u).search).join(", ")})`);
@@ -199,4 +185,4 @@ if (onlyWithExtension.length) {
   failed = true;
 }
 if (failed) process.exit(1);
-console.log(downloads ? "✔ ClearScroll requested only the displayed other-domain pictures (once each, no cookies); filtering worked offline" : "✔ ClearScroll caused no network requests; filtering worked offline");
+console.log(downloads ? "✔ ClearScroll requested only the displayed other-domain pictures (once each, no cookies); filtering worked offline" : "✔ No unexpected extension network requests observed; filtering worked offline; browser-owned activity reported separately");

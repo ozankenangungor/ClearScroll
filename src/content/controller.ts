@@ -24,7 +24,7 @@
 
 import { decide, LEXICAL_PARAMS, prepareTopic } from "../shared/classifier.ts";
 import type { Decision } from "../shared/classifier.ts";
-import type { FeedbackDraft } from "../shared/feedback.ts";
+import { feedbackTag, type FeedbackDraft } from "../shared/feedback.ts";
 import type { ClassifyReply, ClassifyRequest, EngineStatus, TabActivity, TabStateReply } from "../shared/protocol.ts";
 import type { VisionReply, VisionRequest } from "../shared/vision.ts";
 import { ImageFilter } from "./image-filter.ts";
@@ -165,11 +165,11 @@ export class FilterController {
     const path: string[] = [];
     for (let el: Element | null = unit; el && path.length < 6; el = el.parentElement) {
       const ordinal = el.parentElement ? [...el.parentElement.children].filter(s => s.tagName === el!.tagName).indexOf(el) + 1 : 1;
-      path.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${ordinal})`);
+      path.unshift(`${feedbackTag(el.tagName)}:nth-of-type(${ordinal})`);
     }
     return {
       kind: decision === "visible" ? "should-hide" : "wrongly-hidden", topicId, mode: this.settings!.mode, decision,
-      target: { tag: unit.tagName.toLowerCase(), ordinal: [...this.deps.doc.getElementsByTagName(unit.tagName)].indexOf(unit) + 1 },
+      target: { tag: feedbackTag(unit.tagName), ordinal: [...this.deps.doc.getElementsByTagName(unit.tagName)].indexOf(unit) + 1 },
       diagnostics: diagnostics ? { path: path.join(" > "), analyzed: !!d, matched: d?.matched ?? null, via: d?.via ?? null,
         score: d?.score ?? null, similarity: d?.similarity ?? null, rivalled: d?.rivalled ?? null, backend: engine?.backend ?? null, state: engine?.state ?? "idle" } : null,
     };

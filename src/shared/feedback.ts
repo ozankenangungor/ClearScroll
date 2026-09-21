@@ -3,6 +3,12 @@ import { FILTER_MODES, type FilterMode } from "./settings.ts";
 export const FEEDBACK_KEY = "clearscroll_feedback";
 export const FEEDBACK_LIMIT = 100;
 export const FEEDBACK_TTL_MS = 30 * 86400_000;
+// Fixed vocabulary only: arbitrary/custom tag names can embed account IDs or tokens.
+const FEEDBACK_TAGS = new Set(("element html body main section article aside nav header footer div p li ul ol dl dt dd table thead tbody tfoot tr td th caption colgroup col h1 h2 h3 h4 h5 h6 blockquote figure figcaption fieldset legend details summary a abbr b bdi bdo cite data del dfn em i ins mark q ruby s small span strong sub sup time u var br hr picture img").split(" "));
+export function feedbackTag(tag: string): string {
+  const normalized = tag.toLowerCase();
+  return FEEDBACK_TAGS.has(normalized) ? normalized : "element";
+}
 export interface FeedbackDraft {
   kind: "wrongly-hidden" | "should-hide";
   topicId: string;
@@ -35,13 +41,14 @@ export function sanitizeFeedback(value: unknown): FeedbackDraft | null {
   if (!["wrongly-hidden", "should-hide"].includes(v.kind) || typeof v.topicId !== "string" || v.topicId.length > 100 ||
       !FILTER_MODES.includes(v.mode) || !["hidden", "visible", "revealed"].includes(v.decision) ||
       (v.kind === "wrongly-hidden" ? v.decision === "visible" : v.decision !== "visible") ||
-      !v.target || typeof v.target.tag !== "string" || !/^[a-z][a-z0-9]{0,15}$/.test(v.target.tag) ||
+      !v.target || typeof v.target.tag !== "string" || !FEEDBACK_TAGS.has(v.target.tag) ||
       !Number.isInteger(v.target.ordinal) || v.target.ordinal < 1 || v.target.ordinal > 100000) return null;
   let diagnostics: FeedbackDraft["diagnostics"] = null;
   if (v.diagnostics !== null) {
     const d = v.diagnostics;
     if (!d || typeof d.path !== "string" || d.path.length > 300 ||
         !/^[a-z][a-z0-9]*:nth-of-type\([1-9][0-9]*\)( > [a-z][a-z0-9]*:nth-of-type\([1-9][0-9]*\))*$/.test(d.path) ||
+        d.path.split(" > ").some(part => !FEEDBACK_TAGS.has(part.split(":")[0]!)) ||
         typeof d.analyzed !== "boolean" || ![true, false, null].includes(d.matched) ||
         !["semantic", "lexical", null].includes(d.via) || ![true, false, null].includes(d.rivalled) ||
         !["cpu", "webgpu", null].includes(d.backend) ||
@@ -56,7 +63,7 @@ export function retainedFeedback(value: unknown, now: number): FeedbackRecord[] 
   return value.flatMap(v => {
     const draft = sanitizeFeedback(v);
     if (!draft || typeof v.id !== "string" || !/^[a-f0-9-]{36}$/.test(v.id) ||
-        typeof v.createdAt !== "number" || v.createdAt > now || now - v.createdAt >= FEEDBACK_TTL_MS ||
+        typeof v.createdAt !== "number" || !Number.isFinite(v.createdAt) || v.createdAt > now || now - v.createdAt >= FEEDBACK_TTL_MS ||
         typeof v.topic !== "string" || v.topic.length > 120 ||
         typeof v.version !== "string" || !/^\d+\.\d+\.\d+$/.test(v.version)) return [];
     return [{ ...draft, id: v.id, createdAt: v.createdAt, version: v.version, topic: v.topic, reviewStatus: "unreviewed-user-report" as const }];

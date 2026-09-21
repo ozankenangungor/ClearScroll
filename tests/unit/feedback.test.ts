@@ -37,3 +37,38 @@ test("serialized multi-tab saves, deletion, and current site/topic/consent valid
   assert.equal((await store.run("feedback:list", null, async () => s) as any).records.length, 0);
   delete (globalThis as any).chrome;
 });
+
+test("persisted malformed records cannot survive cleanup or smuggle tag-name secrets", () => {
+  const now = Date.now();
+  const record = { ...draft, id: crypto.randomUUID(), createdAt: now, topic: '猫 🐈 <script>literal</script>', version: "0.3.1" };
+  for (const bad of [null, {}, { ...record, createdAt: NaN }, { ...record, createdAt: Infinity }, { ...record, id: "bad" }, { ...record, target: { tag: "authabc123secret", ordinal: 1 } }]) assert.deepEqual(retainedFeedback([bad], now), []);
+  const diagnostics = { path: "authabc123secret:nth-of-type(1) > p:nth-of-type(1)", analyzed: false, matched: null, via: null, score: null, similarity: null, rivalled: null, backend: null, state: "idle" };
+  assert.equal(sanitizeFeedback({ ...draft, diagnostics }), null);
+  assert.equal(retainedFeedback([{ ...record, createdAt: now - FEEDBACK_TTL_MS + 1 }], now).length, 1);
+  assert.equal(retainedFeedback([record], now)[0]?.topic, record.topic);
+});
+
+test("idle storage expires only on activity; restart prunes and delete/save ordering stays deterministic", async () => {
+  let storage: Record<string, any> = {};
+  (globalThis as any).chrome = { runtime: { getManifest: () => ({ version: "0.3.1" }) }, storage: { local: {
+    get: async () => structuredClone(storage), set: async (v: object) => { storage = { ...storage, ...v }; }, remove: async (k: string) => { delete storage[k]; },
+  } } };
+  try {
+    const s = { ...defaultSettings(), mode: "balanced" as const, topics: [{ id: "t", text: "cats", enabled: true }, { id: "f", text: "football", enabled: true }] };
+    const store = new FeedbackStore();
+    const save = (topicId = "t") => store.run("feedback:save", { ...draft, topicId }, async () => s, "https://fixture.example/");
+    await save(); await save("f");
+    assert.deepEqual(storage.clearscroll_feedback.map((r: any) => r.topic), ["cats", "football"]);
+    storage.clearscroll_feedback[0].createdAt = Date.now() - FEEDBACK_TTL_MS;
+    assert.equal(storage.clearscroll_feedback.length, 2, "no timer rewrites inactive storage");
+    const restarted = new FeedbackStore();
+    await restarted.run("feedback:prune", null, async () => s);
+    assert.equal(storage.clearscroll_feedback.length, 1);
+    const jobs = [save(), store.run("feedback:clear", null, async () => s), save("f")];
+    await Promise.all(jobs);
+    assert.equal(storage.clearscroll_feedback.length, 1);
+    assert.equal(storage.clearscroll_feedback[0].topic, "football");
+    await store.run("feedback:clear", null, async () => s);
+    assert.equal(storage.clearscroll_feedback, undefined);
+  } finally { delete (globalThis as any).chrome; }
+});
