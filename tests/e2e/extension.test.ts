@@ -237,7 +237,7 @@ test("keyword-only mode reports itself honestly and still filters explicit menti
   assert.equal(status.engine.state, "lexical-fallback");
 });
 
-test("a GPU returning wrong results is detected and replaced by the CPU engine", async (t) => {
+test("software GPU results are checked; numerical rejection or a worker trap safely falls back to CPU", async (t) => {
   const hasAdapter = await env.sw.evaluate(async () => !!(await (navigator as any).gpu?.requestAdapter()));
   if (!hasAdapter) {
     t.skip("no WebGPU adapter in this environment");
@@ -262,8 +262,40 @@ test("a GPU returning wrong results is detected and replaced by the CPU engine",
   assert.equal(result.ok, true);
   assert.deepEqual(result.decisions.map((d: any) => d.matched), [true, false]);
   assert.equal(result.engine.state, "semantic");
-  // Either the software GPU failed a check and CPU took over, or it computed correctly.
-  if (result.engine.backend === "cpu") assert.match(result.engine.detail, /webgpu: .*(canary|self-test)/);
+  assert.ok(result.engine.backend === "cpu" || result.engine.backend === "webgpu");
+  assert.equal(result.decisions[0].via, "semantic", "never pass via a lexical downgrade");
+  const stats = await env.sw.evaluate(() => chrome.runtime.sendMessage({ type: "off:stats", target: "offscreen" }));
+  t.diagnostic(JSON.stringify({ softwareGpu: result.engine, stats }));
+  if (result.engine.backend === "cpu") {
+    // A worker can trap before returning numbers. That legitimately reaches
+    // startNextBackend's error branch without a canary/self-test mismatch.
+    // Accept only that observed trap in addition to numerical rejections.
+    const numerical = /webgpu: .*(canary|self-test)/.test(result.engine.detail);
+    const trap = /^webgpu: (?:runtime failure: )?Uncaught RuntimeError: unreachable$/.test(result.engine.detail);
+    assert.ok(numerical || trap, `unexpected GPU failure: ${result.engine.detail}`);
+    if (trap) assert.equal(stats.canaryFailures, 0, "a trap is not a numerical mismatch");
+    if (/canary mismatch/.test(result.engine.detail)) assert.ok(stats.canaryFailures > 0);
+  }
+  await env.sw.evaluate(() => chrome.offscreen.closeDocument());
+  // The fallback must return the same semantic verdicts as a fresh CPU
+  // worker. Keep the failure reason above; don't hide it behind correct bits.
+  const cpu = await env.sw.evaluate(async () => {
+    await chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL("offscreen/offscreen.html?backend=cpu"),
+      reasons: ["WORKERS" as chrome.offscreen.Reason], justification: "CPU safety reference",
+    });
+    return chrome.runtime.sendMessage({
+      type: "off:classify", target: "offscreen", frameKey: "cpu-reference", generation: 1, mode: "balanced",
+      topics: [{ id: "c", text: "cryptocurrency" }],
+      texts: ["Bitcoin climbs above $70,000 as ETF inflows accelerate", "How to keep tomato plants healthy during a heatwave"],
+    });
+  });
+  assert.equal(cpu.ok, true);
+  assert.equal(cpu.engine.state, "semantic");
+  assert.equal(cpu.engine.backend, "cpu");
+  const verdicts = (r: any) => r.decisions.map((d: any) => [d.matched, d.topicId, d.via, d.rivalled]);
+  assert.deepEqual(verdicts(result), verdicts(cpu));
+  if (result.engine.backend === "cpu") assert.deepEqual(result.decisions, cpu.decisions);
   await env.sw.evaluate(() => chrome.offscreen.closeDocument());
 });
 

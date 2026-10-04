@@ -45,6 +45,7 @@ type Behaviour = {
   starts?: Partial<Record<Backend, number>>;
   /** The worker crashes (error event) on this embed number. */
   crashOn?: Partial<Record<Backend, number>>;
+  crashMessage?: string;
   /** The worker never answers this embed number. */
   hangOn?: Partial<Record<Backend, number>>;
 };
@@ -82,7 +83,7 @@ class FakeWorker implements WorkerLike {
       this.embeds++;
       this.embedTexts.push(msg.texts);
       if (this.b.crashOn?.[backend] === this.embeds) {
-        queueMicrotask(() => !this.terminated && this.onerror?.({ message: "simulated worker crash" } as ErrorEvent));
+        queueMicrotask(() => !this.terminated && this.onerror?.({ message: this.b.crashMessage ?? "simulated worker crash" } as ErrorEvent));
         return;
       }
       if (this.b.hangOn?.[backend] === this.embeds) return;
@@ -676,3 +677,24 @@ test("siblingNames: the text plan's anchors and rivals for image filtering; null
   const off = makeHost({ initFails: ["webgpu", "cpu"] }, ["webgpu", "cpu"]);
   assert.equal(await off.host.siblingNames("cryptocurrency"), null, "keyword-only engine");
 });
+
+// A worker can trap before producing any numbers: numerical-mismatch wording
+// is not a prerequisite for safe fallback (observed on Oracle SwiftShader).
+for (const embed of [1, 2]) {
+  test(`GPU worker trap on embed ${embed} discards it and returns verified CPU semantics`, async () => {
+    const { host, log, statuses, workers } = makeHost({ crashOn: { webgpu: embed }, crashMessage: "Uncaught RuntimeError: unreachable" });
+    const reply = await host.classify(req(["Bitcoin rallies again today", "The bakery sells bread"]));
+    assert.deepEqual(verdicts(reply), [[true, "semantic"], [false, null]]);
+    assert.equal(host.getStatus().state, "semantic");
+    assert.equal(host.getStatus().backend, "cpu");
+    assert.equal(host.getStatus().detail, embed === 1 ? "webgpu: Uncaught RuntimeError: unreachable" : "webgpu: runtime failure: Uncaught RuntimeError: unreachable");
+    assert.ok(log.indexOf("terminate:webgpu") < log.indexOf("init:cpu"));
+    assert.equal(workers[0]!.terminated, true);
+    assert.equal(host.stats.canaryFailures, 0, "a trap produces no numerical canary mismatch");
+    if (embed === 1) assert.ok(!statuses.some(s => s.state === "semantic" && s.backend === "webgpu"));
+    const cpu = makeHost({}, ["cpu"]);
+    const reference = await cpu.host.classify(req(["Bitcoin rallies again today", "The bakery sells bread"]));
+    assert.ok(reply.ok && reference.ok);
+    assert.deepEqual(reply.decisions, reference.decisions);
+  });
+}
