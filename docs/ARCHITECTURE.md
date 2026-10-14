@@ -87,7 +87,13 @@ model instead of loading it per tab.
 5. The content script applies a verdict only if the reply's generation is still
    current, filtering is still active, the element is still connected and its
    text equals the text that was classified. Everything else is dropped and
-   changed elements are re-queued.
+   changed elements are re-queued. A matched unit is shown hidden through its
+   **feed item** when it has one (`itemOf` in `dom.ts`): the nearest ancestor,
+   at most 8 levels up, that contains an image or video of at least 64×48 px
+   and at most 3 text units of 24+ characters, and is not a landmark or
+   protected region — so a video card or news promo is hidden with its
+   thumbnail, but never a list or a box of several stories. An item stays
+   hidden while any of its texts matches and is revealed as a whole.
 
 ## State and concurrency
 

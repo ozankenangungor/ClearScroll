@@ -483,3 +483,141 @@ test("clearing a focused item does not throw focus to <body>; the added tabindex
   assert.equal(await page.evaluate(() => document.getElementById("a")!.outerHTML), original, "added attributes removed after blur");
   await page.close();
 });
+
+// ── Feed items: a match hides the whole card (thumbnail, title, metadata) ───
+
+const GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+const card = (id: string, title: string, extra = "") => `
+  <div class="card" id="${id}">
+    <a href="#${id}-link" id="${id}-thumb-link"><img id="${id}-thumb" src="${GIF}" width="160" height="90" alt=""></a>
+    <h3 id="${id}-title"><a href="#${id}-link">${title}</a></h3>
+    <span id="${id}-meta">1.2M views · 2 days ago</span>
+    ${extra}
+  </div>`;
+const FEED = `<main><div id="list">
+  ${card("c1", "Everton MATCH Chelsea: highlights from the weekend", `<p id="c1-desc">Watch every goal and the reaction from the game.</p>`)}
+  ${card("c2", "How to bake sourdough bread at home in a day", `<p id="c2-desc">A simple recipe for complete beginners.</p>`)}
+  ${card("c3", "MATCH report: Arsenal beat Leeds in the late game")}
+  ${card("c4", "Gardening tips for a small balcony this autumn")}
+</div></main>`;
+
+test("a matched feed item is hidden as a whole: thumbnail, title and metadata", async () => {
+  const page = await harnessPage(browser, FEED);
+  const h = H(page);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("c1"), "blurred", "the card carries the blur");
+  assert.equal(await h.state("c3"), "blurred");
+  assert.equal(await h.state("c1-title"), null, "not blurred twice");
+  assert.equal(await h.state("c2"), null, "unrelated cards stay visible");
+  assert.equal(await h.state("c4"), null);
+  assert.equal(await h.state("list"), null, "never the whole list");
+  const thumbFilter = await page.evaluate(() => getComputedStyle(document.getElementById("c1")!).filter);
+  assert.match(thumbFilter, /blur/, "the thumbnail is inside the blurred element");
+  await page.close();
+});
+
+test("item hiding falls back to the text when there is no card or the card holds several stories", async () => {
+  const page = await harnessPage(browser, `<main>
+    <div id="textonly"><p id="t1">A MATCH headline without any picture next to it.</p><span>2h ago</span></div>
+    <div id="bundle"><img src="${GIF}" width="200" height="120" alt="">
+      <h3 id="b1">Main MATCH story of the day with a big photo</h3>
+      <p id="b2">Related: council approves the new cycle lanes plan</p>
+      <p id="b3">Related: museum reopens after two years of repairs</p>
+      <p id="b4">Related: storm warning issued for the coast tonight</p>
+    </div>
+    <div id="tiny"><img src="${GIF}" width="24" height="24" alt=""><p id="a1">An avatar only MATCH comment that is long enough.</p></div>
+  </main>`);
+  const h = H(page);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("t1"), "blurred");
+  assert.equal(await h.state("textonly"), null, "no media: only the text is hidden");
+  assert.equal(await h.state("b1"), "blurred");
+  assert.equal(await h.state("bundle"), null, "several unrelated stories: never hidden together");
+  assert.equal(await h.state("a1"), "blurred");
+  assert.equal(await h.state("tiny"), null, "an avatar or icon does not make a card");
+  await page.close();
+});
+
+test("a hidden item is revealed by one click without following its link, and stays revealed", async () => {
+  const page = await harnessPage(browser, FEED);
+  const h = H(page);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  await page.click("#c1-thumb");
+  assert.equal(await h.state("c1"), "revealed");
+  assert.equal(await page.evaluate(() => location.hash), "", "the thumbnail link is not followed on the revealing click");
+  // More text of the same card is classified later (e.g. a lazily rendered description).
+  await page.evaluate(() => document.getElementById("c1")!.insertAdjacentHTML("beforeend", "<p id='c1-more'>Another MATCH sentence about the same match.</p>"));
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("c1"), "revealed", "a revealed card is not hidden again by more of its own text");
+  await page.close();
+});
+
+test("an item is unhidden when its matching text changes, and stop() restores it exactly", async () => {
+  const page = await harnessPage(browser, FEED);
+  const h = H(page);
+  const original = await page.evaluate(() => document.getElementById("c3")!.outerHTML);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("c3"), "blurred");
+  await page.evaluate(() => {
+    document.querySelector("#c3-title a")!.firstChild!.textContent = "Report: city library extends opening hours";
+  });
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("c3"), null, "no member matches any more");
+  assert.equal(await h.state("c1"), "blurred");
+  await h.stop();
+  assert.equal(await h.state("c1"), null);
+  const attrs = await page.evaluate(() => [...document.querySelectorAll("*")].flatMap((e) => [...e.attributes].map((a) => a.name)).filter((n) => n.startsWith("data-clearscroll")));
+  assert.deepEqual(attrs, [], "nothing of ours is left");
+  await page.evaluate(() => { document.querySelector("#c3-title a")!.firstChild!.textContent = "MATCH report: Arsenal beat Leeds in the late game"; });
+  assert.equal(await page.evaluate(() => document.getElementById("c3")!.outerHTML), original);
+  await page.close();
+});
+
+test("a hidden item stays hidden across a settings change until its new verdict arrives", async () => {
+  const page = await harnessPage(browser, FEED);
+  const h = H(page);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("c1"), "blurred");
+  await h.apply({ mode: "aggressive" });
+  await settle(page);
+  assert.equal(await h.state("c1"), "blurred", "no flash of the old content while re-classifying");
+  await waitPending(page, 1);
+  await h.respond(0, "NOTHING-MATCHES");
+  await settle(page);
+  assert.equal(await h.state("c1"), null);
+  await page.close();
+});
+
+test("a hidden item stays hidden when its metadata text updates in place", async () => {
+  const page = await harnessPage(browser, FEED);
+  const h = H(page);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("c1"), "blurred");
+  // Feeds update relative times and counters in place ("2 days ago" → "3 days ago").
+  await page.evaluate(() => { document.getElementById("c1-meta")!.firstChild!.textContent = "1.3M views · 3 days ago"; });
+  await settle(page);
+  assert.equal(await h.state("c1"), "blurred");
+  await page.close();
+});

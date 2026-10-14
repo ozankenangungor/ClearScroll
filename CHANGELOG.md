@@ -24,6 +24,9 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   without rendering).
 
 ### Changed
+- A match hides the whole feed item (video card, news promo) including its
+  thumbnail and metadata, not only the matching text; text without such an
+  item is hidden on its own as before.
 - Model: `sentence-transformers/all-MiniLM-L6-v2` replaces bert-tiny
   (English F1 40.0 % → 67.5 %, false positives 14.3 % → 4.4 % at balanced).
 - Thresholds calibrated per model on a labelled dataset.

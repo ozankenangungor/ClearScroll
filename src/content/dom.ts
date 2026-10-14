@@ -8,6 +8,9 @@
  * contain block-level descendants are containers, not units, and are never
  * blurred as a whole.
  *
+ * Items: a matched unit is shown hidden through its feed item when it has one
+ * (itemOf), so a card's thumbnail goes with its headline.
+ *
  * Visual state is expressed only through extension-owned attributes styled by
  * content.css. Page inline styles, classes, listeners and child nodes are
  * never modified; the only other attributes touched (tabindex, title) are
@@ -136,6 +139,54 @@ export function collectUnits(root: Node, protectedSelector: string, out: Set<Ele
     const u = unitOf(n);
     if (u) out.add(u);
   }
+}
+
+// ── Feed items ─────────────────────────────────────────────────────────────
+
+/** Text units at least this long are separate pieces of content (stories). */
+const ITEM_SUBSTANTIAL_CHARS = 24;
+/** More than this many substantial units → a list of items, not one item. */
+const ITEM_MAX_SUBSTANTIAL_UNITS = 3;
+const ITEM_MAX_DEPTH = 8;
+/** Smaller images are avatars or icons, not a picture of the story. */
+const ITEM_MIN_MEDIA_WIDTH = 64;
+const ITEM_MIN_MEDIA_HEIGHT = 48;
+const ITEM_STOP_TAGS = new Set(["HTML", "BODY", "MAIN", "NAV", "HEADER", "FOOTER", "ASIDE", "FORM"]);
+
+/**
+ * The feed item a unit belongs to — a video card, a news promo — so that a
+ * match also hides its thumbnail and metadata, not only the text. It is the
+ * nearest ancestor (at most ITEM_MAX_DEPTH levels up) that contains a
+ * content-sized image or video, provided it holds at most
+ * ITEM_MAX_SUBSTANTIAL_UNITS substantial text units (so it is never a list or
+ * a box of several stories) and is not a landmark or protected region.
+ * Null: the unit has no such item and is hidden on its own.
+ */
+export function itemOf(unit: Element, protectedSelector: string): Element | null {
+  let depth = 0;
+  for (let a = unit.parentElement; a && depth < ITEM_MAX_DEPTH; a = a.parentElement, depth++) {
+    if (ITEM_STOP_TAGS.has(a.tagName.toUpperCase())) return null;
+    if (protectedSelector && a.matches(protectedSelector)) return null;
+    if (substantialUnits(a, protectedSelector) > ITEM_MAX_SUBSTANTIAL_UNITS) return null;
+    if (hasContentMedia(a)) return a;
+  }
+  return null;
+}
+
+function substantialUnits(root: Element, protectedSelector: string): number {
+  const units = new Set<Element>();
+  collectUnits(root, protectedSelector, units);
+  let n = 0;
+  for (const u of units) if ((unitText(u, protectedSelector)?.length ?? 0) >= ITEM_SUBSTANTIAL_CHARS) n++;
+  return n;
+}
+
+function hasContentMedia(root: Element): boolean {
+  for (const m of root.querySelectorAll("img, picture, video")) {
+    const r = m.getBoundingClientRect();
+    if (r.width >= ITEM_MIN_MEDIA_WIDTH && r.height >= ITEM_MIN_MEDIA_HEIGHT) return true;
+  }
+  return false;
 }
 
 // ── Visual state ───────────────────────────────────────────────────────────
