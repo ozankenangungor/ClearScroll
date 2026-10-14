@@ -11,8 +11,10 @@ page text is never sent anywhere.
 
 ![Before and after: crypto and football items blurred on a news page](docs/images/3-filtered.png)
 
-> **Status:** release candidate `0.3.0`, buildable and tested locally and in
-> CI. Not published on the Chrome Web Store. English only (see
+> **Status:** release candidate `0.3.0` on the `feat/clearscroll-0.3` branch,
+> not yet merged into `main` (which still holds the earlier IdeaBlocker
+> version). Buildable and tested locally; CI runs on every push to the
+> branch. Not published on the Chrome Web Store. English only (see
 > [limitations](#limitations)).
 
 ## Features
@@ -94,10 +96,14 @@ then uses the CPU backend and says so in its diagnostics.
 
 Requirements: Node.js ≥ 22.18, Rust via [rustup](https://rustup.rs) (the
 pinned toolchain installs automatically), Python 3.13 (or [uv](https://docs.astral.sh/uv/)),
-and `wasm-bindgen-cli` matching `Cargo.lock`:
+and `wasm-bindgen-cli` matching `Cargo.lock`.
+
+Version 0.3 is on the `feat/clearscroll-0.3` branch; a plain clone checks out
+`main`, which still contains the earlier IdeaBlocker version and does not
+have these build steps. Clone the branch explicitly:
 
 ```bash
-git clone https://github.com/ozankenangungor/ClearScroll.git && cd ClearScroll
+git clone --branch feat/clearscroll-0.3 https://github.com/ozankenangungor/ClearScroll.git && cd ClearScroll
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 npm ci
 npm run setup:model   # pinned model download + export + sha256 verification
