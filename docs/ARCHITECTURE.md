@@ -111,7 +111,7 @@ model instead of loading it per tab.
 | No WebGPU adapter, or only a software (SwiftShader) adapter | CPU backend | `semantic` / `cpu`, detail explains why |
 | WebGPU init fails or times out (120 s) | worker terminated, CPU backend started | `semantic` / `cpu`, detail lists the error |
 | Backend computes wrong numbers | start-up **self-test** (PyTorch reference vectors in `model.json`) and a per-batch **canary** on GPU reject it → next backend | detail: `self-test failed` / `GPU canary mismatch` |
-| Runtime failure (device lost, worker crash, embed timeout 60 s) | fail over to the next backend and retry the job once | detail lists the failure |
+| Runtime failure (device lost, worker crash, embed timeout 60 s) | fail over to the next backend (the last one is restarted up to 2 times) and retry the same job on each backend that comes up, at most 4 attempts; nothing computed by the failed worker is reused | detail lists the failure; the job ends semantic, or lexical together with the engine |
 | No backend works / engine set to "keywords only" | lexical rules only | `lexical-fallback` |
 | Background/offscreen unreachable | content script uses lexical rules locally | `lexical-fallback` |
 | Request fails | units retried with exponential backoff (0.5 s → 30 s) | console warning |

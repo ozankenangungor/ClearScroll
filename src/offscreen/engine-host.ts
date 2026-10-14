@@ -18,9 +18,21 @@
  *    transient (a timeout on an overloaded machine). When nothing works, the
  *    host degrades to lexical-only decisions, reports `lexical-fallback`
  *    truthfully, and tries again after RECOVERY_COOLDOWN_MS.
+ *  - The job that hit a runtime failure is retried on each backend that
+ *    fail-over brings up, so it ends with embeddings from one working
+ *    backend, in lexical fallback together with the engine, or — only if
+ *    its attempt budget runs out first — with an explicit error.
  */
 
 const MAX_RESTARTS = 2;
+/**
+ * Embedding attempts per job. Every failed attempt retires one backend
+ * instance from a finite pool (the remaining backends, then MAX_RESTARTS
+ * restarts of the last one) and fail-over degrades once the pool is empty,
+ * so with both backends a job makes at most 2 + MAX_RESTARTS attempts. The
+ * cap makes termination explicit rather than a consequence of that pool.
+ */
+const MAX_EMBED_ATTEMPTS = 2 + MAX_RESTARTS;
 const RECOVERY_COOLDOWN_MS = 5 * 60_000;
 /** Frames tracked for stale-job dropping; oldest are forgotten first. */
 const MAX_TRACKED_FRAMES = 1000;
@@ -61,6 +73,7 @@ export interface EngineHostDeps {
   initTimeoutMs?: number;
   embedTimeoutMs?: number;
   cacheSize?: number;
+  maxEmbedAttempts?: number;
 }
 
 export interface ModelMeta {
@@ -89,6 +102,8 @@ export class EngineHost {
   private profile: ModelProfile | null = null;
   private meta: ModelMeta | null = null;
   private background: Background | null = null;
+  /** The background vectors were computed by the current worker (not model.json). */
+  private backgroundFromWorker = false;
   private remainingBackends: Backend[] | null = null;
   private ready: Promise<boolean> | null = null;
   private nextId = 1;
@@ -102,6 +117,7 @@ export class EngineHost {
   private readonly cache: LruCache<string, Float32Array>;
   private readonly initTimeoutMs: number;
   private readonly embedTimeoutMs: number;
+  private readonly maxEmbedAttempts: number;
 
   /** Counters for diagnostics and the benchmark harness. */
   readonly stats: EngineStats = { jobs: 0, staleDropped: 0, embedded: 0, cacheHits: 0, embedMs: 0, canaryFailures: 0, wasmMemoryBytes: null, wasmMemoryBeforeModelBytes: null };
@@ -113,6 +129,7 @@ export class EngineHost {
     this.status = { state: "idle", backend: null, model: "unknown", detail: null, loadMs: null, updatedAt: deps.now() };
     this.initTimeoutMs = deps.initTimeoutMs ?? 120_000;
     this.embedTimeoutMs = deps.embedTimeoutMs ?? 60_000;
+    this.maxEmbedAttempts = deps.maxEmbedAttempts ?? MAX_EMBED_ATTEMPTS;
     this.cache = new LruCache(deps.cacheSize ?? 4000);
   }
 
@@ -165,33 +182,34 @@ export class EngineHost {
 
   private async run(msg: OffscreenClassify): Promise<ClassifyReply> {
     this.stats.jobs++;
+    const keys = [...msg.topics.map((t) => topicKey(t.text)), ...msg.texts.map(textKey)];
     let semantic = await this.ensureReady();
     let vectors: Map<string, Float32Array> | null = null;
-    if (semantic) {
-      const keys = [...msg.topics.map((t) => topicKey(t.text)), ...msg.texts.map(textKey)];
+    // Retry on each backend that fail-over brings up until the job has its
+    // embeddings, the engine degrades (semantic = false) or the budget is spent.
+    for (let attempt = 1; semantic && !vectors; attempt++) {
       try {
         vectors = await this.embedCached(keys);
       } catch (err) {
-        // Runtime failure (device lost, worker crash, timeout): move to the next
-        // backend and retry this job once on it.
+        // Runtime failure (device lost, worker crash, timeout, canary): move to
+        // the next backend, or restart the last one.
         semantic = await this.failOver(`runtime failure: ${errorText(err)}`);
-        if (semantic) {
-          try {
-            vectors = await this.embedCached(keys);
-          } catch (err2) {
-            semantic = await this.failOver(`runtime failure: ${errorText(err2)}`);
-          }
+        if (semantic && attempt >= this.maxEmbedAttempts) {
+          // The engine recovered but this job has no embeddings: a retryable
+          // error, not keyword verdicts under a "semantic" engine status.
+          return { ok: false, generation: msg.generation, error: `semantic inference failed after ${attempt} attempt${attempt === 1 ? "" : "s"}`, engine: this.status };
         }
       }
     }
+    // From here, vectors !== null exactly when the engine is semantic.
 
     const params = this.params(msg.mode);
-    const background = semantic && vectors && this.profile?.scoring === "margin" ? this.background : null;
+    const background = vectors && this.profile?.scoring === "margin" ? this.background : null;
     const topics = msg.topics.map((t) =>
       prepareTopic(t, vectors?.get(topicKey(t.text)) ?? null, params, background)
     );
     let flat: Float32Array | null = null;
-    if (semantic && vectors) {
+    if (vectors) {
       flat = new Float32Array(msg.texts.length * this.dim);
       msg.texts.forEach((t, i) => flat!.set(vectors!.get(textKey(t))!, i * this.dim));
     }
@@ -372,6 +390,7 @@ export class EngineHost {
       : // Background phrases are never templated (prepare_model.py embeds them verbatim).
         await this.embedRaw([...BACKGROUND_TOPICS]);
     this.background = { vectors, count: BACKGROUND_TOPICS.length };
+    this.backgroundFromWorker = !usable;
   }
 
   private degrade(detail: string, recoverable: boolean): boolean {
@@ -383,7 +402,12 @@ export class EngineHost {
   private async failOver(reason: string): Promise<boolean> {
     const failed = this.status.backend;
     this.stopWorker();
+    // Nothing computed by the failed worker is reused by its replacement.
     this.cache.clear();
+    if (this.backgroundFromWorker) {
+      this.background = null;
+      this.backgroundFromWorker = false;
+    }
     // Prefer the next backend; if this was the last one, restart it a few times.
     if (failed && this.remainingBackends?.length === 0 && (this.restarts[failed] ?? 0) < MAX_RESTARTS) {
       this.restarts[failed] = (this.restarts[failed] ?? 0) + 1;

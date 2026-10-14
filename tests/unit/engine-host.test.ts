@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { EngineHost, type ModelMeta, type WorkerLike } from "../../src/offscreen/engine-host.ts";
+import { EngineHost, type EngineHostDeps, type ModelMeta, type WorkerLike } from "../../src/offscreen/engine-host.ts";
 import { BACKGROUND_TOPICS } from "../../src/shared/models.ts";
 import type { Backend, ClassifyReply, EngineStatus, OffscreenClassify, WorkerRequest, WorkerResponse } from "../../src/shared/protocol.ts";
 
@@ -35,6 +35,10 @@ type Behaviour = {
   failOnce?: Partial<Record<Backend, number[]>>;
   /** Shared across workers: how many times each backend was started. */
   starts?: Partial<Record<Backend, number>>;
+  /** The worker crashes (error event) on this embed number. */
+  crashOn?: Partial<Record<Backend, number>>;
+  /** The worker never answers this embed number. */
+  hangOn?: Partial<Record<Backend, number>>;
 };
 
 class FakeWorker implements WorkerLike {
@@ -69,6 +73,11 @@ class FakeWorker implements WorkerLike {
     const respond = () => {
       this.embeds++;
       this.embedTexts.push(msg.texts);
+      if (this.b.crashOn?.[backend] === this.embeds) {
+        queueMicrotask(() => !this.terminated && this.onerror?.({ message: "simulated worker crash" } as ErrorEvent));
+        return;
+      }
+      if (this.b.hangOn?.[backend] === this.embeds) return;
       if (this.b.failOnce?.[backend]?.includes(this.embeds) && (this.b.starts?.[backend] ?? 1) === 1) {
         this.send({ type: "embed-failed", id: msg.id, error: "transient failure" });
         return;
@@ -92,7 +101,7 @@ class FakeWorker implements WorkerLike {
   }
 }
 
-function makeHost(b: Behaviour = {}, backends: Backend[] = ["webgpu", "cpu"]) {
+function makeHost(b: Behaviour = {}, backends: Backend[] = ["webgpu", "cpu"], opts: Partial<EngineHostDeps> = {}) {
   const log: string[] = [];
   const workers: FakeWorker[] = [];
   const statuses: EngineStatus[] = [];
@@ -109,6 +118,7 @@ function makeHost(b: Behaviour = {}, backends: Backend[] = ["webgpu", "cpu"]) {
     now: () => Date.now(),
     initTimeoutMs: 200,
     embedTimeoutMs: 200,
+    ...opts,
   });
   return { host, log, workers, statuses };
 }
@@ -118,6 +128,7 @@ function req(texts: string[], generation = 1, frameKey = "1:0:a", topics = [{ id
 }
 
 const matched = (r: ClassifyReply) => (r.ok ? r.decisions.map((d) => d.matched) : r.error);
+const verdicts = (r: ClassifyReply) => (r.ok ? r.decisions.map((d) => [d.matched, d.via]) : r.error);
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 test("requests sent before initialisation are answered after it completes", async () => {
@@ -203,6 +214,132 @@ test("runtime failure on GPU fails over to CPU and retries the same job", async 
   assert.equal(host.getStatus().backend, "cpu");
   assert.match(host.getStatus().detail!, /device lost/);
   assert.ok(log.includes("terminate:webgpu"));
+});
+
+const states = (statuses: EngineStatus[]) =>
+  statuses.map((s) => `${s.state}:${s.backend}`).filter((s, i, all) => s !== all[i - 1]);
+
+test("GPU fails, CPU fails, CPU restarts: the same job completes on the restarted worker", async () => {
+  const starts: Partial<Record<Backend, number>> = {};
+  // WebGPU: self-test ok, first real embed fails. First CPU worker: self-test
+  // ok, first real embed fails. Restarted CPU worker: works.
+  const { host, log, workers, statuses } = makeHost({ failAfter: { webgpu: 1 }, failOnce: { cpu: [2] }, starts });
+  const r = await host.classify(req(["Bitcoin rallies again today"])); // semantic match only, no keyword
+  assert.deepEqual(log, ["init:webgpu", "terminate:webgpu", "init:cpu", "terminate:cpu", "init:cpu"]);
+  assert.deepEqual(starts, { webgpu: 1, cpu: 2 });
+  assert.deepEqual(verdicts(r), [[true, "semantic"]], "the job is retried on the recovered backend, not answered lexically");
+  assert.ok(r.ok && r.engine.state === "semantic" && r.engine.backend === "cpu");
+  assert.ok(workers[2]!.embedTexts.some((b) => b.includes("Bitcoin rallies again today")), "embedded by the restarted worker");
+  assert.deepEqual(states(statuses), ["loading:null", "loading:webgpu", "semantic:webgpu", "loading:cpu", "semantic:cpu", "loading:cpu", "semantic:cpu"]);
+});
+
+test("when every backend fails at run time the job ends in a consistent lexical fallback", async () => {
+  const starts: Partial<Record<Backend, number>> = {};
+  const { host, log, workers } = makeHost({ failAfter: { webgpu: 1, cpu: 1 }, starts });
+  const r = await host.classify(req(["Cryptocurrency exchange hacked", "Bitcoin rallies again today"]));
+  // One WebGPU worker, then the CPU worker and its MAX_RESTARTS (2) restarts.
+  assert.deepEqual(starts, { webgpu: 1, cpu: 3 });
+  assert.equal(log.filter((l) => l.startsWith("init:")).length, 4);
+  assert.ok(workers.every((w) => w.terminated), "no worker is left running");
+  assert.deepEqual(verdicts(r), [[true, "lexical"], [false, null]]);
+  assert.ok(r.ok && r.engine.state === "lexical-fallback" && r.engine.backend === null, `reply engine: ${JSON.stringify(r.engine)}`);
+  assert.equal(host.getStatus().state, "lexical-fallback");
+  assert.match(host.getStatus().detail!, /device lost/);
+});
+
+test("after a run-time degradation, a later request recovers once the cooldown has passed", async () => {
+  let now = 1_000_000;
+  const b: Behaviour = { failAfter: { webgpu: 1, cpu: 1 } };
+  const { host, workers } = makeHost(b, ["webgpu", "cpu"], { now: () => now });
+  await host.classify(req(["Bitcoin rallies again today"]));
+  assert.equal(host.getStatus().state, "lexical-fallback");
+  const created = workers.length;
+  b.failAfter = {};
+  now += 60_000;
+  const early = await host.classify(req(["Bitcoin rallies again today"], 2));
+  assert.deepEqual(verdicts(early), [[false, null]], "lexical only before the cooldown");
+  assert.equal(workers.length, created, "no restart before the cooldown");
+  now += 10 * 60_000;
+  const late = await host.classify(req(["Bitcoin rallies again today"], 3));
+  assert.deepEqual(verdicts(late), [[true, "semantic"]]);
+  assert.ok(late.ok && late.engine.state === "semantic" && late.engine.backend === "webgpu");
+});
+
+test("a backend that fails to initialise during fail-over is skipped and reported", async () => {
+  const { host } = makeHost({ failAfter: { webgpu: 1 }, initFails: ["cpu"] });
+  const r = await host.classify(req(["Cryptocurrency exchange hacked", "Bitcoin rallies again today"]));
+  assert.deepEqual(verdicts(r), [[true, "lexical"], [false, null]]);
+  assert.ok(r.ok && r.engine.state === "lexical-fallback");
+  assert.match(host.getStatus().detail!, /device lost.*cpu unavailable/);
+});
+
+test("a worker crash during an embed fails over and completes the same job", async () => {
+  const { host } = makeHost({ crashOn: { webgpu: 2 } });
+  const r = await host.classify(req(["Bitcoin rallies again today"]));
+  assert.deepEqual(verdicts(r), [[true, "semantic"]]);
+  assert.ok(r.ok && r.engine.backend === "cpu");
+  assert.match(host.getStatus().detail!, /simulated worker crash/);
+});
+
+test("an embed that times out fails over and completes the same job", async () => {
+  const { host, log } = makeHost({ hangOn: { webgpu: 2 } }, ["webgpu", "cpu"], { embedTimeoutMs: 30 });
+  const r = await host.classify(req(["Bitcoin rallies again today"]));
+  assert.deepEqual(verdicts(r), [[true, "semantic"]]);
+  assert.ok(r.ok && r.engine.backend === "cpu");
+  assert.ok(log.includes("terminate:webgpu"));
+  assert.match(host.getStatus().detail!, /timed out after 30 ms/);
+});
+
+test("cached vectors of a replaced backend are not reused", async () => {
+  // WebGPU: self-test, job 1 ok; job 2 fails.
+  const { host, workers } = makeHost({ failAfter: { webgpu: 2 } });
+  await host.classify(req(["Bitcoin rallies again today"]));
+  const r = await host.classify(req(["Bitcoin rallies again today", "The bakery sells bread"], 2));
+  assert.deepEqual(verdicts(r), [[true, "semantic"], [false, null]]);
+  const cpu = workers[1]!;
+  assert.equal(cpu.backend, "cpu");
+  // Everything job 2 needs, including what WebGPU had cached, is re-embedded on CPU.
+  assert.deepEqual(cpu.embedTexts.at(-1)!.toSorted(), ["Bitcoin rallies again today", "The bakery sells bread", "cryptocurrency"]);
+});
+
+test("background vectors embedded on a replaced backend are recomputed on the new one", async () => {
+  const workers: FakeWorker[] = [];
+  // No precomputed background: WebGPU embeds self-test (1), background (2), fails on the job (3).
+  const host = new EngineHost({
+    createWorker: () => {
+      const w = new FakeWorker({ failAfter: { webgpu: 2 } }, []);
+      workers.push(w);
+      return w;
+    },
+    assetUrl: (p) => p,
+    backends: async () => ["webgpu", "cpu"],
+    loadModelMeta: async () => ({ id: META.id, selftest: META.selftest }),
+    onStatus: () => {},
+    now: () => Date.now(),
+  });
+  const r = await host.classify(req(["Bitcoin rallies again today"]));
+  assert.deepEqual(verdicts(r), [[true, "semantic"]]);
+  const isBackground = (b: string[]) => b.length === BACKGROUND_TOPICS.length && b[0] === BACKGROUND_TOPICS[0];
+  assert.ok(workers[0]!.embedTexts.some(isBackground));
+  assert.ok(workers[1]!.embedTexts.some(isBackground), "CPU re-embeds the background instead of using WebGPU's vectors");
+});
+
+test("replies keep their own generation and topic snapshot across fail-over", async () => {
+  const { host } = makeHost({ failAfter: { webgpu: 1 } });
+  const r = await host.classify(req(["Sports goal of the season", "Bitcoin rallies again today"], 7, "f", [{ id: "sport", text: "sports" }]));
+  assert.equal(r.generation, 7);
+  assert.ok(r.ok);
+  assert.deepEqual(r.decisions.map((d) => [d.matched, d.topicId, d.via]), [[true, "sport", "semantic"], [false, null, null]]);
+});
+
+test("a job that exhausts its attempt budget fails explicitly; the recovered engine serves the next one", async () => {
+  const { host } = makeHost({ failAfter: { webgpu: 1 } }, ["webgpu", "cpu"], { maxEmbedAttempts: 1 });
+  const r = await host.classify(req(["Bitcoin rallies again today"]));
+  assert.ok(!r.ok && !r.stale, "an explicit, retryable failure — not lexical verdicts labelled semantic");
+  assert.match(r.error, /1 attempt/);
+  assert.ok(r.engine?.state === "semantic" && r.engine.backend === "cpu", "engine-wide state stays truthful");
+  const next = await host.classify(req(["Bitcoin rallies again today"], 2));
+  assert.deepEqual(verdicts(next), [[true, "semantic"]]);
 });
 
 test("a GPU that returns wrong numbers is caught by the canary", async () => {
