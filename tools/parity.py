@@ -77,7 +77,7 @@ def run_rust(weights: Path, vocab: Path, texts: list[str]) -> dict:
     return json.loads(proc.stdout)
 
 
-def reference(model_dir: Path, vocab: Path, texts: list[str]):
+def reference(model_dir: Path, vocab: Path, texts: list[str], dtype: str = "f32"):
     """HF reference: `tokenizers` BertWordPiece pipeline + transformers BertModel."""
     import torch
     from tokenizers import BertWordPieceTokenizer
@@ -101,6 +101,12 @@ def reference(model_dir: Path, vocab: Path, texts: list[str]):
             sys.exit("reference tokenizers disagree; fix the reference before trusting parity")
 
     model = BertModel.from_pretrained(str(model_dir), add_pooling_layer=False).eval()
+    if dtype == "f16":
+        # Same rounding as the exported f16 weights: parity then tests the
+        # decoder and the model exactly, independent of quantisation error.
+        with torch.no_grad():
+            for p in model.parameters():
+                p.copy_(p.half().float())
     seq = max(map(len, ids))
     input_ids = torch.tensor([i + [0] * (seq - len(i)) for i in ids])
     mask = torch.tensor([[1] * len(i) + [0] * (seq - len(i)) for i in ids])
@@ -118,10 +124,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=lock["default"], choices=sorted(lock["models"]))
     ap.add_argument("--write-fixtures", action="store_true")
+    ap.add_argument("--dtype", choices=["f32", "f16"], default="f32")
     args = ap.parse_args()
 
     entry = lock["models"][args.model]
-    art = REPO / "build" / "models" / args.model
+    art = REPO / "build" / "models" / (args.model + ("" if args.dtype == "f32" else f"-{args.dtype}"))
     weights, vocab = art / "weights.bin", art / "vocab.txt"
     if not weights.exists():
         sys.exit(f"{weights} missing; run tools/prepare_model.py --model {args.model}")
@@ -132,7 +139,7 @@ def main() -> None:
                                        allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"]))
 
     rust = run_rust(weights, vocab, TEXTS)
-    ref_ids, ref_emb = reference(model_dir, vocab, TEXTS)
+    ref_ids, ref_emb = reference(model_dir, vocab, TEXTS, args.dtype)
     rust_emb = np.asarray(rust["embeddings"], dtype=np.float32)
 
     token_mismatches = [
@@ -141,7 +148,7 @@ def main() -> None:
     abs_diff = np.abs(rust_emb - ref_emb).max(axis=1)
     cosine = (rust_emb * ref_emb).sum(axis=1)
 
-    print(f"model: {args.model} ({entry['repo']}@{entry['revision'][:12]})")
+    print(f"model: {args.model} [{args.dtype}] ({entry['repo']}@{entry['revision'][:12]})")
     print(f"texts: {len(TEXTS)}")
     print(f"token id mismatches: {len(token_mismatches)}")
     for t, r, e in token_mismatches:
@@ -157,10 +164,13 @@ def main() -> None:
             json.dumps({"max_len": MAX_LEN, "cases": [{"text": t, "ids": i} for t, i in zip(TEXTS, ref_ids)]},
                        ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         subset = [0, 2, 3, 6, 10, 23]
-        (FIXTURES / f"embedding_parity_{args.model}.json").write_text(
+        tag = args.model if args.dtype == "f32" else f"{args.model}-{args.dtype}"
+        sha_key = "weights_sha256" if args.dtype == "f32" else f"weights_sha256_{args.dtype}"
+        (FIXTURES / f"embedding_parity_{tag}.json").write_text(
             json.dumps({
                 "model": args.model,
-                "weights_sha256": entry["weights_sha256"],
+                "dtype": args.dtype,
+                "weights_sha256": entry[sha_key],
                 "max_abs_tol": MAX_ABS_TOL,
                 "cases": [{"text": TEXTS[i], "embedding": [round(float(x), 7) for x in ref_emb[i]]} for i in subset],
             }, ensure_ascii=False) + "\n", encoding="utf-8")

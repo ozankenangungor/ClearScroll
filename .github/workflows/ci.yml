@@ -16,6 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CLEARSCROLL_MODEL: minilm-l6
+  CLEARSCROLL_DTYPE: f16
 
 jobs:
   typescript:
@@ -69,8 +70,9 @@ jobs:
       - id: cache
         uses: actions/cache@v4
         with:
-          path: build/models/${{ env.CLEARSCROLL_MODEL }}
-          key: model-${{ env.CLEARSCROLL_MODEL }}-${{ hashFiles('tools/model_lock.json', 'tools/prepare_model.py', 'tools/requirements.lock') }}
+          path: build/models
+          # model.json embeds the background-topic vectors, so their list is part of the key.
+          key: model-${{ env.CLEARSCROLL_MODEL }}-f16-f32-${{ hashFiles('tools/model_lock.json', 'tools/prepare_model.py', 'tools/requirements.lock', 'src/shared/background-topics.json') }}
       - uses: actions/setup-python@v5
         if: steps.cache.outputs.cache-hit != 'true'
         with:
@@ -80,23 +82,15 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install --require-hashes -r tools/requirements.lock
-          .venv/bin/python tools/prepare_model.py --model "$CLEARSCROLL_MODEL"
+          # Shipped f16 artifacts plus f32 (still supported; its parity test is required too).
+          .venv/bin/python tools/prepare_model.py --model "$CLEARSCROLL_MODEL" --dtype f16
+          .venv/bin/python tools/prepare_model.py --model "$CLEARSCROLL_MODEL" --dtype f32
       - name: Verify artifacts (also on cache hit)
-        run: |
-          python3 - <<'PY'
-          import hashlib, json, os, sys
-          m = os.environ["CLEARSCROLL_MODEL"]
-          lock = json.load(open("tools/model_lock.json"))["models"][m]
-          d = f"build/models/{m}"
-          for f, want in (("weights.bin", lock["weights_sha256"]), ("vocab.txt", lock["files"]["vocab.txt"])):
-              got = hashlib.sha256(open(f"{d}/{f}", "rb").read()).hexdigest()
-              print(f, got)
-              sys.exit(1) if got != want else None
-          PY
+        run: node scripts/verify-model.mjs "$CLEARSCROLL_MODEL:f16" "$CLEARSCROLL_MODEL:f32"
       - uses: actions/upload-artifact@v4
         with:
           name: model
-          path: build/models/${{ env.CLEARSCROLL_MODEL }}
+          path: build/models
           retention-days: 3
 
   build:
@@ -114,7 +108,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: model
-          path: build/models/${{ env.CLEARSCROLL_MODEL }}
+          path: build/models
       - name: Install wasm-bindgen CLI (version from Cargo.lock)
         run: |
           v=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/,""); print; exit}' Cargo.lock)
@@ -125,11 +119,11 @@ jobs:
       - name: Rust parity against PyTorch fixtures (model required)
         run: cargo test --locked --no-default-features --features cpu --test parity
         env:
-          CLEARSCROLL_REQUIRE_MODEL: ${{ env.CLEARSCROLL_MODEL }}
+          CLEARSCROLL_REQUIRE_MODEL: ${{ env.CLEARSCROLL_MODEL }}-f16,${{ env.CLEARSCROLL_MODEL }}
       - name: Semantic quality gate
         run: |
           cargo build --locked --release --no-default-features --features cli
-          node scripts/evaluate.ts --models "$CLEARSCROLL_MODEL" --out build/eval/ci --min-en-f1 0.60
+          node scripts/evaluate.ts --models "$CLEARSCROLL_MODEL" --dtype "$CLEARSCROLL_DTYPE" --out build/eval/ci --min-en-f1 0.60 --max-ui-fpr 0.05
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -156,3 +150,14 @@ jobs:
       - run: npm run test:e2e
       - name: Privacy check (no network requests caused by the extension)
         run: npm run verify:privacy
+      # Branded Google Chrome (preinstalled on GitHub's Ubuntu images) loads
+      # unpacked extensions only through the DevTools protocol since v137.
+      - name: End-to-end + accessibility tests on Google Chrome stable
+        run: google-chrome --version && npm run test:e2e
+        env:
+          CLEARSCROLL_BROWSER: chrome
+          CHROME_PATH: /usr/bin/google-chrome
+      - name: Privacy check on Google Chrome stable
+        run: node scripts/verify-no-egress.ts --browser chrome
+        env:
+          CHROME_PATH: /usr/bin/google-chrome

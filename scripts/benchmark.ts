@@ -1,7 +1,8 @@
 /**
  * Reproducible performance benchmark of the built extension in Chromium.
  *
- *   node scripts/benchmark.ts [--dist dist] [--label cpu-headless] [--engine cpu|auto] [--headed] [--ignore-gpu-blocklist]
+ *   node scripts/benchmark.ts [--dist dist] [--label cpu-headless] [--engine cpu|auto] [--headed]
+ *                             [--ignore-gpu-blocklist] [--browser chromium|chrome]
  *
  * Measures (all in the real extension, real model):
  *   - engine cold start (offscreen creation → first answer) and worker init
@@ -22,7 +23,9 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Worker } from "playwright";
+import type { Worker } from "playwright";
+
+import { launchContext } from "../tests/helpers/extension.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const args = new Map<string, string>();
@@ -65,18 +68,13 @@ await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
 const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "clearscroll-bench-"));
-const ctx = await chromium.launchPersistentContext(profile, {
-  channel: "chromium",
+const browserKind = (args.get("browser") ?? "chromium") as "chromium" | "chrome";
+const { ctx, sw } = await launchContext(profile, {
+  dist: DIST,
+  browser: browserKind,
   headless: !args.has("headed"),
-  args: [
-    `--disable-extensions-except=${DIST}`,
-    `--load-extension=${DIST}`,
-    "--enable-unsafe-webgpu",
-    ...(args.has("ignore-gpu-blocklist") ? ["--ignore-gpu-blocklist"] : []),
-  ],
+  extraArgs: args.has("ignore-gpu-blocklist") ? ["--ignore-gpu-blocklist"] : [],
 });
-let [sw] = ctx.serviceWorkers();
-sw ??= await ctx.waitForEvent("serviceworker");
 const worker: Worker = sw;
 
 const setSettings = (patch: Record<string, unknown>) =>
@@ -191,6 +189,7 @@ const result = {
     os: `${os.type()} ${os.release()}`,
     chromium: browserVersion,
     headless: !args.has("headed"),
+    browser: browserKind,
     gpuAdapter,
     chromeFlags: args.has("ignore-gpu-blocklist") ? ["--ignore-gpu-blocklist"] : [],
     gitCommit: (() => {

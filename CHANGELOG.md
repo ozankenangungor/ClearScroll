@@ -34,6 +34,17 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   Chrome 116.
 
 ### Added
+- Margin scoring against 26 background topics: false positives on UI strings
+  (navigation, metadata, ads) 17.6 % → 1.8 % in balanced mode; evaluation
+  set v2 with 38 UI strings; CI gate on UI false positives.
+- Half-precision weight storage (default): package 97.5 → 54.8 MiB, worker
+  initialisation ~2× faster, identical calibrated thresholds.
+- Full licence texts of all compiled crates in the package.
+- axe-core accessibility suite (0 WCAG 2.1 A/AA violations); focus is kept
+  on revealed and cleared items.
+- Tests and privacy check on Google Chrome stable.
+- Notice on the options page for IdeaBlocker site rules that could not be
+  migrated.
 - Multiple topics (enable/disable/edit), global pause, engine preference.
 - Click/keyboard reveal of individual items.
 - Toolbar popup with per-page status and "never run on this site".

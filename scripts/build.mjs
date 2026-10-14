@@ -3,7 +3,7 @@
 import * as esbuild from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
-import { LOCK, MODEL, MODEL_DIR, REPO, fail, sha256, step } from "./lib.mjs";
+import { DTYPE, LOCK, MODEL, MODEL_DIR, REPO, fail, sha256, step, weightsShaKey } from "./lib.mjs";
 
 // --out <dir> builds elsewhere (e.g. alternative models for benchmarking).
 const outIdx = process.argv.indexOf("--out");
@@ -17,10 +17,11 @@ for (const f of ["pkg/clearscroll_engine.js", "pkg/clearscroll_engine_bg.wasm"])
 const lock = LOCK.models[MODEL];
 if (!lock) fail(`unknown model ${MODEL}`);
 for (const f of ["weights.bin", "vocab.txt", "model.json"]) {
-  if (!fs.existsSync(path.join(MODEL_DIR, f))) fail(`build/models/${MODEL}/${f} missing — run: npm run setup:model`);
+  if (!fs.existsSync(path.join(MODEL_DIR, f))) fail(`${path.relative(REPO, MODEL_DIR)}/${f} missing — run: npm run setup:model`);
 }
-step(`Verifying ${MODEL} weights against tools/model_lock.json`);
-if (sha256(path.join(MODEL_DIR, "weights.bin")) !== lock.weights_sha256) fail("weights.bin sha256 does not match the lock file — re-run npm run setup:model");
+step(`Verifying ${MODEL} (${DTYPE}) weights against tools/model_lock.json`);
+if (!lock[weightsShaKey(DTYPE)]) fail(`no pinned ${weightsShaKey(DTYPE)} for ${MODEL} in tools/model_lock.json`);
+if (sha256(path.join(MODEL_DIR, "weights.bin")) !== lock[weightsShaKey(DTYPE)]) fail("weights.bin sha256 does not match the lock file — re-run npm run setup:model");
 if (sha256(path.join(MODEL_DIR, "vocab.txt")) !== lock.files["vocab.txt"]) fail("vocab.txt sha256 does not match the lock file");
 
 fs.rmSync(DIST, { recursive: true, force: true });
@@ -58,12 +59,13 @@ copy("src/ui/common.css", "ui/common.css");
 copy("LICENSE", "LICENSE");
 copy("THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md");
 copy("licenses/Apache-2.0.txt", "licenses/Apache-2.0.txt");
+copy("licenses/THIRD_PARTY_LICENSES.txt", "licenses/THIRD_PARTY_LICENSES.txt");
 for (const f of fs.readdirSync(path.join(REPO, "assets/icons"))) {
   if (f.endsWith(".png")) copy(`assets/icons/${f}`, `icons/${f}`);
 }
 // The worker and model live next to offscreen.html so relative URLs resolve.
 copy("pkg/clearscroll_engine_bg.wasm", "offscreen/pkg/clearscroll_engine_bg.wasm");
-for (const f of ["weights.bin", "vocab.txt", "model.json"]) copy(`build/models/${MODEL}/${f}`, `offscreen/model/${f}`);
+for (const f of ["weights.bin", "vocab.txt", "model.json"]) copy(path.relative(REPO, path.join(MODEL_DIR, f)), `offscreen/model/${f}`);
 
 const total = (dir) => fs.readdirSync(dir, { withFileTypes: true }).reduce((n, d) => n + (d.isDirectory() ? total(path.join(dir, d.name)) : fs.statSync(path.join(dir, d.name)).size), 0);
-step(`dist/ assembled (${(total(DIST) / 1048576).toFixed(1)} MiB, model ${MODEL}). Load it via chrome://extensions → Load unpacked.`);
+step(`dist/ assembled (${(total(DIST) / 1048576).toFixed(1)} MiB, model ${MODEL}, ${DTYPE} weights). Load it via chrome://extensions → Load unpacked.`);

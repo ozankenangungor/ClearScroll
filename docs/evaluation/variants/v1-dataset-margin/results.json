@@ -1,0 +1,2861 @@
+{
+ "minilm-l6": {
+  "dim": 384,
+  "cpuEmbedMsTotal": 5280.521978999999,
+  "texts": 351,
+  "similarity": {
+   "meanPositive": 0.06784750971138441,
+   "meanNegative": -0.077301812668689,
+   "auc": 0.7719385533427954,
+   "aucEn": 0.9100962928427616,
+   "aucTr": 0.54108203125
+  },
+  "modes": {
+   "precision": {
+    "threshold": 0.055,
+    "lexical": {
+     "tp": 6,
+     "fp": 1,
+     "tn": 2378,
+     "fn": 262,
+     "accuracy": 0.9006422364941443,
+     "precision": 0.8571428571428571,
+     "recall": 0.022388059701492536,
+     "f1": 0.04363636363636363,
+     "fpr": 0.0004203446826397646,
+     "fnr": 0.9776119402985075
+    },
+    "semantic": {
+     "tp": 125,
+     "fp": 416,
+     "tn": 1963,
+     "fn": 143,
+     "accuracy": 0.7888175292784284,
+     "precision": 0.23105360443622922,
+     "recall": 0.4664179104477612,
+     "f1": 0.30902348578491967,
+     "fpr": 0.17486338797814208,
+     "fnr": 0.5335820895522388
+    },
+    "hybrid": {
+     "tp": 125,
+     "fp": 416,
+     "tn": 1963,
+     "fn": 143,
+     "accuracy": 0.7888175292784284,
+     "precision": 0.23105360443622922,
+     "recall": 0.4664179104477612,
+     "f1": 0.30902348578491967,
+     "fpr": 0.17486338797814208,
+     "fnr": 0.5335820895522388
+    },
+    "lexical_en": {
+     "tp": 3,
+     "fp": 1,
+     "tn": 1566,
+     "fn": 181,
+     "accuracy": 0.8960593946316391,
+     "precision": 0.75,
+     "recall": 0.016304347826086956,
+     "f1": 0.031914893617021274,
+     "fpr": 0.0006381620931716656,
+     "fnr": 0.9836956521739131
+    },
+    "semantic_en": {
+     "tp": 82,
+     "fp": 21,
+     "tn": 1546,
+     "fn": 102,
+     "accuracy": 0.9297544260422616,
+     "precision": 0.7961165048543689,
+     "recall": 0.44565217391304346,
+     "f1": 0.5714285714285714,
+     "fpr": 0.013401403956604978,
+     "fnr": 0.5543478260869565
+    },
+    "hybrid_en": {
+     "tp": 82,
+     "fp": 21,
+     "tn": 1546,
+     "fn": 102,
+     "accuracy": 0.9297544260422616,
+     "precision": 0.7961165048543689,
+     "recall": 0.44565217391304346,
+     "f1": 0.5714285714285714,
+     "fpr": 0.013401403956604978,
+     "fnr": 0.5543478260869565
+    },
+    "legacyThreshold": {
+     "threshold": 0.68,
+     "tp": 3,
+     "fp": 1,
+     "tn": 1566,
+     "fn": 181,
+     "accuracy": 0.8960593946316391,
+     "precision": 0.75,
+     "recall": 0.016304347826086956,
+     "f1": 0.031914893617021274,
+     "fpr": 0.0006381620931716656,
+     "fnr": 0.9836956521739131
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 82,
+      "fp": 21,
+      "tn": 1546,
+      "fn": 102,
+      "accuracy": 0.9297544260422616,
+      "precision": 0.7961165048543689,
+      "recall": 0.44565217391304346,
+      "f1": 0.5714285714285714,
+      "fpr": 0.013401403956604978,
+      "fnr": 0.5543478260869565
+     },
+     "tr": {
+      "tp": 43,
+      "fp": 395,
+      "tn": 417,
+      "fn": 41,
+      "accuracy": 0.5133928571428571,
+      "precision": 0.09817351598173515,
+      "recall": 0.5119047619047619,
+      "f1": 0.1647509578544061,
+      "fpr": 0.48645320197044334,
+      "fnr": 0.4880952380952381
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 16,
+      "fp": 60,
+      "tn": 313,
+      "fn": 32,
+      "accuracy": 0.7814726840855107,
+      "precision": 0.21052631578947367,
+      "recall": 0.3333333333333333,
+      "f1": 0.2580645161290323,
+      "fpr": 0.16085790884718498,
+      "fnr": 0.6666666666666666
+     },
+     "spoilers": {
+      "tp": 20,
+      "fp": 13,
+      "tn": 277,
+      "fn": 8,
+      "accuracy": 0.9339622641509434,
+      "precision": 0.6060606060606061,
+      "recall": 0.7142857142857143,
+      "f1": 0.6557377049180327,
+      "fpr": 0.04482758620689655,
+      "fnr": 0.2857142857142857
+     },
+     "politics": {
+      "tp": 16,
+      "fp": 76,
+      "tn": 210,
+      "fn": 16,
+      "accuracy": 0.710691823899371,
+      "precision": 0.17391304347826086,
+      "recall": 0.5,
+      "f1": 0.25806451612903225,
+      "fpr": 0.26573426573426573,
+      "fnr": 0.5
+     },
+     "sports": {
+      "tp": 6,
+      "fp": 3,
+      "tn": 285,
+      "fn": 24,
+      "accuracy": 0.9150943396226415,
+      "precision": 0.6666666666666666,
+      "recall": 0.2,
+      "f1": 0.30769230769230765,
+      "fpr": 0.010416666666666666,
+      "fnr": 0.8
+     },
+     "gaming": {
+      "tp": 15,
+      "fp": 79,
+      "tn": 207,
+      "fn": 17,
+      "accuracy": 0.6981132075471698,
+      "precision": 0.1595744680851064,
+      "recall": 0.46875,
+      "f1": 0.23809523809523814,
+      "fpr": 0.2762237762237762,
+      "fnr": 0.53125
+     },
+     "tech": {
+      "tp": 15,
+      "fp": 75,
+      "tn": 209,
+      "fn": 19,
+      "accuracy": 0.7044025157232704,
+      "precision": 0.16666666666666666,
+      "recall": 0.4411764705882353,
+      "f1": 0.24193548387096772,
+      "fpr": 0.2640845070422535,
+      "fnr": 0.5588235294117647
+     },
+     "health": {
+      "tp": 15,
+      "fp": 54,
+      "tn": 234,
+      "fn": 15,
+      "accuracy": 0.7830188679245284,
+      "precision": 0.21739130434782608,
+      "recall": 0.5,
+      "f1": 0.30303030303030304,
+      "fpr": 0.1875,
+      "fnr": 0.5
+     },
+     "finance": {
+      "tp": 22,
+      "fp": 56,
+      "tn": 228,
+      "fn": 12,
+      "accuracy": 0.7861635220125787,
+      "precision": 0.28205128205128205,
+      "recall": 0.6470588235294118,
+      "f1": 0.3928571428571429,
+      "fpr": 0.19718309859154928,
+      "fnr": 0.35294117647058826
+     }
+    },
+    "hardNegativeFpr": 0.14957264957264957,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 82,
+     "fp": 21,
+     "tn": 1546,
+     "fn": 102,
+     "accuracy": 0.9297544260422616,
+     "precision": 0.7961165048543689,
+     "recall": 0.44565217391304346,
+     "f1": 0.5714285714285714,
+     "fpr": 0.013401403956604978,
+     "fnr": 0.5543478260869565
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Pazar günü haftalık yemeklerimi hazırladım: tavuk, esmer pirinç ve brokoli.",
+      "actual": false,
+      "score": 0.573,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.564,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.559,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.538,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.518,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Spoiler uyarısı: ana karakter sezonun son bölümünde ölüyor.",
+      "actual": false,
+      "score": 0.507,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Parti, milletvekili adaylarını önümüzdeki hafta açıklayacak.",
+      "actual": false,
+      "score": 0.503,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Parti, milletvekili adaylarını önümüzdeki hafta açıklayacak.",
+      "actual": false,
+      "score": 0.503,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Bu mantı tarifi iki saat sürüyor ama her dakikasına değer.",
+      "actual": false,
+      "score": 0.501,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.497,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Koalisyon ortağı emeklilik düzenlemesi yüzünden hükümetten çekildi.",
+      "actual": false,
+      "score": 0.496,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Çocuklar yağmur yağarken bütün öğleden sonra kutu oyunu oynadı.",
+      "actual": false,
+      "score": 0.494,
+      "lexical": false
+     }
+    ]
+   },
+   "balanced": {
+    "threshold": 0.005,
+    "lexical": {
+     "tp": 5,
+     "fp": 0,
+     "tn": 2379,
+     "fn": 263,
+     "accuracy": 0.9006422364941443,
+     "precision": 1,
+     "recall": 0.018656716417910446,
+     "f1": 0.03663003663003663,
+     "fpr": 0,
+     "fnr": 0.9813432835820896
+    },
+    "semantic": {
+     "tp": 169,
+     "fp": 568,
+     "tn": 1811,
+     "fn": 99,
+     "accuracy": 0.7480166225916132,
+     "precision": 0.22930800542740842,
+     "recall": 0.6305970149253731,
+     "f1": 0.33631840796019896,
+     "fpr": 0.2387557797393863,
+     "fnr": 0.3694029850746269
+    },
+    "hybrid": {
+     "tp": 169,
+     "fp": 568,
+     "tn": 1811,
+     "fn": 99,
+     "accuracy": 0.7480166225916132,
+     "precision": 0.22930800542740842,
+     "recall": 0.6305970149253731,
+     "f1": 0.33631840796019896,
+     "fpr": 0.2387557797393863,
+     "fnr": 0.3694029850746269
+    },
+    "lexical_en": {
+     "tp": 2,
+     "fp": 0,
+     "tn": 1567,
+     "fn": 182,
+     "accuracy": 0.8960593946316391,
+     "precision": 1,
+     "recall": 0.010869565217391304,
+     "f1": 0.02150537634408602,
+     "fpr": 0,
+     "fnr": 0.9891304347826086
+    },
+    "semantic_en": {
+     "tp": 113,
+     "fp": 52,
+     "tn": 1515,
+     "fn": 71,
+     "accuracy": 0.9297544260422616,
+     "precision": 0.6848484848484848,
+     "recall": 0.6141304347826086,
+     "f1": 0.64756446991404,
+     "fpr": 0.03318442884492661,
+     "fnr": 0.3858695652173913
+    },
+    "hybrid_en": {
+     "tp": 113,
+     "fp": 52,
+     "tn": 1515,
+     "fn": 71,
+     "accuracy": 0.9297544260422616,
+     "precision": 0.6848484848484848,
+     "recall": 0.6141304347826086,
+     "f1": 0.64756446991404,
+     "fpr": 0.03318442884492661,
+     "fnr": 0.3858695652173913
+    },
+    "legacyThreshold": {
+     "threshold": 0.62,
+     "tp": 2,
+     "fp": 0,
+     "tn": 1567,
+     "fn": 182,
+     "accuracy": 0.8960593946316391,
+     "precision": 1,
+     "recall": 0.010869565217391304,
+     "f1": 0.02150537634408602,
+     "fpr": 0,
+     "fnr": 0.9891304347826086
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 113,
+      "fp": 52,
+      "tn": 1515,
+      "fn": 71,
+      "accuracy": 0.9297544260422616,
+      "precision": 0.6848484848484848,
+      "recall": 0.6141304347826086,
+      "f1": 0.64756446991404,
+      "fpr": 0.03318442884492661,
+      "fnr": 0.3858695652173913
+     },
+     "tr": {
+      "tp": 56,
+      "fp": 516,
+      "tn": 296,
+      "fn": 28,
+      "accuracy": 0.39285714285714285,
+      "precision": 0.0979020979020979,
+      "recall": 0.6666666666666666,
+      "f1": 0.17073170731707316,
+      "fpr": 0.6354679802955665,
+      "fnr": 0.3333333333333333
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 28,
+      "fp": 95,
+      "tn": 278,
+      "fn": 20,
+      "accuracy": 0.7268408551068883,
+      "precision": 0.22764227642276422,
+      "recall": 0.5833333333333334,
+      "f1": 0.32748538011695905,
+      "fpr": 0.2546916890080429,
+      "fnr": 0.4166666666666667
+     },
+     "spoilers": {
+      "tp": 22,
+      "fp": 40,
+      "tn": 250,
+      "fn": 6,
+      "accuracy": 0.8553459119496856,
+      "precision": 0.3548387096774194,
+      "recall": 0.7857142857142857,
+      "f1": 0.48888888888888893,
+      "fpr": 0.13793103448275862,
+      "fnr": 0.21428571428571427
+     },
+     "politics": {
+      "tp": 22,
+      "fp": 90,
+      "tn": 196,
+      "fn": 10,
+      "accuracy": 0.6855345911949685,
+      "precision": 0.19642857142857142,
+      "recall": 0.6875,
+      "f1": 0.3055555555555555,
+      "fpr": 0.3146853146853147,
+      "fnr": 0.3125
+     },
+     "sports": {
+      "tp": 8,
+      "fp": 21,
+      "tn": 267,
+      "fn": 22,
+      "accuracy": 0.8647798742138365,
+      "precision": 0.27586206896551724,
+      "recall": 0.26666666666666666,
+      "f1": 0.2711864406779661,
+      "fpr": 0.07291666666666667,
+      "fnr": 0.7333333333333333
+     },
+     "gaming": {
+      "tp": 21,
+      "fp": 96,
+      "tn": 190,
+      "fn": 11,
+      "accuracy": 0.6635220125786163,
+      "precision": 0.1794871794871795,
+      "recall": 0.65625,
+      "f1": 0.28187919463087246,
+      "fpr": 0.3356643356643357,
+      "fnr": 0.34375
+     },
+     "tech": {
+      "tp": 22,
+      "fp": 91,
+      "tn": 193,
+      "fn": 12,
+      "accuracy": 0.6761006289308176,
+      "precision": 0.19469026548672566,
+      "recall": 0.6470588235294118,
+      "f1": 0.29931972789115646,
+      "fpr": 0.3204225352112676,
+      "fnr": 0.35294117647058826
+     },
+     "health": {
+      "tp": 20,
+      "fp": 63,
+      "tn": 225,
+      "fn": 10,
+      "accuracy": 0.7704402515723271,
+      "precision": 0.24096385542168675,
+      "recall": 0.6666666666666666,
+      "f1": 0.35398230088495575,
+      "fpr": 0.21875,
+      "fnr": 0.3333333333333333
+     },
+     "finance": {
+      "tp": 26,
+      "fp": 72,
+      "tn": 212,
+      "fn": 8,
+      "accuracy": 0.7484276729559748,
+      "precision": 0.2653061224489796,
+      "recall": 0.7647058823529411,
+      "f1": 0.3939393939393939,
+      "fpr": 0.2535211267605634,
+      "fnr": 0.23529411764705882
+     }
+    },
+    "hardNegativeFpr": 0.18803418803418803,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 113,
+     "fp": 52,
+     "tn": 1515,
+     "fn": 71,
+     "accuracy": 0.9297544260422616,
+     "precision": 0.6848484848484848,
+     "recall": 0.6141304347826086,
+     "f1": 0.64756446991404,
+     "fpr": 0.03318442884492661,
+     "fnr": 0.3858695652173913
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Pazar günü haftalık yemeklerimi hazırladım: tavuk, esmer pirinç ve brokoli.",
+      "actual": false,
+      "score": 0.573,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.564,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.559,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.538,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.518,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Spoiler uyarısı: ana karakter sezonun son bölümünde ölüyor.",
+      "actual": false,
+      "score": 0.507,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Parti, milletvekili adaylarını önümüzdeki hafta açıklayacak.",
+      "actual": false,
+      "score": 0.503,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Parti, milletvekili adaylarını önümüzdeki hafta açıklayacak.",
+      "actual": false,
+      "score": 0.503,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Bu mantı tarifi iki saat sürüyor ama her dakikasına değer.",
+      "actual": false,
+      "score": 0.501,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.497,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Koalisyon ortağı emeklilik düzenlemesi yüzünden hükümetten çekildi.",
+      "actual": false,
+      "score": 0.496,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Çocuklar yağmur yağarken bütün öğleden sonra kutu oyunu oynadı.",
+      "actual": false,
+      "score": 0.494,
+      "lexical": false
+     }
+    ]
+   },
+   "aggressive": {
+    "threshold": -0.04,
+    "lexical": {
+     "tp": 16,
+     "fp": 3,
+     "tn": 2376,
+     "fn": 252,
+     "accuracy": 0.9036645258783529,
+     "precision": 0.8421052631578947,
+     "recall": 0.05970149253731343,
+     "f1": 0.11149825783972125,
+     "fpr": 0.0012610340479192938,
+     "fnr": 0.9402985074626866
+    },
+    "semantic": {
+     "tp": 204,
+     "fp": 783,
+     "tn": 1596,
+     "fn": 64,
+     "accuracy": 0.6800151114469211,
+     "precision": 0.2066869300911854,
+     "recall": 0.7611940298507462,
+     "f1": 0.3250996015936255,
+     "fpr": 0.3291298865069357,
+     "fnr": 0.23880597014925373
+    },
+    "hybrid": {
+     "tp": 204,
+     "fp": 783,
+     "tn": 1596,
+     "fn": 64,
+     "accuracy": 0.6800151114469211,
+     "precision": 0.2066869300911854,
+     "recall": 0.7611940298507462,
+     "f1": 0.3250996015936255,
+     "fpr": 0.3291298865069357,
+     "fnr": 0.23880597014925373
+    },
+    "lexical_en": {
+     "tp": 11,
+     "fp": 2,
+     "tn": 1565,
+     "fn": 173,
+     "accuracy": 0.9000571102227298,
+     "precision": 0.8461538461538461,
+     "recall": 0.059782608695652176,
+     "f1": 0.1116751269035533,
+     "fpr": 0.0012763241863433313,
+     "fnr": 0.9402173913043478
+    },
+    "semantic_en": {
+     "tp": 140,
+     "fp": 157,
+     "tn": 1410,
+     "fn": 44,
+     "accuracy": 0.885208452312964,
+     "precision": 0.4713804713804714,
+     "recall": 0.7608695652173914,
+     "f1": 0.582120582120582,
+     "fpr": 0.1001914486279515,
+     "fnr": 0.2391304347826087
+    },
+    "hybrid_en": {
+     "tp": 140,
+     "fp": 157,
+     "tn": 1410,
+     "fn": 44,
+     "accuracy": 0.885208452312964,
+     "precision": 0.4713804713804714,
+     "recall": 0.7608695652173914,
+     "f1": 0.582120582120582,
+     "fpr": 0.1001914486279515,
+     "fnr": 0.2391304347826087
+    },
+    "legacyThreshold": {
+     "threshold": 0.56,
+     "tp": 11,
+     "fp": 2,
+     "tn": 1565,
+     "fn": 173,
+     "accuracy": 0.9000571102227298,
+     "precision": 0.8461538461538461,
+     "recall": 0.059782608695652176,
+     "f1": 0.1116751269035533,
+     "fpr": 0.0012763241863433313,
+     "fnr": 0.9402173913043478
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 140,
+      "fp": 157,
+      "tn": 1410,
+      "fn": 44,
+      "accuracy": 0.885208452312964,
+      "precision": 0.4713804713804714,
+      "recall": 0.7608695652173914,
+      "f1": 0.582120582120582,
+      "fpr": 0.1001914486279515,
+      "fnr": 0.2391304347826087
+     },
+     "tr": {
+      "tp": 64,
+      "fp": 626,
+      "tn": 186,
+      "fn": 20,
+      "accuracy": 0.27901785714285715,
+      "precision": 0.0927536231884058,
+      "recall": 0.7619047619047619,
+      "f1": 0.16537467700258396,
+      "fpr": 0.770935960591133,
+      "fnr": 0.23809523809523808
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 34,
+      "fp": 130,
+      "tn": 243,
+      "fn": 14,
+      "accuracy": 0.6579572446555819,
+      "precision": 0.2073170731707317,
+      "recall": 0.7083333333333334,
+      "f1": 0.32075471698113206,
+      "fpr": 0.3485254691689008,
+      "fnr": 0.2916666666666667
+     },
+     "spoilers": {
+      "tp": 22,
+      "fp": 72,
+      "tn": 218,
+      "fn": 6,
+      "accuracy": 0.7547169811320755,
+      "precision": 0.23404255319148937,
+      "recall": 0.7857142857142857,
+      "f1": 0.36065573770491804,
+      "fpr": 0.2482758620689655,
+      "fnr": 0.21428571428571427
+     },
+     "politics": {
+      "tp": 26,
+      "fp": 104,
+      "tn": 182,
+      "fn": 6,
+      "accuracy": 0.6540880503144654,
+      "precision": 0.2,
+      "recall": 0.8125,
+      "f1": 0.3209876543209877,
+      "fpr": 0.36363636363636365,
+      "fnr": 0.1875
+     },
+     "sports": {
+      "tp": 15,
+      "fp": 49,
+      "tn": 239,
+      "fn": 15,
+      "accuracy": 0.7987421383647799,
+      "precision": 0.234375,
+      "recall": 0.5,
+      "f1": 0.3191489361702128,
+      "fpr": 0.1701388888888889,
+      "fnr": 0.5
+     },
+     "gaming": {
+      "tp": 24,
+      "fp": 118,
+      "tn": 168,
+      "fn": 8,
+      "accuracy": 0.6037735849056604,
+      "precision": 0.16901408450704225,
+      "recall": 0.75,
+      "f1": 0.27586206896551724,
+      "fpr": 0.4125874125874126,
+      "fnr": 0.25
+     },
+     "tech": {
+      "tp": 29,
+      "fp": 112,
+      "tn": 172,
+      "fn": 5,
+      "accuracy": 0.6320754716981132,
+      "precision": 0.20567375886524822,
+      "recall": 0.8529411764705882,
+      "f1": 0.3314285714285714,
+      "fpr": 0.39436619718309857,
+      "fnr": 0.14705882352941177
+     },
+     "health": {
+      "tp": 23,
+      "fp": 92,
+      "tn": 196,
+      "fn": 7,
+      "accuracy": 0.6886792452830188,
+      "precision": 0.2,
+      "recall": 0.7666666666666667,
+      "f1": 0.3172413793103448,
+      "fpr": 0.3194444444444444,
+      "fnr": 0.23333333333333334
+     },
+     "finance": {
+      "tp": 31,
+      "fp": 106,
+      "tn": 178,
+      "fn": 3,
+      "accuracy": 0.6572327044025157,
+      "precision": 0.22627737226277372,
+      "recall": 0.9117647058823529,
+      "f1": 0.3625730994152047,
+      "fpr": 0.3732394366197183,
+      "fnr": 0.08823529411764706
+     }
+    },
+    "hardNegativeFpr": 0.23931623931623933,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 140,
+     "fp": 157,
+     "tn": 1410,
+     "fn": 44,
+     "accuracy": 0.885208452312964,
+     "precision": 0.4713804713804714,
+     "recall": 0.7608695652173914,
+     "f1": 0.582120582120582,
+     "fpr": 0.1001914486279515,
+     "fnr": 0.2391304347826087
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Pazar günü haftalık yemeklerimi hazırladım: tavuk, esmer pirinç ve brokoli.",
+      "actual": false,
+      "score": 0.573,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.564,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.559,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.538,
+      "lexical": true
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.518,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Spoiler uyarısı: ana karakter sezonun son bölümünde ölüyor.",
+      "actual": false,
+      "score": 0.507,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Parti, milletvekili adaylarını önümüzdeki hafta açıklayacak.",
+      "actual": false,
+      "score": 0.503,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Parti, milletvekili adaylarını önümüzdeki hafta açıklayacak.",
+      "actual": false,
+      "score": 0.503,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Bu mantı tarifi iki saat sürüyor ama her dakikasına değer.",
+      "actual": false,
+      "score": 0.501,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.497,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Koalisyon ortağı emeklilik düzenlemesi yüzünden hükümetten çekildi.",
+      "actual": false,
+      "score": 0.496,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Çocuklar yağmur yağarken bütün öğleden sonra kutu oyunu oynadı.",
+      "actual": false,
+      "score": 0.494,
+      "lexical": false
+     }
+    ]
+   }
+  }
+ },
+ "minilm-l3": {
+  "dim": 384,
+  "cpuEmbedMsTotal": 3677.897743,
+  "texts": 351,
+  "similarity": {
+   "meanPositive": 0.04807630646838101,
+   "meanNegative": -0.12097555275844224,
+   "auc": 0.7772184118842486,
+   "aucEn": 0.8925394100880448,
+   "aucTr": 0.5579765625
+  },
+  "modes": {
+   "precision": {
+    "threshold": 0.06,
+    "lexical": {
+     "tp": 6,
+     "fp": 1,
+     "tn": 2378,
+     "fn": 262,
+     "accuracy": 0.9006422364941443,
+     "precision": 0.8571428571428571,
+     "recall": 0.022388059701492536,
+     "f1": 0.04363636363636363,
+     "fpr": 0.0004203446826397646,
+     "fnr": 0.9776119402985075
+    },
+    "semantic": {
+     "tp": 109,
+     "fp": 328,
+     "tn": 2051,
+     "fn": 159,
+     "accuracy": 0.8160181337363053,
+     "precision": 0.2494279176201373,
+     "recall": 0.40671641791044777,
+     "f1": 0.30921985815602837,
+     "fpr": 0.13787305590584278,
+     "fnr": 0.5932835820895522
+    },
+    "hybrid": {
+     "tp": 109,
+     "fp": 328,
+     "tn": 2051,
+     "fn": 159,
+     "accuracy": 0.8160181337363053,
+     "precision": 0.2494279176201373,
+     "recall": 0.40671641791044777,
+     "f1": 0.30921985815602837,
+     "fpr": 0.13787305590584278,
+     "fnr": 0.5932835820895522
+    },
+    "lexical_en": {
+     "tp": 3,
+     "fp": 1,
+     "tn": 1566,
+     "fn": 181,
+     "accuracy": 0.8960593946316391,
+     "precision": 0.75,
+     "recall": 0.016304347826086956,
+     "f1": 0.031914893617021274,
+     "fpr": 0.0006381620931716656,
+     "fnr": 0.9836956521739131
+    },
+    "semantic_en": {
+     "tp": 75,
+     "fp": 17,
+     "tn": 1550,
+     "fn": 109,
+     "accuracy": 0.9280411193603655,
+     "precision": 0.8152173913043478,
+     "recall": 0.4076086956521739,
+     "f1": 0.5434782608695652,
+     "fpr": 0.010848755583918315,
+     "fnr": 0.592391304347826
+    },
+    "hybrid_en": {
+     "tp": 75,
+     "fp": 17,
+     "tn": 1550,
+     "fn": 109,
+     "accuracy": 0.9280411193603655,
+     "precision": 0.8152173913043478,
+     "recall": 0.4076086956521739,
+     "f1": 0.5434782608695652,
+     "fpr": 0.010848755583918315,
+     "fnr": 0.592391304347826
+    },
+    "legacyThreshold": {
+     "threshold": 0.68,
+     "tp": 3,
+     "fp": 1,
+     "tn": 1566,
+     "fn": 181,
+     "accuracy": 0.8960593946316391,
+     "precision": 0.75,
+     "recall": 0.016304347826086956,
+     "f1": 0.031914893617021274,
+     "fpr": 0.0006381620931716656,
+     "fnr": 0.9836956521739131
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 75,
+      "fp": 17,
+      "tn": 1550,
+      "fn": 109,
+      "accuracy": 0.9280411193603655,
+      "precision": 0.8152173913043478,
+      "recall": 0.4076086956521739,
+      "f1": 0.5434782608695652,
+      "fpr": 0.010848755583918315,
+      "fnr": 0.592391304347826
+     },
+     "tr": {
+      "tp": 34,
+      "fp": 311,
+      "tn": 501,
+      "fn": 50,
+      "accuracy": 0.5970982142857143,
+      "precision": 0.09855072463768116,
+      "recall": 0.40476190476190477,
+      "f1": 0.1585081585081585,
+      "fpr": 0.3830049261083744,
+      "fnr": 0.5952380952380952
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 15,
+      "fp": 5,
+      "tn": 368,
+      "fn": 33,
+      "accuracy": 0.9097387173396675,
+      "precision": 0.75,
+      "recall": 0.3125,
+      "f1": 0.4411764705882353,
+      "fpr": 0.013404825737265416,
+      "fnr": 0.6875
+     },
+     "spoilers": {
+      "tp": 8,
+      "fp": 4,
+      "tn": 286,
+      "fn": 20,
+      "accuracy": 0.9245283018867925,
+      "precision": 0.6666666666666666,
+      "recall": 0.2857142857142857,
+      "f1": 0.4,
+      "fpr": 0.013793103448275862,
+      "fnr": 0.7142857142857143
+     },
+     "politics": {
+      "tp": 16,
+      "fp": 60,
+      "tn": 226,
+      "fn": 16,
+      "accuracy": 0.7610062893081762,
+      "precision": 0.21052631578947367,
+      "recall": 0.5,
+      "f1": 0.2962962962962963,
+      "fpr": 0.2097902097902098,
+      "fnr": 0.5
+     },
+     "sports": {
+      "tp": 7,
+      "fp": 10,
+      "tn": 278,
+      "fn": 23,
+      "accuracy": 0.8962264150943396,
+      "precision": 0.4117647058823529,
+      "recall": 0.23333333333333334,
+      "f1": 0.2978723404255319,
+      "fpr": 0.034722222222222224,
+      "fnr": 0.7666666666666667
+     },
+     "gaming": {
+      "tp": 15,
+      "fp": 65,
+      "tn": 221,
+      "fn": 17,
+      "accuracy": 0.7421383647798742,
+      "precision": 0.1875,
+      "recall": 0.46875,
+      "f1": 0.26785714285714285,
+      "fpr": 0.22727272727272727,
+      "fnr": 0.53125
+     },
+     "tech": {
+      "tp": 17,
+      "fp": 67,
+      "tn": 217,
+      "fn": 17,
+      "accuracy": 0.7358490566037735,
+      "precision": 0.20238095238095238,
+      "recall": 0.5,
+      "f1": 0.288135593220339,
+      "fpr": 0.23591549295774647,
+      "fnr": 0.5
+     },
+     "health": {
+      "tp": 16,
+      "fp": 55,
+      "tn": 233,
+      "fn": 14,
+      "accuracy": 0.7830188679245284,
+      "precision": 0.22535211267605634,
+      "recall": 0.5333333333333333,
+      "f1": 0.31683168316831684,
+      "fpr": 0.1909722222222222,
+      "fnr": 0.4666666666666667
+     },
+     "finance": {
+      "tp": 15,
+      "fp": 62,
+      "tn": 222,
+      "fn": 19,
+      "accuracy": 0.7452830188679245,
+      "precision": 0.19480519480519481,
+      "recall": 0.4411764705882353,
+      "f1": 0.2702702702702703,
+      "fpr": 0.21830985915492956,
+      "fnr": 0.5588235294117647
+     }
+    },
+    "hardNegativeFpr": 0.1282051282051282,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 75,
+     "fp": 17,
+     "tn": 1550,
+     "fn": 109,
+     "accuracy": 0.9280411193603655,
+     "precision": 0.8152173913043478,
+     "recall": 0.4076086956521739,
+     "f1": 0.5434782608695652,
+     "fpr": 0.010848755583918315,
+     "fnr": 0.592391304347826
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.55,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.507,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Krema buzdolabının dışında kalırsa birkaç saatte bozuluyor.",
+      "actual": false,
+      "score": 0.446,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.436,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Komşularımız yaz boyunca çocukları için bir ağaç ev yaptı.",
+      "actual": false,
+      "score": 0.429,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Yazılım güncellemesi cihazların yarısını kullanılamaz hale getirdi.",
+      "actual": false,
+      "score": 0.428,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Hakem uzatma dakikalarında penaltı verdi ve stat ayağa kalktı.",
+      "actual": false,
+      "score": 0.415,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Sonbahar yaprakları parkı bu hafta turuncuya ve kırmızıya boyadı.",
+      "actual": false,
+      "score": 0.412,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Kripto varlık hizmet sağlayıcılarına yeni lisans zorunluluğu getirildi.",
+      "actual": false,
+      "score": 0.408,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "OLED panel harika ama yenileme hızı 60Hz'de takılı kalmış.",
+      "actual": false,
+      "score": 0.408,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Mahalledeki fırın ekşi mayalı ekmek ve poğaça satan yeni bir şube açtı.",
+      "actual": false,
+      "score": 0.406,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Gece kar yağdı ve dağ yolları öğlene kadar kapalı kaldı.",
+      "actual": false,
+      "score": 0.405,
+      "lexical": false
+     }
+    ]
+   },
+   "balanced": {
+    "threshold": 0.01,
+    "lexical": {
+     "tp": 5,
+     "fp": 0,
+     "tn": 2379,
+     "fn": 263,
+     "accuracy": 0.9006422364941443,
+     "precision": 1,
+     "recall": 0.018656716417910446,
+     "f1": 0.03663003663003663,
+     "fpr": 0,
+     "fnr": 0.9813432835820896
+    },
+    "semantic": {
+     "tp": 146,
+     "fp": 496,
+     "tn": 1883,
+     "fn": 122,
+     "accuracy": 0.7665281450698904,
+     "precision": 0.22741433021806853,
+     "recall": 0.5447761194029851,
+     "f1": 0.32087912087912085,
+     "fpr": 0.20849096258932326,
+     "fnr": 0.4552238805970149
+    },
+    "hybrid": {
+     "tp": 146,
+     "fp": 496,
+     "tn": 1883,
+     "fn": 122,
+     "accuracy": 0.7665281450698904,
+     "precision": 0.22741433021806853,
+     "recall": 0.5447761194029851,
+     "f1": 0.32087912087912085,
+     "fpr": 0.20849096258932326,
+     "fnr": 0.4552238805970149
+    },
+    "lexical_en": {
+     "tp": 2,
+     "fp": 0,
+     "tn": 1567,
+     "fn": 182,
+     "accuracy": 0.8960593946316391,
+     "precision": 1,
+     "recall": 0.010869565217391304,
+     "f1": 0.02150537634408602,
+     "fpr": 0,
+     "fnr": 0.9891304347826086
+    },
+    "semantic_en": {
+     "tp": 97,
+     "fp": 62,
+     "tn": 1505,
+     "fn": 87,
+     "accuracy": 0.9149057681324957,
+     "precision": 0.610062893081761,
+     "recall": 0.5271739130434783,
+     "f1": 0.5655976676384841,
+     "fpr": 0.03956604977664327,
+     "fnr": 0.47282608695652173
+    },
+    "hybrid_en": {
+     "tp": 97,
+     "fp": 62,
+     "tn": 1505,
+     "fn": 87,
+     "accuracy": 0.9149057681324957,
+     "precision": 0.610062893081761,
+     "recall": 0.5271739130434783,
+     "f1": 0.5655976676384841,
+     "fpr": 0.03956604977664327,
+     "fnr": 0.47282608695652173
+    },
+    "legacyThreshold": {
+     "threshold": 0.62,
+     "tp": 2,
+     "fp": 0,
+     "tn": 1567,
+     "fn": 182,
+     "accuracy": 0.8960593946316391,
+     "precision": 1,
+     "recall": 0.010869565217391304,
+     "f1": 0.02150537634408602,
+     "fpr": 0,
+     "fnr": 0.9891304347826086
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 97,
+      "fp": 62,
+      "tn": 1505,
+      "fn": 87,
+      "accuracy": 0.9149057681324957,
+      "precision": 0.610062893081761,
+      "recall": 0.5271739130434783,
+      "f1": 0.5655976676384841,
+      "fpr": 0.03956604977664327,
+      "fnr": 0.47282608695652173
+     },
+     "tr": {
+      "tp": 49,
+      "fp": 434,
+      "tn": 378,
+      "fn": 35,
+      "accuracy": 0.4765625,
+      "precision": 0.10144927536231885,
+      "recall": 0.5833333333333334,
+      "f1": 0.17283950617283952,
+      "fpr": 0.5344827586206896,
+      "fnr": 0.4166666666666667
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 20,
+      "fp": 21,
+      "tn": 352,
+      "fn": 28,
+      "accuracy": 0.8836104513064132,
+      "precision": 0.4878048780487805,
+      "recall": 0.4166666666666667,
+      "f1": 0.44943820224719094,
+      "fpr": 0.05630026809651475,
+      "fnr": 0.5833333333333334
+     },
+     "spoilers": {
+      "tp": 11,
+      "fp": 26,
+      "tn": 264,
+      "fn": 17,
+      "accuracy": 0.8647798742138365,
+      "precision": 0.2972972972972973,
+      "recall": 0.39285714285714285,
+      "f1": 0.3384615384615385,
+      "fpr": 0.0896551724137931,
+      "fnr": 0.6071428571428571
+     },
+     "politics": {
+      "tp": 21,
+      "fp": 80,
+      "tn": 206,
+      "fn": 11,
+      "accuracy": 0.7138364779874213,
+      "precision": 0.2079207920792079,
+      "recall": 0.65625,
+      "f1": 0.3157894736842105,
+      "fpr": 0.27972027972027974,
+      "fnr": 0.34375
+     },
+     "sports": {
+      "tp": 13,
+      "fp": 33,
+      "tn": 255,
+      "fn": 17,
+      "accuracy": 0.8427672955974843,
+      "precision": 0.2826086956521739,
+      "recall": 0.43333333333333335,
+      "f1": 0.34210526315789475,
+      "fpr": 0.11458333333333333,
+      "fnr": 0.5666666666666667
+     },
+     "gaming": {
+      "tp": 21,
+      "fp": 92,
+      "tn": 194,
+      "fn": 11,
+      "accuracy": 0.6761006289308176,
+      "precision": 0.18584070796460178,
+      "recall": 0.65625,
+      "f1": 0.28965517241379307,
+      "fpr": 0.32167832167832167,
+      "fnr": 0.34375
+     },
+     "tech": {
+      "tp": 23,
+      "fp": 88,
+      "tn": 196,
+      "fn": 11,
+      "accuracy": 0.6886792452830188,
+      "precision": 0.2072072072072072,
+      "recall": 0.6764705882352942,
+      "f1": 0.3172413793103448,
+      "fpr": 0.30985915492957744,
+      "fnr": 0.3235294117647059
+     },
+     "health": {
+      "tp": 17,
+      "fp": 72,
+      "tn": 216,
+      "fn": 13,
+      "accuracy": 0.7327044025157232,
+      "precision": 0.19101123595505617,
+      "recall": 0.5666666666666667,
+      "f1": 0.2857142857142857,
+      "fpr": 0.25,
+      "fnr": 0.43333333333333335
+     },
+     "finance": {
+      "tp": 20,
+      "fp": 84,
+      "tn": 200,
+      "fn": 14,
+      "accuracy": 0.6918238993710691,
+      "precision": 0.19230769230769232,
+      "recall": 0.5882352941176471,
+      "f1": 0.2898550724637681,
+      "fpr": 0.29577464788732394,
+      "fnr": 0.4117647058823529
+     }
+    },
+    "hardNegativeFpr": 0.16666666666666666,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 97,
+     "fp": 62,
+     "tn": 1505,
+     "fn": 87,
+     "accuracy": 0.9149057681324957,
+     "precision": 0.610062893081761,
+     "recall": 0.5271739130434783,
+     "f1": 0.5655976676384841,
+     "fpr": 0.03956604977664327,
+     "fnr": 0.47282608695652173
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.55,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.507,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Krema buzdolabının dışında kalırsa birkaç saatte bozuluyor.",
+      "actual": false,
+      "score": 0.446,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.436,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Komşularımız yaz boyunca çocukları için bir ağaç ev yaptı.",
+      "actual": false,
+      "score": 0.429,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Yazılım güncellemesi cihazların yarısını kullanılamaz hale getirdi.",
+      "actual": false,
+      "score": 0.428,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Hakem uzatma dakikalarında penaltı verdi ve stat ayağa kalktı.",
+      "actual": false,
+      "score": 0.415,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Sonbahar yaprakları parkı bu hafta turuncuya ve kırmızıya boyadı.",
+      "actual": false,
+      "score": 0.412,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Kripto varlık hizmet sağlayıcılarına yeni lisans zorunluluğu getirildi.",
+      "actual": false,
+      "score": 0.408,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "OLED panel harika ama yenileme hızı 60Hz'de takılı kalmış.",
+      "actual": false,
+      "score": 0.408,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Mahalledeki fırın ekşi mayalı ekmek ve poğaça satan yeni bir şube açtı.",
+      "actual": false,
+      "score": 0.406,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Gece kar yağdı ve dağ yolları öğlene kadar kapalı kaldı.",
+      "actual": false,
+      "score": 0.405,
+      "lexical": false
+     }
+    ]
+   },
+   "aggressive": {
+    "threshold": -0.03,
+    "lexical": {
+     "tp": 16,
+     "fp": 3,
+     "tn": 2376,
+     "fn": 252,
+     "accuracy": 0.9036645258783529,
+     "precision": 0.8421052631578947,
+     "recall": 0.05970149253731343,
+     "f1": 0.11149825783972125,
+     "fpr": 0.0012610340479192938,
+     "fnr": 0.9402985074626866
+    },
+    "semantic": {
+     "tp": 180,
+     "fp": 651,
+     "tn": 1728,
+     "fn": 88,
+     "accuracy": 0.7208160181337363,
+     "precision": 0.21660649819494585,
+     "recall": 0.6716417910447762,
+     "f1": 0.3275705186533212,
+     "fpr": 0.27364438839848676,
+     "fnr": 0.3283582089552239
+    },
+    "hybrid": {
+     "tp": 181,
+     "fp": 651,
+     "tn": 1728,
+     "fn": 87,
+     "accuracy": 0.7211938043067624,
+     "precision": 0.21754807692307693,
+     "recall": 0.6753731343283582,
+     "f1": 0.3290909090909091,
+     "fpr": 0.27364438839848676,
+     "fnr": 0.3246268656716418
+    },
+    "lexical_en": {
+     "tp": 11,
+     "fp": 2,
+     "tn": 1565,
+     "fn": 173,
+     "accuracy": 0.9000571102227298,
+     "precision": 0.8461538461538461,
+     "recall": 0.059782608695652176,
+     "f1": 0.1116751269035533,
+     "fpr": 0.0012763241863433313,
+     "fnr": 0.9402173913043478
+    },
+    "semantic_en": {
+     "tp": 124,
+     "fp": 127,
+     "tn": 1440,
+     "fn": 60,
+     "accuracy": 0.8932038834951457,
+     "precision": 0.4940239043824701,
+     "recall": 0.6739130434782609,
+     "f1": 0.5701149425287356,
+     "fpr": 0.08104658583280153,
+     "fnr": 0.32608695652173914
+    },
+    "hybrid_en": {
+     "tp": 125,
+     "fp": 127,
+     "tn": 1440,
+     "fn": 59,
+     "accuracy": 0.8937749857224443,
+     "precision": 0.49603174603174605,
+     "recall": 0.6793478260869565,
+     "f1": 0.573394495412844,
+     "fpr": 0.08104658583280153,
+     "fnr": 0.32065217391304346
+    },
+    "legacyThreshold": {
+     "threshold": 0.56,
+     "tp": 11,
+     "fp": 2,
+     "tn": 1565,
+     "fn": 173,
+     "accuracy": 0.9000571102227298,
+     "precision": 0.8461538461538461,
+     "recall": 0.059782608695652176,
+     "f1": 0.1116751269035533,
+     "fpr": 0.0012763241863433313,
+     "fnr": 0.9402173913043478
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 125,
+      "fp": 127,
+      "tn": 1440,
+      "fn": 59,
+      "accuracy": 0.8937749857224443,
+      "precision": 0.49603174603174605,
+      "recall": 0.6793478260869565,
+      "f1": 0.573394495412844,
+      "fpr": 0.08104658583280153,
+      "fnr": 0.32065217391304346
+     },
+     "tr": {
+      "tp": 56,
+      "fp": 524,
+      "tn": 288,
+      "fn": 28,
+      "accuracy": 0.38392857142857145,
+      "precision": 0.09655172413793103,
+      "recall": 0.6666666666666666,
+      "f1": 0.16867469879518074,
+      "fpr": 0.645320197044335,
+      "fnr": 0.3333333333333333
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 24,
+      "fp": 55,
+      "tn": 318,
+      "fn": 24,
+      "accuracy": 0.8123515439429929,
+      "precision": 0.3037974683544304,
+      "recall": 0.5,
+      "f1": 0.3779527559055118,
+      "fpr": 0.14745308310991956,
+      "fnr": 0.5
+     },
+     "spoilers": {
+      "tp": 17,
+      "fp": 47,
+      "tn": 243,
+      "fn": 11,
+      "accuracy": 0.8176100628930818,
+      "precision": 0.265625,
+      "recall": 0.6071428571428571,
+      "f1": 0.3695652173913044,
+      "fpr": 0.16206896551724137,
+      "fnr": 0.39285714285714285
+     },
+     "politics": {
+      "tp": 25,
+      "fp": 94,
+      "tn": 192,
+      "fn": 7,
+      "accuracy": 0.6823899371069182,
+      "precision": 0.21008403361344538,
+      "recall": 0.78125,
+      "f1": 0.3311258278145695,
+      "fpr": 0.32867132867132864,
+      "fnr": 0.21875
+     },
+     "sports": {
+      "tp": 17,
+      "fp": 49,
+      "tn": 239,
+      "fn": 13,
+      "accuracy": 0.8050314465408805,
+      "precision": 0.25757575757575757,
+      "recall": 0.5666666666666667,
+      "f1": 0.3541666666666667,
+      "fpr": 0.1701388888888889,
+      "fnr": 0.43333333333333335
+     },
+     "gaming": {
+      "tp": 26,
+      "fp": 115,
+      "tn": 171,
+      "fn": 6,
+      "accuracy": 0.6194968553459119,
+      "precision": 0.18439716312056736,
+      "recall": 0.8125,
+      "f1": 0.3005780346820809,
+      "fpr": 0.4020979020979021,
+      "fnr": 0.1875
+     },
+     "tech": {
+      "tp": 27,
+      "fp": 101,
+      "tn": 183,
+      "fn": 7,
+      "accuracy": 0.660377358490566,
+      "precision": 0.2109375,
+      "recall": 0.7941176470588235,
+      "f1": 0.33333333333333337,
+      "fpr": 0.35563380281690143,
+      "fnr": 0.20588235294117646
+     },
+     "health": {
+      "tp": 19,
+      "fp": 87,
+      "tn": 201,
+      "fn": 11,
+      "accuracy": 0.6918238993710691,
+      "precision": 0.1792452830188679,
+      "recall": 0.6333333333333333,
+      "f1": 0.27941176470588236,
+      "fpr": 0.3020833333333333,
+      "fnr": 0.36666666666666664
+     },
+     "finance": {
+      "tp": 26,
+      "fp": 103,
+      "tn": 181,
+      "fn": 8,
+      "accuracy": 0.6509433962264151,
+      "precision": 0.20155038759689922,
+      "recall": 0.7647058823529411,
+      "f1": 0.31901840490797545,
+      "fpr": 0.3626760563380282,
+      "fnr": 0.23529411764705882
+     }
+    },
+    "hardNegativeFpr": 0.21367521367521367,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 125,
+     "fp": 127,
+     "tn": 1440,
+     "fn": 59,
+     "accuracy": 0.8937749857224443,
+     "precision": 0.49603174603174605,
+     "recall": 0.6793478260869565,
+     "f1": 0.573394495412844,
+     "fpr": 0.08104658583280153,
+     "fnr": 0.32065217391304346
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kedimizin iştahı çok iyi ve lazer ışığını kovalamayı seviyor.",
+      "actual": false,
+      "score": 0.55,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Golcü oyuncu sağlık kontrolünden geçti ve dört yıllık sözleşme imzaladı.",
+      "actual": false,
+      "score": 0.507,
+      "lexical": true
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Krema buzdolabının dışında kalırsa birkaç saatte bozuluyor.",
+      "actual": false,
+      "score": 0.446,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.436,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Komşularımız yaz boyunca çocukları için bir ağaç ev yaptı.",
+      "actual": false,
+      "score": 0.429,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Yazılım güncellemesi cihazların yarısını kullanılamaz hale getirdi.",
+      "actual": false,
+      "score": 0.428,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Hakem uzatma dakikalarında penaltı verdi ve stat ayağa kalktı.",
+      "actual": false,
+      "score": 0.415,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Sonbahar yaprakları parkı bu hafta turuncuya ve kırmızıya boyadı.",
+      "actual": false,
+      "score": 0.412,
+      "lexical": false
+     },
+     {
+      "query": "sağlık ve beslenme",
+      "text": "Kripto varlık hizmet sağlayıcılarına yeni lisans zorunluluğu getirildi.",
+      "actual": false,
+      "score": 0.408,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "OLED panel harika ama yenileme hızı 60Hz'de takılı kalmış.",
+      "actual": false,
+      "score": 0.408,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Mahalledeki fırın ekşi mayalı ekmek ve poğaça satan yeni bir şube açtı.",
+      "actual": false,
+      "score": 0.406,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Gece kar yağdı ve dağ yolları öğlene kadar kapalı kaldı.",
+      "actual": false,
+      "score": 0.405,
+      "lexical": false
+     }
+    ]
+   }
+  }
+ },
+ "bert-tiny": {
+  "dim": 128,
+  "cpuEmbedMsTotal": 611.090124,
+  "texts": 351,
+  "similarity": {
+   "meanPositive": 0.6887751970752906,
+   "meanNegative": 0.6444064907018623,
+   "auc": 0.6552464688442278,
+   "aucEn": 0.7663628810235119,
+   "aucTr": 0.5224453125
+  },
+  "modes": {
+   "precision": {
+    "threshold": 0.745,
+    "lexical": {
+     "tp": 6,
+     "fp": 1,
+     "tn": 2378,
+     "fn": 262,
+     "accuracy": 0.9006422364941443,
+     "precision": 0.8571428571428571,
+     "recall": 0.022388059701492536,
+     "f1": 0.04363636363636363,
+     "fpr": 0.0004203446826397646,
+     "fnr": 0.9776119402985075
+    },
+    "semantic": {
+     "tp": 63,
+     "fp": 401,
+     "tn": 1978,
+     "fn": 205,
+     "accuracy": 0.7710615791462032,
+     "precision": 0.13577586206896552,
+     "recall": 0.23507462686567165,
+     "f1": 0.1721311475409836,
+     "fpr": 0.1685582177385456,
+     "fnr": 0.7649253731343284
+    },
+    "hybrid": {
+     "tp": 67,
+     "fp": 401,
+     "tn": 1978,
+     "fn": 201,
+     "accuracy": 0.7725727238383076,
+     "precision": 0.14316239316239315,
+     "recall": 0.25,
+     "f1": 0.18206521739130435,
+     "fpr": 0.1685582177385456,
+     "fnr": 0.75
+    },
+    "lexical_en": {
+     "tp": 3,
+     "fp": 1,
+     "tn": 1566,
+     "fn": 181,
+     "accuracy": 0.8960593946316391,
+     "precision": 0.75,
+     "recall": 0.016304347826086956,
+     "f1": 0.031914893617021274,
+     "fpr": 0.0006381620931716656,
+     "fnr": 0.9836956521739131
+    },
+    "semantic_en": {
+     "tp": 25,
+     "fp": 13,
+     "tn": 1554,
+     "fn": 159,
+     "accuracy": 0.9017704169046259,
+     "precision": 0.6578947368421053,
+     "recall": 0.1358695652173913,
+     "f1": 0.2252252252252252,
+     "fpr": 0.008296107211231652,
+     "fnr": 0.8641304347826086
+    },
+    "hybrid_en": {
+     "tp": 26,
+     "fp": 13,
+     "tn": 1554,
+     "fn": 158,
+     "accuracy": 0.9023415191319246,
+     "precision": 0.6666666666666666,
+     "recall": 0.14130434782608695,
+     "f1": 0.23318385650224213,
+     "fpr": 0.008296107211231652,
+     "fnr": 0.8586956521739131
+    },
+    "legacyThreshold": {
+     "threshold": 0.68,
+     "tp": 84,
+     "fp": 145,
+     "tn": 1422,
+     "fn": 100,
+     "accuracy": 0.8600799543118218,
+     "precision": 0.36681222707423583,
+     "recall": 0.45652173913043476,
+     "f1": 0.4067796610169491,
+     "fpr": 0.09253350350989151,
+     "fnr": 0.5434782608695652
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 26,
+      "fp": 13,
+      "tn": 1554,
+      "fn": 158,
+      "accuracy": 0.9023415191319246,
+      "precision": 0.6666666666666666,
+      "recall": 0.14130434782608695,
+      "f1": 0.23318385650224213,
+      "fpr": 0.008296107211231652,
+      "fnr": 0.8586956521739131
+     },
+     "tr": {
+      "tp": 41,
+      "fp": 388,
+      "tn": 424,
+      "fn": 43,
+      "accuracy": 0.5189732142857143,
+      "precision": 0.09557109557109557,
+      "recall": 0.4880952380952381,
+      "f1": 0.15984405458089668,
+      "fpr": 0.47783251231527096,
+      "fnr": 0.5119047619047619
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 4,
+      "fp": 7,
+      "tn": 366,
+      "fn": 44,
+      "accuracy": 0.8788598574821853,
+      "precision": 0.36363636363636365,
+      "recall": 0.08333333333333333,
+      "f1": 0.13559322033898305,
+      "fpr": 0.01876675603217158,
+      "fnr": 0.9166666666666666
+     },
+     "spoilers": {
+      "tp": 4,
+      "fp": 10,
+      "tn": 280,
+      "fn": 24,
+      "accuracy": 0.8930817610062893,
+      "precision": 0.2857142857142857,
+      "recall": 0.14285714285714285,
+      "f1": 0.19047619047619047,
+      "fpr": 0.034482758620689655,
+      "fnr": 0.8571428571428571
+     },
+     "politics": {
+      "tp": 14,
+      "fp": 84,
+      "tn": 202,
+      "fn": 18,
+      "accuracy": 0.6792452830188679,
+      "precision": 0.14285714285714285,
+      "recall": 0.4375,
+      "f1": 0.2153846153846154,
+      "fpr": 0.2937062937062937,
+      "fnr": 0.5625
+     },
+     "sports": {
+      "tp": 0,
+      "fp": 2,
+      "tn": 286,
+      "fn": 30,
+      "accuracy": 0.89937106918239,
+      "precision": 0,
+      "recall": 0,
+      "f1": 0,
+      "fpr": 0.006944444444444444,
+      "fnr": 1
+     },
+     "gaming": {
+      "tp": 14,
+      "fp": 74,
+      "tn": 212,
+      "fn": 18,
+      "accuracy": 0.710691823899371,
+      "precision": 0.1590909090909091,
+      "recall": 0.4375,
+      "f1": 0.23333333333333334,
+      "fpr": 0.25874125874125875,
+      "fnr": 0.5625
+     },
+     "tech": {
+      "tp": 10,
+      "fp": 103,
+      "tn": 181,
+      "fn": 24,
+      "accuracy": 0.60062893081761,
+      "precision": 0.08849557522123894,
+      "recall": 0.29411764705882354,
+      "f1": 0.1360544217687075,
+      "fpr": 0.3626760563380282,
+      "fnr": 0.7058823529411765
+     },
+     "health": {
+      "tp": 12,
+      "fp": 66,
+      "tn": 222,
+      "fn": 18,
+      "accuracy": 0.7358490566037735,
+      "precision": 0.15384615384615385,
+      "recall": 0.4,
+      "f1": 0.2222222222222222,
+      "fpr": 0.22916666666666666,
+      "fnr": 0.6
+     },
+     "finance": {
+      "tp": 9,
+      "fp": 55,
+      "tn": 229,
+      "fn": 25,
+      "accuracy": 0.7484276729559748,
+      "precision": 0.140625,
+      "recall": 0.2647058823529412,
+      "f1": 0.1836734693877551,
+      "fpr": 0.1936619718309859,
+      "fnr": 0.7352941176470589
+     }
+    },
+    "hardNegativeFpr": 0.11965811965811966,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 26,
+     "fp": 13,
+     "tn": 1554,
+     "fn": 158,
+     "accuracy": 0.9023415191319246,
+     "precision": 0.6666666666666666,
+     "recall": 0.14130434782608695,
+     "f1": 0.23318385650224213,
+     "fpr": 0.008296107211231652,
+     "fnr": 0.8586956521739131
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Komşularımız yaz boyunca çocukları için bir ağaç ev yaptı.",
+      "actual": false,
+      "score": 0.932,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "OLED panel harika ama yenileme hızı 60Hz'de takılı kalmış.",
+      "actual": false,
+      "score": 0.932,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Mahalledeki fırın ekşi mayalı ekmek ve poğaça satan yeni bir şube açtı.",
+      "actual": false,
+      "score": 0.931,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kış aylarında D vitamini takviyesi sıklıkla öneriliyor.",
+      "actual": false,
+      "score": 0.926,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Köpeğimiz arka kapıyı patisiyle kolu çekerek açmayı öğrendi.",
+      "actual": false,
+      "score": 0.926,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kalenin turu mutfakları, büyük salonu ve eski zindanı kapsıyor.",
+      "actual": false,
+      "score": 0.925,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Bilanço beklentileri aştı ama yönetimin açıklamaları yatırımcıları korkuttu.",
+      "actual": false,
+      "score": 0.925,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Yazılım güncellemesi cihazların yarısını kullanılamaz hale getirdi.",
+      "actual": false,
+      "score": 0.924,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kripto varlık hizmet sağlayıcılarına yeni lisans zorunluluğu getirildi.",
+      "actual": false,
+      "score": 0.924,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Bitcoin, ETF girişlerinin hızlanmasıyla yeniden 70 bin doların üzerine çıktı.",
+      "actual": false,
+      "score": 0.922,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.921,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Bitcoin, ETF girişlerinin hızlanmasıyla yeniden 70 bin doların üzerine çıktı.",
+      "actual": false,
+      "score": 0.919,
+      "lexical": false
+     }
+    ]
+   },
+   "balanced": {
+    "threshold": 0.665,
+    "lexical": {
+     "tp": 5,
+     "fp": 0,
+     "tn": 2379,
+     "fn": 263,
+     "accuracy": 0.9006422364941443,
+     "precision": 1,
+     "recall": 0.018656716417910446,
+     "f1": 0.03663003663003663,
+     "fpr": 0,
+     "fnr": 0.9813432835820896
+    },
+    "semantic": {
+     "tp": 164,
+     "fp": 826,
+     "tn": 1553,
+     "fn": 104,
+     "accuracy": 0.6486588590857575,
+     "precision": 0.16565656565656567,
+     "recall": 0.6119402985074627,
+     "f1": 0.260731319554849,
+     "fpr": 0.34720470786044555,
+     "fnr": 0.3880597014925373
+    },
+    "hybrid": {
+     "tp": 165,
+     "fp": 826,
+     "tn": 1553,
+     "fn": 103,
+     "accuracy": 0.6490366452587836,
+     "precision": 0.16649848637739656,
+     "recall": 0.6156716417910447,
+     "f1": 0.26211278792692616,
+     "fpr": 0.34720470786044555,
+     "fnr": 0.3843283582089552
+    },
+    "lexical_en": {
+     "tp": 2,
+     "fp": 0,
+     "tn": 1567,
+     "fn": 182,
+     "accuracy": 0.8960593946316391,
+     "precision": 1,
+     "recall": 0.010869565217391304,
+     "f1": 0.02150537634408602,
+     "fpr": 0,
+     "fnr": 0.9891304347826086
+    },
+    "semantic_en": {
+     "tp": 102,
+     "fp": 224,
+     "tn": 1343,
+     "fn": 82,
+     "accuracy": 0.8252427184466019,
+     "precision": 0.3128834355828221,
+     "recall": 0.5543478260869565,
+     "f1": 0.4000000000000001,
+     "fpr": 0.1429483088704531,
+     "fnr": 0.44565217391304346
+    },
+    "hybrid_en": {
+     "tp": 102,
+     "fp": 224,
+     "tn": 1343,
+     "fn": 82,
+     "accuracy": 0.8252427184466019,
+     "precision": 0.3128834355828221,
+     "recall": 0.5543478260869565,
+     "f1": 0.4000000000000001,
+     "fpr": 0.1429483088704531,
+     "fnr": 0.44565217391304346
+    },
+    "legacyThreshold": {
+     "threshold": 0.62,
+     "tp": 146,
+     "fp": 550,
+     "tn": 1017,
+     "fn": 38,
+     "accuracy": 0.6641918903483723,
+     "precision": 0.20977011494252873,
+     "recall": 0.7934782608695652,
+     "f1": 0.33181818181818173,
+     "fpr": 0.3509891512444161,
+     "fnr": 0.20652173913043478
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 102,
+      "fp": 224,
+      "tn": 1343,
+      "fn": 82,
+      "accuracy": 0.8252427184466019,
+      "precision": 0.3128834355828221,
+      "recall": 0.5543478260869565,
+      "f1": 0.4000000000000001,
+      "fpr": 0.1429483088704531,
+      "fnr": 0.44565217391304346
+     },
+     "tr": {
+      "tp": 63,
+      "fp": 602,
+      "tn": 210,
+      "fn": 21,
+      "accuracy": 0.3046875,
+      "precision": 0.09473684210526316,
+      "recall": 0.75,
+      "f1": 0.16822429906542058,
+      "fpr": 0.7413793103448276,
+      "fnr": 0.25
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 22,
+      "fp": 123,
+      "tn": 250,
+      "fn": 26,
+      "accuracy": 0.6460807600950119,
+      "precision": 0.15172413793103448,
+      "recall": 0.4583333333333333,
+      "f1": 0.22797927461139894,
+      "fpr": 0.3297587131367292,
+      "fnr": 0.5416666666666666
+     },
+     "spoilers": {
+      "tp": 15,
+      "fp": 93,
+      "tn": 197,
+      "fn": 13,
+      "accuracy": 0.6666666666666666,
+      "precision": 0.1388888888888889,
+      "recall": 0.5357142857142857,
+      "f1": 0.22058823529411764,
+      "fpr": 0.32068965517241377,
+      "fnr": 0.4642857142857143
+     },
+     "politics": {
+      "tp": 22,
+      "fp": 106,
+      "tn": 180,
+      "fn": 10,
+      "accuracy": 0.6352201257861635,
+      "precision": 0.171875,
+      "recall": 0.6875,
+      "f1": 0.275,
+      "fpr": 0.3706293706293706,
+      "fnr": 0.3125
+     },
+     "sports": {
+      "tp": 7,
+      "fp": 33,
+      "tn": 255,
+      "fn": 23,
+      "accuracy": 0.8238993710691824,
+      "precision": 0.175,
+      "recall": 0.23333333333333334,
+      "f1": 0.2,
+      "fpr": 0.11458333333333333,
+      "fnr": 0.7666666666666667
+     },
+     "gaming": {
+      "tp": 23,
+      "fp": 111,
+      "tn": 175,
+      "fn": 9,
+      "accuracy": 0.6226415094339622,
+      "precision": 0.17164179104477612,
+      "recall": 0.71875,
+      "f1": 0.27710843373493976,
+      "fpr": 0.3881118881118881,
+      "fnr": 0.28125
+     },
+     "tech": {
+      "tp": 26,
+      "fp": 128,
+      "tn": 156,
+      "fn": 8,
+      "accuracy": 0.5723270440251572,
+      "precision": 0.16883116883116883,
+      "recall": 0.7647058823529411,
+      "f1": 0.2765957446808511,
+      "fpr": 0.4507042253521127,
+      "fnr": 0.23529411764705882
+     },
+     "health": {
+      "tp": 25,
+      "fp": 120,
+      "tn": 168,
+      "fn": 5,
+      "accuracy": 0.6069182389937107,
+      "precision": 0.1724137931034483,
+      "recall": 0.8333333333333334,
+      "f1": 0.28571428571428575,
+      "fpr": 0.4166666666666667,
+      "fnr": 0.16666666666666666
+     },
+     "finance": {
+      "tp": 25,
+      "fp": 112,
+      "tn": 172,
+      "fn": 9,
+      "accuracy": 0.6194968553459119,
+      "precision": 0.18248175182481752,
+      "recall": 0.7352941176470589,
+      "f1": 0.29239766081871343,
+      "fpr": 0.39436619718309857,
+      "fnr": 0.2647058823529412
+     }
+    },
+    "hardNegativeFpr": 0.29914529914529914,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 102,
+     "fp": 224,
+     "tn": 1343,
+     "fn": 82,
+     "accuracy": 0.8252427184466019,
+     "precision": 0.3128834355828221,
+     "recall": 0.5543478260869565,
+     "f1": 0.4000000000000001,
+     "fpr": 0.1429483088704531,
+     "fnr": 0.44565217391304346
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Komşularımız yaz boyunca çocukları için bir ağaç ev yaptı.",
+      "actual": false,
+      "score": 0.932,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "OLED panel harika ama yenileme hızı 60Hz'de takılı kalmış.",
+      "actual": false,
+      "score": 0.932,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Mahalledeki fırın ekşi mayalı ekmek ve poğaça satan yeni bir şube açtı.",
+      "actual": false,
+      "score": 0.931,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kış aylarında D vitamini takviyesi sıklıkla öneriliyor.",
+      "actual": false,
+      "score": 0.926,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Köpeğimiz arka kapıyı patisiyle kolu çekerek açmayı öğrendi.",
+      "actual": false,
+      "score": 0.926,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kalenin turu mutfakları, büyük salonu ve eski zindanı kapsıyor.",
+      "actual": false,
+      "score": 0.925,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Bilanço beklentileri aştı ama yönetimin açıklamaları yatırımcıları korkuttu.",
+      "actual": false,
+      "score": 0.925,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Yazılım güncellemesi cihazların yarısını kullanılamaz hale getirdi.",
+      "actual": false,
+      "score": 0.924,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kripto varlık hizmet sağlayıcılarına yeni lisans zorunluluğu getirildi.",
+      "actual": false,
+      "score": 0.924,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Bitcoin, ETF girişlerinin hızlanmasıyla yeniden 70 bin doların üzerine çıktı.",
+      "actual": false,
+      "score": 0.922,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.921,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Bitcoin, ETF girişlerinin hızlanmasıyla yeniden 70 bin doların üzerine çıktı.",
+      "actual": false,
+      "score": 0.919,
+      "lexical": false
+     }
+    ]
+   },
+   "aggressive": {
+    "threshold": 0.61,
+    "lexical": {
+     "tp": 16,
+     "fp": 3,
+     "tn": 2376,
+     "fn": 252,
+     "accuracy": 0.9036645258783529,
+     "precision": 0.8421052631578947,
+     "recall": 0.05970149253731343,
+     "f1": 0.11149825783972125,
+     "fpr": 0.0012610340479192938,
+     "fnr": 0.9402985074626866
+    },
+    "semantic": {
+     "tp": 235,
+     "fp": 1381,
+     "tn": 998,
+     "fn": 33,
+     "accuracy": 0.4658103513411409,
+     "precision": 0.1454207920792079,
+     "recall": 0.8768656716417911,
+     "f1": 0.24946921443736728,
+     "fpr": 0.5804960067255149,
+     "fnr": 0.12313432835820895
+    },
+    "hybrid": {
+     "tp": 235,
+     "fp": 1381,
+     "tn": 998,
+     "fn": 33,
+     "accuracy": 0.4658103513411409,
+     "precision": 0.1454207920792079,
+     "recall": 0.8768656716417911,
+     "f1": 0.24946921443736728,
+     "fpr": 0.5804960067255149,
+     "fnr": 0.12313432835820895
+    },
+    "lexical_en": {
+     "tp": 11,
+     "fp": 2,
+     "tn": 1565,
+     "fn": 173,
+     "accuracy": 0.9000571102227298,
+     "precision": 0.8461538461538461,
+     "recall": 0.059782608695652176,
+     "f1": 0.1116751269035533,
+     "fpr": 0.0012763241863433313,
+     "fnr": 0.9402173913043478
+    },
+    "semantic_en": {
+     "tp": 155,
+     "fp": 636,
+     "tn": 931,
+     "fn": 29,
+     "accuracy": 0.6202170188463735,
+     "precision": 0.1959544879898862,
+     "recall": 0.842391304347826,
+     "f1": 0.31794871794871793,
+     "fpr": 0.40587109125717935,
+     "fnr": 0.15760869565217392
+    },
+    "hybrid_en": {
+     "tp": 155,
+     "fp": 636,
+     "tn": 931,
+     "fn": 29,
+     "accuracy": 0.6202170188463735,
+     "precision": 0.1959544879898862,
+     "recall": 0.842391304347826,
+     "f1": 0.31794871794871793,
+     "fpr": 0.40587109125717935,
+     "fnr": 0.15760869565217392
+    },
+    "legacyThreshold": {
+     "threshold": 0.56,
+     "tp": 179,
+     "fp": 1125,
+     "tn": 442,
+     "fn": 5,
+     "accuracy": 0.35465448315248427,
+     "precision": 0.13726993865030676,
+     "recall": 0.9728260869565217,
+     "f1": 0.2405913978494624,
+     "fpr": 0.7179323548181238,
+     "fnr": 0.02717391304347826
+    },
+    "byLanguage": {
+     "en": {
+      "tp": 155,
+      "fp": 636,
+      "tn": 931,
+      "fn": 29,
+      "accuracy": 0.6202170188463735,
+      "precision": 0.1959544879898862,
+      "recall": 0.842391304347826,
+      "f1": 0.31794871794871793,
+      "fpr": 0.40587109125717935,
+      "fnr": 0.15760869565217392
+     },
+     "tr": {
+      "tp": 80,
+      "fp": 745,
+      "tn": 67,
+      "fn": 4,
+      "accuracy": 0.1640625,
+      "precision": 0.09696969696969697,
+      "recall": 0.9523809523809523,
+      "f1": 0.17601760176017603,
+      "fpr": 0.9174876847290641,
+      "fnr": 0.047619047619047616
+     }
+    },
+    "byTopic": {
+     "crypto": {
+      "tp": 42,
+      "fp": 241,
+      "tn": 132,
+      "fn": 6,
+      "accuracy": 0.41330166270783847,
+      "precision": 0.14840989399293286,
+      "recall": 0.875,
+      "f1": 0.2537764350453173,
+      "fpr": 0.646112600536193,
+      "fnr": 0.125
+     },
+     "spoilers": {
+      "tp": 24,
+      "fp": 198,
+      "tn": 92,
+      "fn": 4,
+      "accuracy": 0.36477987421383645,
+      "precision": 0.10810810810810811,
+      "recall": 0.8571428571428571,
+      "f1": 0.192,
+      "fpr": 0.6827586206896552,
+      "fnr": 0.14285714285714285
+     },
+     "politics": {
+      "tp": 28,
+      "fp": 143,
+      "tn": 143,
+      "fn": 4,
+      "accuracy": 0.5377358490566038,
+      "precision": 0.16374269005847952,
+      "recall": 0.875,
+      "f1": 0.27586206896551724,
+      "fpr": 0.5,
+      "fnr": 0.125
+     },
+     "sports": {
+      "tp": 19,
+      "fp": 124,
+      "tn": 164,
+      "fn": 11,
+      "accuracy": 0.5754716981132075,
+      "precision": 0.13286713286713286,
+      "recall": 0.6333333333333333,
+      "f1": 0.21965317919075142,
+      "fpr": 0.4305555555555556,
+      "fnr": 0.36666666666666664
+     },
+     "gaming": {
+      "tp": 26,
+      "fp": 142,
+      "tn": 144,
+      "fn": 6,
+      "accuracy": 0.5345911949685535,
+      "precision": 0.15476190476190477,
+      "recall": 0.8125,
+      "f1": 0.26,
+      "fpr": 0.4965034965034965,
+      "fnr": 0.1875
+     },
+     "tech": {
+      "tp": 33,
+      "fp": 189,
+      "tn": 95,
+      "fn": 1,
+      "accuracy": 0.4025157232704403,
+      "precision": 0.14864864864864866,
+      "recall": 0.9705882352941176,
+      "f1": 0.2578125,
+      "fpr": 0.6654929577464789,
+      "fnr": 0.029411764705882353
+     },
+     "health": {
+      "tp": 30,
+      "fp": 160,
+      "tn": 128,
+      "fn": 0,
+      "accuracy": 0.4968553459119497,
+      "precision": 0.15789473684210525,
+      "recall": 1,
+      "f1": 0.2727272727272727,
+      "fpr": 0.5555555555555556,
+      "fnr": 0
+     },
+     "finance": {
+      "tp": 33,
+      "fp": 184,
+      "tn": 100,
+      "fn": 1,
+      "accuracy": 0.41823899371069184,
+      "precision": 0.15207373271889402,
+      "recall": 0.9705882352941176,
+      "f1": 0.26294820717131473,
+      "fpr": 0.647887323943662,
+      "fnr": 0.029411764705882353
+     }
+    },
+    "hardNegativeFpr": 0.5341880341880342,
+    "uiNegativeFpr": 0,
+    "uiNegativePairs": 0,
+    "contentOnly_en": {
+     "tp": 155,
+     "fp": 636,
+     "tn": 931,
+     "fn": 29,
+     "accuracy": 0.6202170188463735,
+     "precision": 0.1959544879898862,
+     "recall": 0.842391304347826,
+     "f1": 0.31794871794871793,
+     "fpr": 0.40587109125717935,
+     "fnr": 0.15760869565217392
+    },
+    "errors": [
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Komşularımız yaz boyunca çocukları için bir ağaç ev yaptı.",
+      "actual": false,
+      "score": 0.932,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "OLED panel harika ama yenileme hızı 60Hz'de takılı kalmış.",
+      "actual": false,
+      "score": 0.932,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Mahalledeki fırın ekşi mayalı ekmek ve poğaça satan yeni bir şube açtı.",
+      "actual": false,
+      "score": 0.931,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kış aylarında D vitamini takviyesi sıklıkla öneriliyor.",
+      "actual": false,
+      "score": 0.926,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Köpeğimiz arka kapıyı patisiyle kolu çekerek açmayı öğrendi.",
+      "actual": false,
+      "score": 0.926,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kalenin turu mutfakları, büyük salonu ve eski zindanı kapsıyor.",
+      "actual": false,
+      "score": 0.925,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Bilanço beklentileri aştı ama yönetimin açıklamaları yatırımcıları korkuttu.",
+      "actual": false,
+      "score": 0.925,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Yazılım güncellemesi cihazların yarısını kullanılamaz hale getirdi.",
+      "actual": false,
+      "score": 0.924,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Kripto varlık hizmet sağlayıcılarına yeni lisans zorunluluğu getirildi.",
+      "actual": false,
+      "score": 0.924,
+      "lexical": false
+     },
+     {
+      "query": "akıllı telefon",
+      "text": "Bitcoin, ETF girişlerinin hızlanmasıyla yeniden 70 bin doların üzerine çıktı.",
+      "actual": false,
+      "score": 0.922,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Erken seçim kararı alındı, sandık kasım ayında kurulacak.",
+      "actual": false,
+      "score": 0.921,
+      "lexical": false
+     },
+     {
+      "query": "yatırım ve ekonomi",
+      "text": "Bitcoin, ETF girişlerinin hızlanmasıyla yeniden 70 bin doların üzerine çıktı.",
+      "actual": false,
+      "score": 0.919,
+      "lexical": false
+     }
+    ]
+   }
+  }
+ }
+}

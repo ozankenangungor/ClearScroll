@@ -60,10 +60,13 @@ worker in `tests/unit/engine-host.test.ts` lets you script backend failures).
 npm run check          # typecheck + unit + Rust
 npm run test:dom
 npm run build && npm run test:e2e && npm run verify:privacy
+CLEARSCROLL_BROWSER=chrome npm run test:e2e   # also on Google Chrome stable
 ```
 
-Changes to the model, tokenizer, pooling or thresholds also require
-`tools/parity.py` (if numerics changed) and `node scripts/evaluate.ts`.
+Changes to the model, tokenizer, pooling, scoring, background topics or
+thresholds also require `tools/parity.py` (if numerics changed, both dtypes)
+and `node scripts/evaluate-all.mjs`; `tests/unit/profiles.test.ts` fails
+until the shipped thresholds equal the published calibration.
 
 ## Workflow
 

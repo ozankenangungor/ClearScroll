@@ -3,9 +3,10 @@
 // tools/prepare_model.py. Skips work when existing artifacts verify.
 import fs from "node:fs";
 import path from "node:path";
-import { LOCK, MODEL, REPO, capture, fail, run, step } from "./lib.mjs";
+import { DTYPE, LOCK, MODEL, REPO, capture, fail, run, step } from "./lib.mjs";
 
 if (!LOCK.models[MODEL]) fail(`unknown model "${MODEL}"; choose one of: ${Object.keys(LOCK.models).join(", ")}`);
+if (!["f16", "f32"].includes(DTYPE)) fail(`CLEARSCROLL_DTYPE must be f16 or f32, not "${DTYPE}"`);
 const py = path.join(REPO, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
 
 if (!fs.existsSync(py)) {
@@ -20,10 +21,10 @@ if (!fs.existsSync(py)) {
   }
 }
 
-const verify = capture(py, ["tools/prepare_model.py", "--model", MODEL, "--verify-only"]);
+const verify = capture(py, ["tools/prepare_model.py", "--model", MODEL, "--dtype", DTYPE, "--verify-only"]);
 if (verify !== null) {
-  step(`Model artifacts for ${MODEL} already present and verified`);
+  step(`Model artifacts for ${MODEL} (${DTYPE}) already present and verified`);
 } else {
-  step(`Preparing model ${MODEL} (download pinned revision, export, verify sha256)`);
-  run(py, ["tools/prepare_model.py", "--model", MODEL]);
+  step(`Preparing model ${MODEL} (${DTYPE}; download pinned revision, export, verify sha256)`);
+  run(py, ["tools/prepare_model.py", "--model", MODEL, "--dtype", DTYPE]);
 }

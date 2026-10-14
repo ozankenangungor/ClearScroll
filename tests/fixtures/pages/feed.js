@@ -3,7 +3,7 @@
 const posts = [
   ["p1", "Just moved all my coins to a hardware wallet after the exchange paused withdrawals."],
   ["p2", "Our dog learned to open the back door by pulling the handle with his paw."],
-  ["p3", "Dogecoin spiked again after a celebrity posted a picture of a Shiba Inu."],
+  ["p3", "Ethereum and Solana tokens rallied after the exchange listed new staking products."],
   ["p4", "The ferry crossing took ninety minutes and the sea was perfectly calm."],
   ["p5", "Thunderstorms are expected across the region on Thursday afternoon."],
 ];

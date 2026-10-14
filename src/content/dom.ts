@@ -155,7 +155,9 @@ export function applyBlur(el: Element, owner: string): void {
   el.setAttribute(OWNER_ATTR, owner);
   if (visualState(el) === "blurred") return;
   el.setAttribute(STATE_ATTR, "blurred");
-  if (!isNativelyFocusable(el)) {
+  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) {
+    el.setAttribute("tabindex", "0"); // ours, left at -1 by a previous reveal
+  } else if (!isNativelyFocusable(el)) {
     el.setAttribute("tabindex", "0");
     el.setAttribute(ADDED_TABINDEX_ATTR, "");
   }
@@ -165,20 +167,48 @@ export function applyBlur(el: Element, owner: string): void {
   }
 }
 
-/** Remove only what we added; leaves the element exactly as the page had it. */
-function removeAdditions(el: Element): void {
-  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) {
-    el.removeAttribute("tabindex");
-    el.removeAttribute(ADDED_TABINDEX_ATTR);
-  }
+function removeAddedTitle(el: Element): void {
   if (el.hasAttribute(ADDED_TITLE_ATTR)) {
     if (el.getAttribute("title") === REVEAL_HINT) el.removeAttribute("title");
     el.removeAttribute(ADDED_TITLE_ATTR);
   }
 }
 
+/**
+ * Remove only what we added; leaves the element exactly as the page had it.
+ * Removing tabindex from the focused element would make Chrome move focus to
+ * <body>, so in that case it becomes -1 and is removed when focus leaves.
+ */
+function removeAdditions(el: Element): void {
+  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) {
+    if (el === el.ownerDocument.activeElement) {
+      el.setAttribute("tabindex", "-1");
+      el.addEventListener(
+        "blur",
+        () => {
+          // Still ours and no longer blurred/revealed → restore the page's markup.
+          if (el.hasAttribute(ADDED_TABINDEX_ATTR) && !el.hasAttribute(STATE_ATTR)) {
+            el.removeAttribute("tabindex");
+            el.removeAttribute(ADDED_TABINDEX_ATTR);
+          }
+        },
+        { once: true }
+      );
+    } else {
+      el.removeAttribute("tabindex");
+      el.removeAttribute(ADDED_TABINDEX_ATTR);
+    }
+  }
+  removeAddedTitle(el);
+}
+
 export function markRevealed(el: Element, owner: string): void {
-  removeAdditions(el);
+  // Turn an added tabindex into -1 *in place*: the element leaves the tab
+  // order but stays focusable, so a keyboard user who revealed it keeps their
+  // place. (Removing the attribute, even briefly, makes Chrome move focus to
+  // <body> immediately.) clearVisual() removes it completely.
+  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) el.setAttribute("tabindex", "-1");
+  removeAddedTitle(el);
   el.setAttribute(STATE_ATTR, "revealed");
   el.setAttribute(OWNER_ATTR, owner);
 }

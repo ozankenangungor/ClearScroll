@@ -114,3 +114,10 @@ fn bert_tiny_embeddings_match_reference() {
 fn minilm_l6_embeddings_match_reference() {
     check_embeddings("minilm-l6");
 }
+
+/// f16-stored weights against PyTorch with identically rounded weights:
+/// checks the half-precision decoder and the model exactly.
+#[test]
+fn minilm_l6_f16_embeddings_match_reference() {
+    check_embeddings("minilm-l6-f16");
+}

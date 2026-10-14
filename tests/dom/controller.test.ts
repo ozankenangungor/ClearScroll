@@ -426,3 +426,60 @@ test("an orphaned controller cleaning up does not remove another instance's blur
   assert.equal(await h.state("b"), "blurred");
   await page.close();
 });
+
+test("keyboard reveal keeps focus on the item and removes it from the tab order", async () => {
+  const page = await harnessPage(browser, `<main><p id="a">Bitcoin MATCH prices rallied this week.</p><p id="b" tabindex="0">A plain second paragraph of text.</p></main>`);
+  const h = H(page);
+  const original = await page.evaluate(() => document.getElementById("a")!.outerHTML);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  await page.focus("#a");
+  await page.keyboard.press("Enter");
+  assert.equal(await h.state("a"), "revealed");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "a", "focus stays on the revealed item");
+  assert.equal(await page.evaluate(() => document.getElementById("a")!.getAttribute("tabindex")), "-1");
+  // New content in the same element is blurred again and back in the tab order.
+  await page.evaluate(() => ((document.getElementById("a")!.firstChild as Text).data = "Different MATCH content about coins now."));
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  assert.equal(await h.state("a"), "blurred");
+  assert.equal(await page.evaluate(() => document.getElementById("a")!.getAttribute("tabindex")), "0");
+  await page.evaluate(() => ((document.getElementById("a")!.firstChild as Text).data = "Bitcoin MATCH prices rallied this week."));
+  await waitPending(page, 1);
+  await h.respond(0, "NOTHING");
+  await settle(page);
+  await h.stop();
+  // Teardown while the item still has focus keeps focus in place; the markup
+  // is fully restored as soon as focus moves on.
+  await page.focus("#b");
+  assert.equal(await page.evaluate(() => document.getElementById("a")!.outerHTML), original, "markup fully restored");
+  await page.close();
+});
+
+test("clearing a focused item does not throw focus to <body>; the added tabindex goes once focus leaves", async () => {
+  const page = await harnessPage(browser, `<main><p id="a">Bitcoin MATCH prices rallied this week.</p><p id="b" tabindex="0">Other focusable paragraph text.</p></main>`);
+  const h = H(page);
+  const original = await page.evaluate(() => document.getElementById("a")!.outerHTML);
+  await h.apply();
+  await waitPending(page, 1);
+  await h.respond();
+  await settle(page);
+  await page.focus("#a");
+  // Its text changes to non-matching content → verdict clears the blur while it has focus.
+  await page.evaluate(() => ((document.getElementById("a")!.firstChild as Text).data = "A calm story about gardening."));
+  await waitPending(page, 1);
+  await h.respond(0, "NOTHING");
+  await settle(page);
+  assert.equal(await h.state("a"), null);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "a", "focus kept");
+  await page.focus("#b");
+  await page.evaluate(() => ((document.getElementById("a")!.firstChild as Text).data = "Bitcoin MATCH prices rallied this week."));
+  await waitPending(page, 1);
+  await h.respond(0, "NOTHING");
+  await settle(page);
+  assert.equal(await page.evaluate(() => document.getElementById("a")!.outerHTML), original, "added attributes removed after blur");
+  await page.close();
+});

@@ -6,10 +6,17 @@
  * eval/dataset.jsonl by scripts/evaluate.ts (see docs/evaluation/RESULTS.md).
  */
 
+import backgroundTopics from "./background-topics.json" with { type: "json" };
 import type { FilterMode } from "./settings.ts";
 
 export interface ModelProfile {
   id: string;
+  /**
+   * "margin": score = similarity − best unrelated background topic (thresholds
+   * calibrated on that scale). "raw": plain cosine similarity, for encoders
+   * whose similarities are too uniform for a background to be meaningful.
+   */
+  scoring: "margin" | "raw";
   thresholds: Record<FilterMode, number>;
 }
 
@@ -24,6 +31,14 @@ export const MIN_SEMANTIC_CHARS: Record<FilterMode, number> = {
   aggressive: 16,
 };
 
+/**
+ * Background topics for margin scoring (see `Background` in classifier.ts).
+ * Fixed and generic: not derived from the evaluation topics. The last four
+ * describe page furniture rather than subjects ("other" classes). Stored in
+ * background-topics.json so tools/prepare_model.py can precompute them.
+ */
+export const BACKGROUND_TOPICS: readonly string[] = backgroundTopics.topics;
+
 /** How a user's topic is phrased before embedding. "{topic}" = verbatim. */
 export const TOPIC_TEMPLATE = "{topic}";
 
@@ -33,21 +48,30 @@ export function applyTopicTemplate(topic: string, template: string = TOPIC_TEMPL
 }
 
 /**
- * Calibrated profiles. Values come from docs/evaluation/RESULTS.md
- * (English calibration split; F0.5 / F1 / F2 maximisation for
- * precision / balanced / aggressive).
+ * Calibrated profiles. Thresholds apply to the *margin* score (similarity to
+ * the topic minus the best unrelated background topic, classifier.ts), so
+ * they can be small or negative. Values come from docs/evaluation/RESULTS.md
+ * (English calibration split of eval/dataset.jsonl v2 incl. UI strings;
+ * F0.5 / F1 / F2 maximisation for precision / balanced / aggressive). f16
+ * and f32 weights calibrate to identical values.
  */
 export const MODEL_PROFILES: Record<string, ModelProfile> = {
   "minilm-l6": {
     id: "minilm-l6",
-    thresholds: { precision: 0.175, balanced: 0.135, aggressive: 0.115 },
+    scoring: "margin",
+    thresholds: { precision: 0.055, balanced: 0.005, aggressive: -0.04 },
   },
   "minilm-l3": {
     id: "minilm-l3",
-    thresholds: { precision: 0.215, balanced: 0.19, aggressive: 0.15 },
+    scoring: "margin",
+    thresholds: { precision: 0.06, balanced: 0.01, aggressive: -0.03 },
   },
   "bert-tiny": {
     id: "bert-tiny",
-    thresholds: { precision: 0.745, balanced: 0.665, aggressive: 0.61 },
+    // bert-tiny's cosines are uniformly high (≈0.6–0.9 for any pair): every
+    // background topic is "similar" to every query, so margins carry no
+    // information. Scored by raw cosine; thresholds calibrated on that scale.
+    scoring: "raw",
+    thresholds: { precision: 0.76, balanced: 0.665, aggressive: 0.61 },
   },
 };

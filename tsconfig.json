@@ -13,8 +13,22 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["chrome", "node"]
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker"
+    ],
+    "types": [
+      "chrome",
+      "node"
+    ],
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "pkg/*.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "pkg/*.d.ts"
+  ]
 }

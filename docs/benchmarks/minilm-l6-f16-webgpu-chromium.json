@@ -1,0 +1,109 @@
+{
+ "label": "minilm-l6-f16-webgpu-chromium",
+ "date": "2026-10-14T09:33:49.055Z",
+ "environment": {
+  "cpu": "11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz",
+  "cores": 16,
+  "memGiB": 39,
+  "os": "Linux 7.2.9-1-cachyos",
+  "chromium": "156.0.8078.4",
+  "headless": false,
+  "browser": "chromium",
+  "gpuAdapter": "nvidia/ampere",
+  "chromeFlags": [
+   "--ignore-gpu-blocklist"
+  ],
+  "gitCommit": "89330b1"
+ },
+ "model": "minilm-l6",
+ "backend": "webgpu",
+ "engineDetail": null,
+ "sizesMiB": {
+  "wasm": 11.080471992492676,
+  "weights": 42.75883102416992
+ },
+ "cold": {
+  "createDocumentMs": 29.69999998807907,
+  "firstAnswerMs": 833.8999999761581,
+  "workerInitMs": 423
+ },
+ "warm": {
+  "1": {
+   "median": 15.099999964237213,
+   "p95": 108.90000003576279,
+   "min": 13.700000047683716,
+   "n": 7,
+   "perTextMs": 15.099999964237213
+  },
+  "8": {
+   "median": 26.700000047683716,
+   "p95": 30.899999976158142,
+   "min": 22.30000001192093,
+   "n": 7,
+   "perTextMs": 3.3375000059604645
+  },
+  "24": {
+   "median": 43.90000003576279,
+   "p95": 70.80000001192093,
+   "min": 41,
+   "n": 7,
+   "perTextMs": 1.8291666681567829
+  },
+  "64": {
+   "median": 109.60000002384186,
+   "p95": 138,
+   "min": 101.69999998807907,
+   "n": 7,
+   "perTextMs": 1.712500000372529
+  }
+ },
+ "mixedLengthBatch24": {
+  "median": 94.5,
+  "p95": 124.29999995231628,
+  "min": 87.39999997615814,
+  "n": 7
+ },
+ "cachedBatch24": {
+  "median": 1.600000023841858,
+  "p95": 2.099999964237213,
+  "min": 1.399999976158142,
+  "n": 7
+ },
+ "topicSwitchBatch24": {
+  "median": 14.600000023841858,
+  "p95": 21.399999976158142,
+  "min": 13.699999988079071,
+  "n": 7
+ },
+ "wasmMemoryMiB": 102.3125,
+ "engineStats": {
+  "jobs": 51,
+  "staleDropped": 0,
+  "embedded": 880,
+  "cacheHits": 379,
+  "embedMs": 2729,
+  "canaryFailures": 0,
+  "wasmMemoryBytes": 107282432,
+  "wasmMemoryBeforeModelBytes": 1441792
+ },
+ "page2000Posts": {
+  "filteringOff": {
+   "longTasks": 0,
+   "totalBlockingMs": 0,
+   "maxTaskMs": 0,
+   "blurred": 0,
+   "firstBlurMs": null,
+   "settledMs": null,
+   "analyzedAfter4s": null
+  },
+  "filteringOn": {
+   "longTasks": 0,
+   "totalBlockingMs": 0,
+   "maxTaskMs": 0,
+   "blurred": 13,
+   "firstBlurMs": 826,
+   "settledMs": 982,
+   "analyzedAfter4s": 21
+  }
+ }
+}

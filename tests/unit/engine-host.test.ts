@@ -2,22 +2,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { EngineHost, type ModelMeta, type WorkerLike } from "../../src/offscreen/engine-host.ts";
+import { BACKGROUND_TOPICS } from "../../src/shared/models.ts";
 import type { Backend, ClassifyReply, EngineStatus, OffscreenClassify, WorkerRequest, WorkerResponse } from "../../src/shared/protocol.ts";
 
 const DIM = 4;
 
-/** Deterministic fake embedding: crypto-ish texts point one way, others another. */
+/** Deterministic fake embedding: one orthogonal axis per cluster (crypto, sports, other). */
 function fakeEmbed(text: string): number[] {
   const t = text.toLowerCase();
-  const v = /crypto|bitcoin|coin/.test(t) ? [1, 0.1, 0, 0] : /sport|goal/.test(t) ? [0, 1, 0.1, 0] : [0, 0, 0.2, 1];
-  const n = Math.hypot(...v);
-  return v.map((x) => x / n);
+  return /crypto|bitcoin|coin/.test(t) ? [1, 0, 0, 0] : /sport|goal/.test(t) ? [0, 1, 0, 0] : [0, 0, 0, 1];
 }
 
 const SELFTEST = ["self test sentence one", "self test sentence two"];
 const META: ModelMeta = {
   id: "minilm-l6",
   selftest: { texts: SELFTEST, embeddings: SELFTEST.map(fakeEmbed), max_abs_tol: 1e-3 },
+  background: { topics: [...BACKGROUND_TOPICS], embeddings: BACKGROUND_TOPICS.map(fakeEmbed) },
 };
 
 type Behaviour = {
@@ -62,7 +62,7 @@ class FakeWorker implements WorkerLike {
       this.log.push(`init:${msg.backend}`);
       if (this.b.starts) this.b.starts[msg.backend] = (this.b.starts[msg.backend] ?? 0) + 1;
       if (this.b.initFails?.includes(msg.backend)) this.send({ type: "init-failed", error: `${msg.backend} unavailable` });
-      else this.send({ type: "ready", backend: msg.backend, dim: DIM, loadMs: 5, wasmMemoryBytes: 1 });
+      else this.send({ type: "ready", backend: msg.backend, dim: DIM, loadMs: 5, wasmMemoryBytes: 1, wasmMemoryBeforeModelBytes: 1 });
       return;
     }
     const backend = this.backend!;
@@ -308,4 +308,24 @@ test("per-frame generation bookkeeping is bounded", async () => {
   const { host } = makeHost({}, ["cpu"]);
   for (let i = 0; i < 1200; i++) await host.classify(req([], 1, `frame-${i}`));
   assert.ok(host.trackedFrames() <= 1000, `tracked ${host.trackedFrames()}`);
+});
+
+test("background vectors are embedded at run time when model.json lacks them", async () => {
+  const log: string[] = [];
+  const workers: FakeWorker[] = [];
+  const host = new EngineHost({
+    createWorker: () => {
+      const w = new FakeWorker({}, log);
+      workers.push(w);
+      return w;
+    },
+    assetUrl: (p) => p,
+    backends: async () => ["cpu"],
+    loadModelMeta: async () => ({ id: META.id, selftest: META.selftest }),
+    onStatus: () => {},
+    now: () => Date.now(),
+  });
+  const r = await host.classify(req(["Bitcoin rallies again today"]));
+  assert.deepEqual(matched(r), [true]);
+  assert.ok(workers[0]!.embedTexts.some((b) => b.length === BACKGROUND_TOPICS.length && b[0] === BACKGROUND_TOPICS[0]));
 });

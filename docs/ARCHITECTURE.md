@@ -76,9 +76,12 @@ model instead of loading it per tab.
 4. `EngineHost` drops queued jobs whose generation is older than the newest
    seen for that frame, looks texts and topics up in an LRU cache (4,000
    entries), sends only missing ones to the worker, and runs the shared
-   `decide()` function: best cosine similarity across topics ≥ the
-   model- and mode-specific threshold (and text ≥ a minimum length), otherwise
-   lexical rules.
+   `decide()` function. For the shipped model the score is a **margin**:
+   cosine similarity to the topic minus the text's best similarity to the
+   unrelated ones of 26 background topics (precomputed vectors from
+   `model.json`); a text matches if the best topic's score ≥ the model- and
+   mode-specific threshold and the text is long enough, otherwise lexical
+   rules apply. See `docs/MODEL.md#margin-scoring-against-background-topics`.
 5. The content script applies a verdict only if the reply's generation is still
    current, filtering is still active, the element is still connected and its
    text equals the text that was classified. Everything else is dropped and
@@ -165,6 +168,25 @@ WebGPU, and a failed backend is abandoned by terminating its worker.
 Inside the engine, texts are tokenised, **sorted by length** and run in
 chunks (8 on CPU, 32 on GPU) padded to the chunk's longest sequence, then
 scattered back to input order.
+
+## Keyboard and focus
+
+Blurred units get `tabindex="0"` (only if not focusable already) and a
+`title` hint; Enter, Space or a click reveals them. On reveal the added
+tabindex becomes `-1` in place, so focus stays on the item instead of jumping
+to `<body>`; it returns to `0` if the item is blurred again and is removed
+once the item is cleared and focus has left it. Everything ClearScroll adds
+is marked with `data-clearscroll-*` attributes and owned by one content-script
+instance (`data-clearscroll-owner`), so an orphaned instance after an
+extension update cannot remove another instance's state.
+
+## Supported browsers
+
+Chrome ≥ 116 (offscreen documents, `runtime.getContexts`). The test suites run
+on Playwright's Chromium and on branded Google Chrome stable; the latter
+loads unpacked extensions only via DevTools `Extensions.loadUnpacked` (the
+`--load-extension` flag is ignored since Chrome 137), which the test helper
+handles.
 
 ## Limitations (by design or not yet addressed)
 
