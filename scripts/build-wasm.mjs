@@ -19,12 +19,13 @@ run("cargo", ["build", "--lib", "--locked", "--release", "--target", "wasm32-unk
 
 step(`Generating bindings with wasm-bindgen ${want}`);
 const wasm = path.join(REPO, "target/wasm32-unknown-unknown/release/clearscroll_engine.wasm");
-fs.rmSync(path.join(REPO, "pkg"), { recursive: true, force: true });
+// pkg/clearscroll_engine.d.ts is tracked: hand-written declarations for the
+// two exports we use (stable across builds), needed by typecheck before any
+// build. Everything else in pkg/ is generated and replaced.
+const pkg = path.join(REPO, "pkg");
+for (const f of fs.existsSync(pkg) ? fs.readdirSync(pkg) : []) {
+  if (f !== "clearscroll_engine.d.ts") fs.rmSync(path.join(pkg, f), { recursive: true, force: true });
+}
 run("wasm-bindgen", ["--target", "web", "--no-typescript", "--out-dir", "pkg", "--out-name", "clearscroll_engine", wasm]);
-// Hand-written declarations for the two exports we use (stable across builds).
-fs.writeFileSync(path.join(REPO, "pkg/clearscroll_engine.d.ts"), `export default function init(opts: { module_or_path: string | URL }): Promise<unknown>;
-export function init_engine(weights: Uint8Array, vocab: string, backend: string): Promise<number>;
-export function embed_batch(texts: string[]): Promise<Float32Array>;
-`);
 const size = fs.statSync(path.join(REPO, "pkg/clearscroll_engine_bg.wasm")).size;
 step(`pkg/clearscroll_engine_bg.wasm: ${(size / 1048576).toFixed(2)} MiB`);
