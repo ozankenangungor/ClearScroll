@@ -466,3 +466,149 @@ test("background vectors are embedded at run time when model.json lacks them", a
   assert.deepEqual(matched(r), [true]);
   assert.ok(workers[0]!.embedTexts.some((b) => b.length === BACKGROUND_TOPICS.length && b[0] === BACKGROUND_TOPICS[0]));
 });
+
+// ── Scheduling: bounded queue, superseded work, overload ────────────────────
+
+/** Observes a promise without awaiting it. */
+function track<T>(p: Promise<T>): { done: boolean; value: T | undefined } {
+  const t = { done: false, value: undefined as T | undefined };
+  void p.then((v) => {
+    t.done = true;
+    t.value = v;
+  });
+  return t;
+}
+
+/** Yield to the event loop until `cond` holds (bounded; no wall-clock sleeps). */
+async function until(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !cond(); i++) await tick();
+  assert.ok(cond(), "condition not reached");
+}
+
+/** A CPU engine whose worker holds every embed: one job is left running, blocked. */
+async function blockedHost(opts: Partial<EngineHostDeps> = {}, b: Behaviour = {}) {
+  const h = makeHost({ ...b, manual: true }, ["cpu"], opts);
+  const running = track(h.host.classify(req(["Bitcoin rallies again today"], 1, "running-frame")));
+  await until(() => h.workers[0]?.held.length === 1);
+  h.workers[0]!.held.shift()!(); // self-test
+  await until(() => h.workers.at(-1)!.held.length === 1); // the job's embed, held
+  return { ...h, running };
+}
+
+/** Release held embeds (on whichever worker is current) until every tracked reply settles. */
+async function drain(workers: FakeWorker[], tracked: { done: boolean }[]): Promise<void> {
+  for (let i = 0; i < 20_000 && !tracked.every((t) => t.done); i++) {
+    workers.at(-1)?.held.shift()?.();
+    await tick();
+  }
+  assert.ok(tracked.every((t) => t.done), `${tracked.filter((t) => !t.done).length} replies never settled`);
+}
+
+const isOverload = (r: ClassifyReply | undefined) => !!r && !r.ok && !r.stale && /overloaded/.test(r.error);
+
+test("a blocked worker cannot make the queue grow without bound (many frames)", async () => {
+  const { host, workers, running } = await blockedHost();
+  const capacity = host.queueCapacity;
+  assert.ok(capacity >= 100 && capacity <= 500, `capacity ${capacity} is in the low hundreds`);
+  const n = 1000;
+  // 50 frames, 20 requests each, interleaved; distinct texts so every job needs the worker.
+  const replies = Array.from({ length: n }, (_, i) => track(host.classify(req([`Bitcoin rallies again today, post ${i}`], 1, `frame-${i % 50}`))));
+  await tick();
+  const settled = replies.filter((t) => t.done);
+  assert.equal(settled.length, n - capacity, "requests beyond the capacity are answered at once");
+  assert.ok(settled.every((t) => isOverload(t.value)), "as retryable overload errors, not stale and not dropped");
+  assert.ok(settled.every((t) => t.value!.generation === 1 && t.value!.engine?.state === "semantic"));
+  assert.ok(replies.slice(0, capacity).every((t) => !t.done), "the earliest requests keep their places (FIFO)");
+  assert.equal(host.stats.overloadRejected, n - capacity);
+  await drain(workers, [running, ...replies]);
+  assert.ok(replies.slice(0, capacity).every((t) => t.value!.ok), "accepted work completes");
+  assert.equal(host.stats.jobs, 1 + capacity, "rejected requests never ran");
+});
+
+test("a newer generation supersedes the frame's queued jobs at once; other frames are untouched", async () => {
+  const { host, workers, running } = await blockedHost();
+  const a1 = [1, 2, 3].map((i) => track(host.classify(req([`Bitcoin rallies again today, a${i}`], 1, "frame-a"))));
+  const b1 = [1, 2].map((i) => track(host.classify(req([`Bitcoin rallies again today, b${i}`], 1, "frame-b"))));
+  const a2 = track(host.classify(req(["Sports goal of the season"], 2, "frame-a")));
+  await tick();
+  assert.ok(a1.every((t) => t.done && !t.value!.ok && t.value!.stale && t.value!.generation === 1), "queued gen-1 jobs of frame a are answered stale immediately");
+  assert.ok(b1.every((t) => !t.done), "frame b keeps its gen-1 jobs (generations are per frame)");
+  assert.equal(host.stats.staleDropped, 3);
+  // A late request for the superseded generation is answered stale without queueing.
+  const late = track(host.classify(req(["Bitcoin rallies again today, late"], 1, "frame-a")));
+  await tick();
+  assert.ok(late.done && !late.value!.ok && late.value!.stale);
+  assert.equal(host.stats.staleDropped, 4);
+  await drain(workers, [running, ...b1, a2]);
+  assert.ok(running.value!.ok, "the running job is not cancelled (the worker cannot cancel it)");
+  assert.deepEqual(b1.map((t) => matched(t.value!)), [[true], [true]]);
+  assert.equal(a2.value!.generation, 2);
+  assert.deepEqual(matched(a2.value!), [false]);
+  assert.equal(host.stats.jobs, 1 + 2 + 1, "superseded jobs never ran");
+});
+
+test("rapid settings changes over a backlog keep the queue small and answer only the newest generation", async () => {
+  const { host, workers, running } = await blockedHost();
+  const other = [1, 2].map((i) => track(host.classify(req([`Bitcoin rallies again today, other ${i}`], 1, "frame-b"))));
+  const all: ReturnType<typeof track<ClassifyReply>>[] = [];
+  // A frame sends its two in-flight requests for each of 300 successive generations.
+  for (let g = 1; g <= 300; g++) {
+    for (const i of [1, 2]) all.push(track(host.classify(req([`Bitcoin rallies again today, g${g} ${i}`], g, "frame-a"))));
+  }
+  await tick();
+  const newest = all.slice(-2);
+  assert.ok(all.slice(0, -2).every((t) => t.done && !t.value!.ok && t.value!.stale), "every superseded job was answered stale");
+  assert.ok(newest.every((t) => !t.done) && other.every((t) => !t.done));
+  assert.equal(host.stats.staleDropped, 2 * 299);
+  assert.equal(host.stats.overloadRejected, 0, "superseded work never fills the queue");
+  await drain(workers, [running, ...other, ...newest]);
+  assert.ok(newest.every((t) => t.value!.ok && t.value!.generation === 300));
+  assert.equal(host.stats.jobs, 1 + 2 + 2);
+});
+
+test("after an overload, normal service resumes once the backlog clears", async () => {
+  const { host, workers, running } = await blockedHost({ maxQueuedJobs: 4 });
+  assert.equal(host.queueCapacity, 4);
+  const replies = Array.from({ length: 6 }, (_, i) => track(host.classify(req([`Bitcoin rallies again today, post ${i}`], 1, `frame-${i}`))));
+  await tick();
+  assert.deepEqual(replies.map((t) => t.done), [false, false, false, false, true, true]);
+  assert.ok(replies.slice(4).every((t) => isOverload(t.value)));
+  await drain(workers, [running, ...replies]);
+  // The rejected frames retry later (the content script backs off) and are served.
+  const retried = [4, 5].map((i) => track(host.classify(req([`Bitcoin rallies again today, post ${i}`], 1, `frame-${i}`))));
+  await drain(workers, retried);
+  assert.deepEqual(retried.map((t) => matched(t.value!)), [[true], [true]]);
+  assert.equal(host.getStatus().state, "semantic");
+  assert.equal(host.stats.overloadRejected, 2);
+});
+
+test("queued work from several frames continues on the new backend after a fail-over", async () => {
+  // WebGPU: self-test ok, then fails; CPU takes over. Every embed is held until released.
+  const h = makeHost({ manual: true, failAfter: { webgpu: 1 } });
+  const replies = ["a", "b", "c"].map((f) => track(h.host.classify(req([`Bitcoin rallies again today, from ${f}`], 1, `frame-${f}`))));
+  await drain(h.workers, replies);
+  assert.deepEqual(replies.map((t) => verdicts(t.value!)), [[[true, "semantic"]], [[true, "semantic"]], [[true, "semantic"]]]);
+  assert.ok(replies.every((t) => t.value!.ok && t.value!.engine.backend === "cpu"));
+});
+
+test("an unexpected exception in a job is answered and does not stall the queue", async () => {
+  let throwOnce = true;
+  const host = new EngineHost({
+    createWorker: () => new FakeWorker({}, []),
+    assetUrl: (p) => p,
+    backends: async () => ["cpu"],
+    loadModelMeta: async () => META,
+    onStatus: () => {
+      if (throwOnce) {
+        throwOnce = false;
+        throw new Error("status listener failed");
+      }
+    },
+    now: () => Date.now(),
+  });
+  const replies = [host.classify(req(["Bitcoin rallies again today"], 1, "x")), host.classify(req(["Bitcoin rallies again today, news"], 1, "y"))];
+  const settled = await Promise.race([Promise.all(replies), until(() => false).then(() => null, () => null)]);
+  assert.ok(settled, "every request settles");
+  const [r1] = settled;
+  assert.ok(r1 && !r1.ok && /status listener failed/.test(r1.error), JSON.stringify(r1));
+});

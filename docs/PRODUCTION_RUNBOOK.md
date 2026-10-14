@@ -118,6 +118,7 @@ writing.
 | Status detail `GPU canary mismatch` / `self-test failed` | broken GPU driver or emulator | expected fallback to CPU; report driver/OS/Chrome version |
 | Nothing is blurred anywhere | content script not registered | Diagnostics → *Registration error*; reload the extension |
 | A site is broken by blurring | over-broad match | add the region to *Protected areas*, or exclude the site |
+| Page console warns `classify failed: engine overloaded` | more than 256 requests waiting in the offscreen engine (many tabs classifying at once on a slow backend) | none needed: affected units are retried with backoff; if persistent, check `off:stats` (`overloadRejected`) and the backend in Diagnostics |
 | CI `browser` job fails only on CI | timing | re-run once; if reproducible locally with `npm run test:e2e`, treat as a bug |
 
 ## Model update
