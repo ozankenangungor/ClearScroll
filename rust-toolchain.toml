@@ -1,3 +1,5 @@
 [toolchain]
-channel = "stable"
+# Pinned for reproducible builds; bump deliberately and re-run the full suite.
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
 targets = ["wasm32-unknown-unknown"]

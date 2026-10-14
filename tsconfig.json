@@ -1,18 +1,20 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ES2022",
+    "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "strict": true,
-    "esModuleInterop": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": false,
-    "sourceMap": false,
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"]
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["chrome", "node"]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/*.rs", "node_modules", "pkg", "target"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "pkg/*.d.ts"]
 }

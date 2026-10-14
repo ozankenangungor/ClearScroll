@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ClearScroll</title>
+  <link rel="stylesheet" href="../ui/common.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <header class="row">
+      <img src="../icons/icon-32.png" alt="" width="20" height="20">
+      <h1>ClearScroll</h1>
+    </header>
+    <p class="status-pill" id="engine" data-state="idle">Checking…</p>
+    <section aria-labelledby="site-h" class="site">
+      <h2 id="site-h" class="small muted">This page</h2>
+      <p id="site-host" class="host"></p>
+      <p id="site-state" role="status" aria-live="polite"></p>
+    </section>
+    <div class="controls">
+      <label class="switch"><input type="checkbox" id="enabled"><span>Filtering enabled</span></label>
+      <button type="button" class="btn" id="toggle-site" hidden></button>
+    </div>
+    <p id="topics" class="small muted"></p>
+    <button type="button" class="btn btn-quiet" id="open-options">Settings…</button>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

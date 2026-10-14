@@ -1,29 +1,44 @@
 {
-  "name": "eklenti",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "build": "bash build.sh",
-    "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && cargo check --target wasm32-unknown-unknown --release",
-    "release:prepare": "npm run check && npm run build"
-  },
+  "name": "clearscroll",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Local-first Chrome extension that blurs content about topics you choose, using an on-device Rust/WebAssembly sentence encoder.",
+  "type": "module",
+  "license": "ISC",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ozankenangungor/ClearScroll.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/ozankenangungor/ClearScroll/issues"
   },
   "homepage": "https://github.com/ozankenangungor/ClearScroll#readme",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "setup:model": "node scripts/setup-model.mjs",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "build:ext": "node scripts/build.mjs",
+    "build": "npm run build:wasm && npm run build:ext",
+    "validate": "node scripts/validate-dist.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"tests/unit/**/*.test.ts\"",
+    "test:rust": "cargo test --no-default-features --features cpu",
+    "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/**/*.test.ts\"",
+    "evaluate": "cargo build --release --no-default-features --features cli && node scripts/evaluate.ts",
+    "check": "npm run typecheck && npm test && npm run test:rust",
+    "release:prepare": "npm run check && npm run build && npm run validate && npm run test:dom && npm run test:e2e && npm run verify:privacy && node scripts/package.mjs",
+    "test:dom": "node --test --test-concurrency=1 \"tests/dom/**/*.test.ts\"",
+    "verify:privacy": "node scripts/verify-no-egress.ts",
+    "benchmark": "node scripts/benchmark.ts",
+    "screenshots": "node scripts/demo-screenshots.ts"
+  },
   "devDependencies": {
     "@types/chrome": "^0.1.37",
-    "esbuild": "^0.27.3",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "playwright": "^1.64.0",
     "typescript": "^5.9.3"
   }
 }

@@ -1,0 +1,44 @@
+# Changelog
+
+## 0.3.0 — unreleased (release candidate)
+
+First version under the ClearScroll name (previously "IdeaBlocker").
+
+### Fixed
+- The semantic engine never ran in the browser: content scripts cannot start
+  extension workers and the blob fallback could not load the WASM module or
+  was blocked by page CSPs. Inference now runs in an offscreen document.
+- CI could not build from a clean checkout (`include_bytes!` of a gitignored
+  weights file). Weights are prepared by a pinned, verified pipeline and
+  loaded at run time.
+- Tokenizer differed from the reference on 10 of 24 test inputs (accents,
+  Turkish, CJK, long words); now identical. LayerNorm ε corrected.
+- Worker processed configuration changes and comparisons concurrently; stale
+  results could be applied after settings changed or text changed.
+- Page inline `filter`/`transition` styles were overwritten.
+- Invalid wildcard site rules broke content-script registration everywhere;
+  content-side and Chrome-side exclusion semantics disagreed.
+- Race conditions when several tabs started the engine at once; failed
+  requests were never retried.
+- Background tabs were never filtered (IntersectionObserver does not run
+  without rendering).
+
+### Changed
+- Model: `sentence-transformers/all-MiniLM-L6-v2` replaces bert-tiny
+  (English F1 40.0 % → 67.5 %, false positives 14.3 % → 4.4 % at balanced).
+- Thresholds calibrated per model on a labelled dataset.
+- Text is grouped into paragraph-level units; only near-viewport units are
+  classified.
+- WASM SIMD and length-sorted batching: CPU inference 95 → 28 ms per text.
+- `web_accessible_resources` removed; `offscreen` permission added; minimum
+  Chrome 116.
+
+### Added
+- Multiple topics (enable/disable/edit), global pause, engine preference.
+- Click/keyboard reveal of individual items.
+- Toolbar popup with per-page status and "never run on this site".
+- Honest engine status (WebGPU / CPU / keyword fallback, with reasons).
+- Startup self-test and per-batch GPU canary against PyTorch reference values.
+- Settings migration from IdeaBlocker.
+- Unit, DOM-integration, end-to-end, parity and privacy tests; evaluation and
+  benchmark harnesses; documentation.

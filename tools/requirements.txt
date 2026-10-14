@@ -1,0 +1,15 @@
+# Python tooling for model preparation, reference parity fixtures and evaluation.
+# CPU-only PyTorch wheel: the tooling never needs CUDA.
+# Fully pinned, hash-checked transitive set: tools/requirements.lock
+#   (regenerate: uv pip compile tools/requirements.txt --universal --python-version 3.13 \
+#    --generate-hashes --index-strategy unsafe-best-match --emit-index-url --no-header -o tools/requirements.lock)
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu ; sys_platform != "darwin"
+# macOS wheels are CPU-only already and have no +cpu variant.
+torch==2.14.1 ; sys_platform == "darwin"
+transformers==5.19.0
+tokenizers==0.23.3
+huggingface-hub==2.2.0
+safetensors==0.8.0
+numpy==2.5.4

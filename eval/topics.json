@@ -1,0 +1,13 @@
+{
+  "description": "Topic queries a user might type. Each topic has several phrasings per language; every phrasing is evaluated as an independent user configuration.",
+  "topics": {
+    "crypto": { "en": ["cryptocurrency", "crypto and web3", "bitcoin"], "tr": ["kripto para", "bitcoin ve kripto"] },
+    "spoilers": { "en": ["movie and TV show spoilers", "spoilers"], "tr": ["dizi ve film spoiler", "spoiler"] },
+    "politics": { "en": ["politics", "elections and government"], "tr": ["siyaset", "seçim ve hükümet"] },
+    "sports": { "en": ["sports", "football and basketball"], "tr": ["spor", "futbol"] },
+    "gaming": { "en": ["video games", "gaming"], "tr": ["video oyunları", "oyun"] },
+    "tech": { "en": ["technology and gadgets", "smartphones"], "tr": ["teknoloji", "akıllı telefon"] },
+    "health": { "en": ["health and fitness", "diet and nutrition"], "tr": ["sağlık ve beslenme", "diyet"] },
+    "finance": { "en": ["stock market", "investing and personal finance"], "tr": ["borsa", "yatırım ve ekonomi"] }
+  }
+}
