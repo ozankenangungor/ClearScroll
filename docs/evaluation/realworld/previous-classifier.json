@@ -1,0 +1,16 @@
+{
+  "_comment": "The classifier before the broad background taxonomy (shipped until Task 04), kept so scripts/evaluate-realworld.ts --config previous can score the same frozen data. Thresholds were calibrated on the synthetic set (docs/evaluation).",
+  "cutoff": 0.5,
+  "thresholds": {
+    "minilm-l6": { "precision": 0.055, "balanced": 0.005, "aggressive": -0.04 },
+    "minilm-l3": { "precision": 0.06, "balanced": 0.01, "aggressive": -0.03 },
+    "bert-tiny": { "precision": 0.76, "balanced": 0.665, "aggressive": 0.61 }
+  },
+  "background": [
+    "cooking and recipes", "travel and tourism", "weather", "music", "art and museums", "pets and animals", "science", "fashion",
+    "education and schools", "cars", "real estate", "history", "religion", "nature and gardening", "family and parenting",
+    "shopping and deals", "jobs and careers", "law and courts", "books and literature", "celebrities", "home improvement",
+    "food and restaurants", "website menu, login and account settings", "comments, likes and shares", "advertisement",
+    "article date, author and reading time"
+  ]
+}
