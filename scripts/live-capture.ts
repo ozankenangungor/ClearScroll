@@ -4,8 +4,8 @@
  * locks scrolling), scroll so lazily loaded items render, wait until the
  * number of analysed units settles, then save screenshots and every text
  * unit the content script considers (dom.ts collectUnits/unitText) with its
- * visual state. Used to collect eval/realworld (verdicts discarded before
- * labelling) and for the scenario checks in docs/evaluation/realworld.
+ * visual state and the card it belongs to (dom.ts itemOf). Used to collect
+ * eval/realworld (verdicts discarded before labelling).
  *
  *   npm run build && node scripts/live-capture.ts <out-dir> <label> "<topic>|<topic>|-" <url> [mode]
  *
@@ -84,15 +84,19 @@ try {
     const sel = CSDom.compileProtectedSelector([]);
     const set = new Set(); CSDom.collectUnits(document.body, sel, set);
     const out = [];
+    const cards = new Map();
     for (const u of set) {
       const text = CSDom.unitText(u, sel);
       const r = u.getBoundingClientRect();
       if (!text || r.width === 0 || r.height === 0) continue;
       const shown = u.closest('[data-clearscroll]');
-      out.push({ text, state: shown ? shown.getAttribute("data-clearscroll") : "" });
+      // The element a match would hide (dom.ts itemOf): its card, or the text itself.
+      const item = CSDom.itemOf(u, sel) ?? u;
+      if (!cards.has(item)) cards.set(item, "c" + cards.size);
+      out.push({ text, state: shown ? shown.getAttribute("data-clearscroll") : "", card: cards.get(item) });
     }
     return out;
-  })()`) as { text: string; state: string }[];
+  })()`) as { text: string; state: string; card: string }[];
   const firstBlurMs = await page.evaluate(() => (window as unknown as { __csFirstBlur: number | null }).__csFirstBlur);
   const summary = { label, url, status, consent, topics: topics.map((t) => t.text), mode, firstBlurMs: firstBlurMs && Math.round(firstBlurMs), analyzed: state?.analyzed ?? null, units: units.length, hiddenUnits: units.filter((u) => u.state === "blurred").length, totalMs: Date.now() - t0 };
   fs.writeFileSync(path.join(outDir, `${label}.json`), JSON.stringify({ ...summary, captured: new Date().toISOString().slice(0, 10), unitList: units }, null, 1));
