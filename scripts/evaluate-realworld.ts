@@ -4,7 +4,7 @@
  * classifier exactly as the extension ships it — same decide(), same
  * background topics and thresholds.
  *
- *   node scripts/evaluate-realworld.ts [--splits test,dev] [--config shipped|previous] [--mode balanced]
+ *   node scripts/evaluate-realworld.ts [--splits test,dev] [--config shipped|previous|task04-candidate] [--mode balanced]
  *                                      [--out docs/evaluation/realworld/RESULTS.md] [--json out.json]
  *                                      [--errors 10] [--calibrate docs/evaluation/realworld/calibration.json]
  *
@@ -16,7 +16,9 @@
  *
  * --config previous scores with the classifier as it was before the broad
  * background taxonomy (docs/evaluation/realworld/previous-classifier.json),
- * so before/after comparisons use the same frozen data.
+ * so before/after comparisons use the same frozen data; --config
+ * task04-candidate scores the candidate that was tried and not shipped
+ * (docs/evaluation/realworld/task04-candidate.json).
  * --calibrate (dev split) picks one threshold per mode on the dev split
  * (F0.5 / F1 / F2, as scripts/evaluate.ts does) and writes the record that
  * tests/unit/profiles.test.ts checks the shipped thresholds against.
@@ -60,11 +62,16 @@ const profile = MODEL_PROFILES[MODEL];
 if (!profile) throw new Error(`no profile for ${MODEL}`);
 const configs: Record<string, ClassifierConfig> = {
   shipped: { background: [...BACKGROUND_TOPICS], cutoff: BACKGROUND_SIMILARITY_CUTOFF, thresholds: profile.thresholds },
-  previous: (() => {
-    const p = JSON.parse(fs.readFileSync(path.join(REPO, "docs/evaluation/realworld/previous-classifier.json"), "utf8"));
-    return { background: p.background, cutoff: p.cutoff, thresholds: p.thresholds[MODEL] };
-  })(),
 };
+/** Recorded configurations: previous (before Task 04), task04-candidate (tried, not shipped). */
+function recorded(file: string): ClassifierConfig {
+  const dir = path.join(REPO, "docs/evaluation/realworld");
+  const p = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+  const background = p.background ?? JSON.parse(fs.readFileSync(path.join(dir, p.backgroundFile), "utf8")).topics;
+  return { background, cutoff: p.cutoff, thresholds: p.thresholds[MODEL] };
+}
+if (configName === "previous") configs.previous = recorded("previous-classifier.json");
+if (configName === "task04-candidate") configs["task04-candidate"] = recorded("task04-candidate.json");
 const config = configs[configName];
 if (!config) throw new Error(`--config must be one of ${Object.keys(configs).join(", ")}`);
 
