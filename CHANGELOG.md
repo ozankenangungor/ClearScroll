@@ -24,6 +24,9 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   without rendering).
 
 ### Changed
+- The first request after a page loads or settings change is sent without
+  waiting for the page to stop changing: matching content is visible for
+  ~0.2–0.7 s instead of ~0.5–1.1 s on live pages with the engine running.
 - A match hides the whole feed item (video card, news promo) including its
   thumbnail and metadata, not only the matching text; text without such an
   item is hidden on its own as before.
@@ -37,6 +40,9 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   Chrome 116.
 
 ### Added
+- Real-world evaluation set (eval/realworld: 3,152 hand-labelled text units
+  from live pages, dev/test split) and `scripts/evaluate-realworld.ts`;
+  live-site tools `scripts/live-capture.ts` and `scripts/live-latency.ts`.
 - Margin scoring against 26 background topics: false positives on UI strings
   (navigation, metadata, ads) 17.6 % → 1.8 % in balanced mode; evaluation
   set v2 with 38 UI strings; CI gate on UI false positives.

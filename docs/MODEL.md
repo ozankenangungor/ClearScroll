@@ -188,6 +188,74 @@ tokenizer and a 250k-token embedding table and was not adopted.
 {topic}.") lowered F1 for all three models and is not used. Concrete topics
 work better than broad ones ("football" or "soccer" rather than "sports").
 
+## Real-world evaluation
+
+The synthetic set above is written to be clean; this one is what the
+extension actually meets. `eval/realworld/` holds 3,152 text units captured
+with the built extension in Google Chrome from public pages (BBC News and
+Sport, The Guardian, Sky Sports, The Independent, Hacker News, YouTube
+search results; `scripts/live-capture.ts`), each labelled by hand for one
+topic — "cryptocurrency", "football" or "movie spoilers" — following
+`eval/realworld/GUIDELINES.md`, written before labelling and applied to the
+text alone without seeing verdicts. Reddit, X and AP News block automated
+browsers and are not included.
+
+Protocol: the **dev** split (pages captured first) was used for all error
+analysis; the **test** split (different pages and sites, captured later,
+labelled before it was evaluated) only for reporting. Any classifier change
+had to pass a decision rule written down before the test split was
+captured. Report: [docs/evaluation/realworld/RESULTS.md](evaluation/realworld/RESULTS.md)
+(`node scripts/evaluate-realworld.ts --errors 8 --out …`).
+
+| Balanced, English, as shipped | Precision | Recall | F1 | FPR |
+|---|---|---|---|---|
+| test — cryptocurrency | 58.2 % | 76.5 % | 66.1 % | 18.1 % |
+| test — football | 53.7 % | 77.9 % | 63.6 % | 50.4 % |
+| test — movie spoilers | 48.6 % | 93.4 % | 63.9 % | 51.4 % |
+| **test — all** | **53.2 %** | **81.2 %** | **64.3 %** | 37.2 % |
+| dev — all | 64.2 % | 78.6 % | 70.7 % | 17.0 % |
+
+The offline evaluator was checked against the live extension: of 1,794 dev
+units, every unit the extension blurred is also predicted positive offline;
+the 145 differences are units the extension had not analysed yet when the
+capture ended.
+
+Where the errors come from:
+
+* **Neighbouring subjects (most false positives; model limit).** The test
+  pages were chosen to contain them, and that is where precision collapses:
+  rugby texts score 0.16–0.23 against "football" (threshold 0.005), gold
+  and inflation texts 0.12–0.16 against "cryptocurrency", and NBA, rugby
+  league and sports-UI strings do the same on the dev pages. There is no
+  threshold that separates them without losing most true matches.
+* **"Spoilers" is a property of a text, not a subject.** Embeddings encode
+  what a text is about, so "movie spoilers" matches film content in general:
+  trailers score 0.19–0.28 and the highest-scoring false positives are
+  reviews that say they are spoiler-free ("No spoiler review…", 0.39–0.42).
+* **Short texts (largest group of false negatives).** 35 of 93 dev misses are
+  shorter than the 24-character minimum for semantic matching in balanced
+  mode — channel names and labels such as "Premier League" or "Crypto
+  World" — and match by keywords only.
+* **Text extraction is not a measurable source.** Visually hidden text is
+  included (BBC appends "Video, 00:05:04" and repeats the headline), and 11
+  of the 31 dev texts with it are misclassified; scoring the visible
+  headline alone gives 11 errors too (one fixed, one broken). They fail
+  for their content — headlines that only name clubs and people.
+
+**Tried and rejected: a stricter semantic threshold for short texts.** Rule
+(fixed in advance): the highest-recall value in {0.30, 0.25, 0.20, 0.15}
+whose added dev matches are ≥ 90 % correct. Measured with the exact
+classifier (an earlier hand count that ignored keyword matches overstated
+the gain), the added matches were 6/7, 11/13, 20/31 and 26/43 correct — no
+value qualified, the gain is at most +2.5 points of recall, and the misses
+it adds are visible page labels ("BBC Sport", "Basketball", "More sport").
+Not shipped; the test split was not used for it.
+
+**Whole-item hiding** (a match hides its card, see ARCHITECTURE.md) does not
+change these per-text numbers, but it changes what they mean on screen: a
+correct match now also hides the item's thumbnail, and a false positive
+hides a whole card instead of one line.
+
 ## Known failure modes
 
 * **Mixed-subject texts can lose to a background topic** (cost of margin
