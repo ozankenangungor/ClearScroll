@@ -274,8 +274,15 @@ export class FilterController {
   private scheduleFlush(): void {
     if (this.queue.size === 0) return;
     const now = Date.now();
-    if (this.flushTimer === null) this.firstPendingAt = now;
-    else clearTimeout(this.flushTimer);
+    if (this.flushTimer === null) {
+      this.firstPendingAt = now;
+    } else {
+      // The first request of a configuration is not postponed: on a page that
+      // keeps rendering, the debounce would hold it back for MAX_FLUSH_WAIT_MS
+      // while matching content is visible. Later requests are batched as before.
+      if (this.sentInGeneration !== this.generation) return;
+      clearTimeout(this.flushTimer);
+    }
     const delay = now - this.firstPendingAt >= MAX_FLUSH_WAIT_MS ? 0 : FLUSH_DELAY_MS;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
