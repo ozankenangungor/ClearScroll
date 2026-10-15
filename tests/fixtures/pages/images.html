@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Image fixtures</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; }
+  main { display: grid; grid-template-columns: repeat(3, 300px); gap: 16px; padding: 16px; }
+  figure { margin: 0; }
+  img { width: 300px; height: 220px; object-fit: cover; display: block; }
+  .card { border: 1px solid #ccc; padding: 8px; }
+  .icon { width: 24px; height: 24px; }
+  nav img { width: 200px; height: 150px; }
+  .poster { width: 300px; height: 220px; }
+  .bg { width: 300px; height: 220px; background-size: cover; }
+  .spacer { height: 2400px; }
+</style>
+</head>
+<body>
+<nav id="nav"><img id="nav-img" src="/media/k3"> Home · About</nav>
+<!-- Images are served under neutral URLs and have no alt text or captions:
+     only their pixels can tell what they show. -->
+<main>
+  <figure><img id="cat" src="/media/k1"></figure>
+  <figure><img id="dog" src="/media/k2"></figure>
+  <figure><img id="landscape" src="/media/k3"></figure>
+  <figure><img id="football" src="/media/k4"></figure>
+  <figure><img id="rugby" src="/media/k5"></figure>
+  <figure><img id="bitcoin" src="/media/k6"></figure>
+  <figure><img id="gold" src="/media/k7"></figure>
+  <figure><img id="stock" src="/media/k8"></figure>
+  <figure><img id="burger" src="/media/k9"></figure>
+  <figure><picture id="pic"><source srcset="/media/k10" type="image/jpeg"><img id="pic-img" src="/media/k3"></picture></figure>
+  <figure><a id="link" href="#go"><img id="linked" src="/media/k1?copy"></a></figure>
+  <figure><img id="shared-a" src="/media/k10"><img id="icon" class="icon" src="/media/k1?icon"></figure>
+  <figure><img id="shared-b" src="/media/k10"></figure>
+  <figure><img id="swap" src="/media/k3?swap"></figure>
+  <figure><img id="broken" src="/media/broken"></figure>
+  <figure><img id="remote" src="REMOTE/media/k1?remote"></figure>
+  <article class="card" id="card-img"><img id="card-img-pic" src="/media/k2?card"><p id="card-img-text">Weekend weather: light rain in the morning, clearing by the afternoon.</p></article>
+  <article class="card" id="card-txt"><img id="card-txt-pic" src="/media/k3?card"><p id="card-txt-text">Our new kitten would not stop purring on the sofa all evening; cats really are the best.</p></article>
+  <figure><video id="poster" class="poster" poster="REMOTE/media/k1?poster" muted></video></figure>
+  <figure><div id="bg" class="bg" role="img" style="background-image: url('/media/k1?bg')"></div></figure>
+</main>
+<div class="spacer"></div>
+<figure><img id="lazy" loading="lazy" src="/media/k1?lazy"></figure>
+<script src="images.js"></script>
+</body>
+</html>

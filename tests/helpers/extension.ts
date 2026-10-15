@@ -8,18 +8,65 @@ import { chromium, type BrowserContext, type Page, type Worker } from "playwrigh
 const REPO = path.resolve(import.meta.dirname, "../..");
 export const DIST = process.env.CLEARSCROLL_DIST ?? path.join(REPO, "dist");
 const PAGES = path.join(REPO, "tests/fixtures/pages");
+const IMAGES = path.join(REPO, "tests/fixtures/images");
+
+/**
+ * Test images under neutral URLs (/media/<key>): nothing in a URL, file name
+ * or markup says what an image shows. Query strings make distinct URLs for
+ * the same picture.
+ */
+export const MEDIA: Record<string, string> = {
+  k1: "cat.jpg",
+  k2: "dog.jpg",
+  k3: "landscape.jpg",
+  k4: "football.jpg",
+  k5: "rugby.jpg",
+  k6: "bitcoin.webp",
+  k7: "gold.jpg",
+  k8: "stock-exchange.jpg",
+  k9: "burger.jpg",
+  k10: "cat-2.jpg",
+};
+
+/** One request for a /media/ URL, as seen by the test server. */
+export interface MediaRequest {
+  host: string;
+  path: string;
+  cookie: string | null;
+  referer: string | null;
+  origin: string | null;
+}
 
 export interface Env {
   ctx: BrowserContext;
   sw: Worker;
   extId: string;
   base: string;
+  port: number;
+  mediaRequests: MediaRequest[];
   close(): Promise<void>;
 }
 
-export function startServer(): Promise<{ base: string; close(): Promise<void> }> {
+export function startServer(): Promise<{ base: string; port: number; mediaRequests: MediaRequest[]; close(): Promise<void> }> {
+  const mediaRequests: MediaRequest[] = [];
   const srv = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
+    if (url.pathname.startsWith("/media/")) {
+      mediaRequests.push({ host: req.headers.host ?? "", path: url.pathname + url.search, cookie: req.headers.cookie ?? null, referer: req.headers.referer ?? null, origin: req.headers.origin ?? null });
+      const name = MEDIA[url.pathname.slice(7)];
+      if (!name) {
+        // Served as an image type, but not decodable.
+        res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end("not an image");
+        return;
+      }
+      const type = name.endsWith(".webp") ? "image/webp" : "image/jpeg";
+      res.writeHead(200, { "content-type": type, "cache-control": "no-store" }).end(fs.readFileSync(path.join(IMAGES, name)));
+      return;
+    }
+    if (url.pathname === "/set-cookie") {
+      res.writeHead(200, { "content-type": "text/html", "set-cookie": "cs_session=secret; Path=/; SameSite=Lax" }).end("<!doctype html><title>cookie set</title>");
+      return;
+    }
     // /csp/<page> serves the same page under a strict CSP like many large sites use.
     const strict = url.pathname.startsWith("/csp/");
     const file = path.join(PAGES, path.basename(url.pathname));
@@ -34,7 +81,7 @@ export function startServer(): Promise<{ base: string; close(): Promise<void> }>
   return new Promise((resolve) =>
     srv.listen(0, "127.0.0.1", () => {
       const { port } = srv.address() as { port: number };
-      resolve({ base: `http://127.0.0.1:${port}`, close: () => new Promise((r) => srv.close(() => r())) });
+      resolve({ base: `http://127.0.0.1:${port}`, port, mediaRequests, close: () => new Promise((r) => srv.close(() => r())) });
     })
   );
 }
@@ -91,17 +138,19 @@ export async function launchContext(profile: string, opts: LaunchOptions = {}): 
   return { ctx, sw };
 }
 
-export async function launchExtension(): Promise<Env> {
+export async function launchExtension(opts: LaunchOptions = {}): Promise<Env> {
   if (!fs.existsSync(path.join(DIST, "manifest.json"))) throw new Error(`${DIST} has no build; run npm run build`);
   const server = await startServer();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "clearscroll-e2e-"));
-  const { ctx, sw } = await launchContext(profile);
+  const { ctx, sw } = await launchContext(profile, opts);
   const extId = new URL(sw.url()).host;
   return {
     ctx,
     sw,
     extId,
     base: server.base,
+    port: server.port,
+    mediaRequests: server.mediaRequests,
     close: async () => {
       await ctx.close();
       await server.close();
