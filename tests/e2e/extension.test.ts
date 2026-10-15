@@ -29,6 +29,30 @@ async function reset(patch: Record<string, unknown> = {}) {
   for (const p of env.ctx.pages()) await p.close();
 }
 
+test("a match hides the whole feed item: video cards, shadow-DOM posts and timeline posts", async () => {
+  await reset();
+  await setSettings(env, { topics: [{ id: "t-football", text: "football", enabled: true }] });
+  await waitRegistered(env, true);
+  const page = await env.ctx.newPage();
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto(`${env.base}/feeds.html`);
+  // Video card: the card (with its thumbnail, metadata and channel row) is hidden, not just the title.
+  await waitAttr(page, "#v1", "blurred");
+  assert.equal(await attr(page, "#v1-title"), null, "the title is hidden through its card");
+  assert.match(await page.evaluate(() => getComputedStyle(document.getElementById("v1")!).filter), /blur/);
+  // Post component with a shadow root: the host element is hidden, so slotted thumbnail and shadow content go with it.
+  await waitAttr(page, "#r1", "blurred");
+  // Timeline post with an attached image.
+  await waitAttr(page, "#x1", "blurred");
+  await page.waitForTimeout(500);
+  for (const id of ["v2", "v3", "r2", "r3", "x2"]) assert.equal(await attr(page, `#${id}`), null, `${id} is unrelated and stays visible`);
+  assert.equal(await page.locator("main [data-clearscroll]").count(), 3, "only the three football items are touched");
+  // One click on the hidden thumbnail reveals the whole card without following its link.
+  await page.click("#v1", { position: { x: 60, y: 60 } });
+  assert.equal(await attr(page, "#v1"), "revealed");
+  assert.equal(await page.evaluate(() => location.hash), "");
+});
+
 test("installs cleanly: manifest, service worker, no registration without topics", async () => {
   const manifest = await env.sw.evaluate(() => chrome.runtime.getManifest());
   assert.equal(manifest.name, "ClearScroll");
