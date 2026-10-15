@@ -163,7 +163,8 @@ export async function setSettings(env: Env, patch: Record<string, unknown>): Pro
   await env.sw.evaluate(async (patch) => {
     const cur = (await chrome.storage.local.get("clearscroll_settings")).clearscroll_settings ?? {};
     await chrome.storage.local.set({
-      clearscroll_settings: { schema: 2, enabled: true, mode: "balanced", engine: "cpu", topics: [], excludedSites: [], protectedSelectors: [], ...cur, ...patch },
+      // A complete settings object, as the options page writes it.
+      clearscroll_settings: { schema: 2, enabled: true, mode: "balanced", engine: "cpu", topics: [], excludedSites: [], protectedSelectors: [], images: false, imageDownloads: false, ...cur, ...patch },
     });
   }, patch);
 }
