@@ -262,6 +262,40 @@ f32 parity no longer required, a quality gate that passed with no data).
 Each was reproduced by a failing test first and fixed. The security review
 found no exploitable issue.
 
+## 18. Image filtering as a second, isolated engine
+
+* **A different model family, not the text encoder.** MiniLM embeds text
+  only; comparing it with image embeddings would be meaningless. SigLIP has
+  an image and a text encoder trained into one space, so arbitrary topics
+  can be compared with pictures zero-shot. The Rust engine was not touched.
+* **ONNX Runtime Web, not Transformers.js.** Prebuilt int8 ONNX files exist
+  for the chosen model; ORT's WebAssembly bundle is one 73 KB module plus a
+  14 MB `.wasm`, with no remote loading. The tokenizer (SentencePiece
+  Unigram) and preprocessing are ~200 lines of verified TypeScript; pulling
+  Transformers.js would have added its Node-only dependencies to the
+  toolchain for no runtime benefit.
+* **Same offscreen document, separate workers and host.** One loaded model
+  for all tabs; a failure or slow picture never delays or degrades text.
+  The text encoder runs in its own short-lived worker (terminated when idle)
+  because WebAssembly memory is returned only when a worker ends — measured
+  steady-state cost dropped from +592 MiB to +359 MiB; background prompt
+  embeddings are computed at build time (cold start 6.4 s → 2.4 s).
+* **Pixels from the page, downloads only by explicit choice.** Reading the
+  displayed picture through a canvas needs no request and works for
+  same-origin, CORS and `data:`/`blob:` pictures. Cross-origin pictures taint
+  the canvas; rather than screenshots or debugger access, the user can allow
+  one cookie-less download per such picture, restricted to public hosts.
+  This keeps "no network requests" exactly true for every other setting and
+  is verified by the network-capture test.
+* **Precision first.** A picture must look more like the topic than like any
+  of 22 generic descriptions *and* reach a similarity floor; thresholds were
+  calibrated on development photos only and the validation photos scored
+  once after pre-registration. Uncertain pictures stay visible.
+* **Not done:** multi-threading (needs cross-origin isolation of all extension
+  pages; crashed the renderer in the bundled configuration), WebGPU (no
+  WebGPU kernels for the int8 operators; fp16 files would double the size),
+  video frames, iframes and shadow roots.
+
 ## Things deliberately not done
 
 * **Optional host permissions / per-site activation.** Would make the product

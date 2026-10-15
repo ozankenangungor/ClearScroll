@@ -68,6 +68,76 @@ cryptocurrency, cars↔airplanes, portraits for politics, everyday objects
   politics) for recall (0.95). The options page says it hides more unrelated
   content; for images that cost is visible.
 
+
+## Addendum: production-conformant re-run (same frozen rule)
+
+After the validation run, a deviation between the evaluation path and the
+extension was found and fixed: the int8 text encoder quantises activations
+with one scale per batch, so a prompt embedded together with other prompts
+(the evaluation embedded prompts in batches of 16) gets a slightly different
+vector than one embedded alone. The extension now embeds every prompt on its
+own (deterministic, independent of other topics; `src/vision/vision.worker.ts`),
+and the build-time background vectors are computed the same way.
+
+Dev and val were re-scored with that production path. **Nothing in the rule
+or thresholds was changed.** Raw outputs: [`val-production.json`](val-production.json),
+[`dev-production.json`](dev-production.json). These numbers describe the
+shipped extension; the table above is the pre-registered run.
+
+| mode | precision | recall | F1 | FPR | TP / FP / FN |
+|---|---|---|---|---|---|
+| precision | 0.931 | 0.803 | 0.862 | 0.38 % | 94 / 7 / 23 |
+| balanced | 0.917 | 0.855 | 0.885 | 0.49 % | 100 / 9 / 17 |
+| aggressive | 0.804 | 0.949 | 0.871 | 1.46 % | 111 / 27 / 6 |
+
+Per topic, default mode:
+
+| topic | precision | recall | neighbour FPs | false positives |
+|---|---|---|---|---|
+| cats | 1.00 | 1.00 | 0/13 | — |
+| dogs | 1.00 | 0.75 | 0/16 | — |
+| football | 0.77 | 0.77 | 3/24 | val/rugby-002, val/rugby-005, val/rugby-012 |
+| rugby | 0.94 | 1.00 | 1/21 | val/football-008 |
+| basketball | 1.00 | 0.62 | 0/29 | — |
+| cryptocurrency | 1.00 | 0.92 | 0/24 | — |
+| cars | 1.00 | 0.47 | 0/9 | — |
+| airplanes | 0.90 | 1.00 | 0/15 | val/stocks-001 |
+| politics | 0.60 | 0.38 | 0/11 | val/crypto-014, val/stocks-005 |
+| fast food | 1.00 | 0.94 | 0/23 | — |
+
+The default mode still meets every pre-registered target (precision 0.931,
+recall 0.803, FPR 0.38 %). Changes against the first run are small and go both
+ways: football precision 0.80 → 0.77 (one more rugby photo), politics
+precision/recall 0.67/0.25 → 0.60/0.38, football recall 0.62 → 0.77. Football
+(below the 0.80 per-topic precision target) and politics remain the named
+limitations.
+
+## Live sites (qualitative, not a benchmark)
+
+`node scripts/live-vision.ts [--downloads]` (Chromium, CPU, default
+strictness, 1280 × 1600 viewport, 40 s per page; 2026-10-16). Counts are
+what was analysed in that window — pictures far below the viewport are not
+analysed until scrolled to. Screenshots stay local (third-party content).
+
+| Page | Topic | Downloads off: analysed / not checked (other domain) | Downloads on: analysed | Hidden by image analysis | Hidden by text |
+|---|---|---|---|---|---|
+| YouTube search "funny animal compilation" | cats | 0 / 9 | 9 | 0 (cat thumbnails were inside cards already hidden by their titles) | 22 cards |
+| YouTube search "sports highlights" | football | 0 / 13 | 9 | 0 | 16 cards |
+| BBC Sport front page | football | 0 / 20 | 20 | 4 (football photos whose headlines did not match, e.g. a transfer-gossip and a match report) | 23 |
+| The Guardian UK front | football | 0 / 7 | 7 | 0 | 1 |
+| Commons "Quality images of cats" | cats | 0 / 14 | 14 | 7 (cat photos) | 12 (captions) |
+| Commons "Quality images of dogs" | cats | 0 / 28 | 28 | **0** (no dog hidden) | 16² |
+
+² Text units mentioning cats in captions and
+category text.
+
+Two defects were found on these sites and fixed before the numbers above:
+YouTube thumbnails are inside `aria-hidden` links (were treated as protected)
+and fade in from opacity 0 inside containers laid out after loading (were
+treated as invisible for good); Commons gallery thumbnails (120 × 90) were
+below an over-strict area limit. Regression tests:
+`tests/dom/images.test.ts`.
+
 ## Development set (245 images, used for calibration)
 
 | mode | precision | recall | F1 | FPR |
