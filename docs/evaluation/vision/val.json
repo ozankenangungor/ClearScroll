@@ -1,0 +1,607 @@
+{
+  "set": "val",
+  "model": "siglip-base-p16-224-int8",
+  "images": 223,
+  "decodeFailures": [],
+  "ambiguousImages": 26,
+  "latency": {
+    "modelLoadMs": 932,
+    "imageMedianMs": 571,
+    "imageP95Ms": 596,
+    "note": "1 WebAssembly thread, headless Chromium, decode + preprocess + inference"
+  },
+  "modes": {
+    "precision": {
+      "rule": {
+        "minSimilarity": 0.04,
+        "minMargin": 0
+      },
+      "overall": {
+        "tp": 91,
+        "fp": 5,
+        "fn": 26,
+        "positives": 117,
+        "negatives": 1853,
+        "precision": 0.9479166666666666,
+        "recall": 0.7777777777777778,
+        "f1": 0.8544600938967136,
+        "fpr": 0.002698327037236913
+      },
+      "allTopicsActive": {
+        "hidden": 93,
+        "ofImages": 197,
+        "hiddenWithoutAnyTopicLabel": [
+          "val/stocks-001"
+        ],
+        "unrelatedImages": 80
+      },
+      "perTopic": {
+        "cats": {
+          "tp": 11,
+          "fp": 0,
+          "fn": 0,
+          "positives": 11,
+          "negatives": 186,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/13",
+          "ambiguousSameClassHidden": "1/3",
+          "ambiguousOtherClassHidden": "0/23",
+          "falsePositives": []
+        },
+        "dogs": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 2,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 1,
+          "recall": 0.75,
+          "f1": 0.8571428571428571,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/16",
+          "ambiguousSameClassHidden": "6/6",
+          "ambiguousOtherClassHidden": "0/20",
+          "falsePositives": []
+        },
+        "football": {
+          "tp": 8,
+          "fp": 2,
+          "fn": 5,
+          "positives": 13,
+          "negatives": 184,
+          "precision": 0.8,
+          "recall": 0.6153846153846154,
+          "f1": 0.6956521739130435,
+          "fpr": 0.010869565217391304,
+          "neighbourFalsePositives": "2/24",
+          "ambiguousSameClassHidden": "1/1",
+          "ambiguousOtherClassHidden": "0/25",
+          "falsePositives": [
+            "val/rugby-002",
+            "val/rugby-005"
+          ]
+        },
+        "rugby": {
+          "tp": 16,
+          "fp": 1,
+          "fn": 0,
+          "positives": 16,
+          "negatives": 181,
+          "precision": 0.9411764705882353,
+          "recall": 1,
+          "f1": 0.9696969696969697,
+          "fpr": 0.0055248618784530384,
+          "neighbourFalsePositives": "1/21",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": [
+            "val/football-008"
+          ]
+        },
+        "basketball": {
+          "tp": 5,
+          "fp": 0,
+          "fn": 3,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 1,
+          "recall": 0.625,
+          "f1": 0.7692307692307693,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/29",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": []
+        },
+        "cryptocurrency": {
+          "tp": 12,
+          "fp": 0,
+          "fn": 1,
+          "positives": 13,
+          "negatives": 184,
+          "precision": 1,
+          "recall": 0.9230769230769231,
+          "f1": 0.9600000000000001,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/24",
+          "ambiguousSameClassHidden": "5/5",
+          "ambiguousOtherClassHidden": "0/21",
+          "falsePositives": []
+        },
+        "cars": {
+          "tp": 7,
+          "fp": 0,
+          "fn": 8,
+          "positives": 15,
+          "negatives": 182,
+          "precision": 1,
+          "recall": 0.4666666666666667,
+          "f1": 0.6363636363636364,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/9",
+          "ambiguousSameClassHidden": "0/1",
+          "ambiguousOtherClassHidden": "0/25",
+          "falsePositives": []
+        },
+        "airplanes": {
+          "tp": 9,
+          "fp": 1,
+          "fn": 0,
+          "positives": 9,
+          "negatives": 188,
+          "precision": 0.9,
+          "recall": 1,
+          "f1": 0.9473684210526316,
+          "fpr": 0.005319148936170213,
+          "neighbourFalsePositives": "0/15",
+          "ambiguousSameClassHidden": "2/7",
+          "ambiguousOtherClassHidden": "0/19",
+          "falsePositives": [
+            "val/stocks-001"
+          ]
+        },
+        "politics": {
+          "tp": 2,
+          "fp": 1,
+          "fn": 6,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 0.6666666666666666,
+          "recall": 0.25,
+          "f1": 0.36363636363636365,
+          "fpr": 0.005291005291005291,
+          "neighbourFalsePositives": "0/11",
+          "ambiguousSameClassHidden": "0/3",
+          "ambiguousOtherClassHidden": "0/23",
+          "falsePositives": [
+            "val/crypto-014"
+          ]
+        },
+        "fast food": {
+          "tp": 15,
+          "fp": 0,
+          "fn": 1,
+          "positives": 16,
+          "negatives": 181,
+          "precision": 1,
+          "recall": 0.9375,
+          "f1": 0.967741935483871,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/23",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": []
+        }
+      }
+    },
+    "balanced": {
+      "rule": {
+        "minSimilarity": 0.04,
+        "minMargin": -0.005
+      },
+      "overall": {
+        "tp": 100,
+        "fp": 9,
+        "fn": 17,
+        "positives": 117,
+        "negatives": 1853,
+        "precision": 0.9174311926605505,
+        "recall": 0.8547008547008547,
+        "f1": 0.8849557522123894,
+        "fpr": 0.004856988667026443
+      },
+      "allTopicsActive": {
+        "hidden": 103,
+        "ofImages": 197,
+        "hiddenWithoutAnyTopicLabel": [
+          "val/stocks-001",
+          "val/stocks-005"
+        ],
+        "unrelatedImages": 80
+      },
+      "perTopic": {
+        "cats": {
+          "tp": 11,
+          "fp": 0,
+          "fn": 0,
+          "positives": 11,
+          "negatives": 186,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/13",
+          "ambiguousSameClassHidden": "1/3",
+          "ambiguousOtherClassHidden": "0/23",
+          "falsePositives": []
+        },
+        "dogs": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 2,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 1,
+          "recall": 0.75,
+          "f1": 0.8571428571428571,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/16",
+          "ambiguousSameClassHidden": "6/6",
+          "ambiguousOtherClassHidden": "0/20",
+          "falsePositives": []
+        },
+        "football": {
+          "tp": 12,
+          "fp": 5,
+          "fn": 1,
+          "positives": 13,
+          "negatives": 184,
+          "precision": 0.7058823529411765,
+          "recall": 0.9230769230769231,
+          "f1": 0.8000000000000002,
+          "fpr": 0.02717391304347826,
+          "neighbourFalsePositives": "5/24",
+          "ambiguousSameClassHidden": "1/1",
+          "ambiguousOtherClassHidden": "0/25",
+          "falsePositives": [
+            "val/rugby-000",
+            "val/rugby-002",
+            "val/rugby-005",
+            "val/rugby-008",
+            "val/rugby-012"
+          ]
+        },
+        "rugby": {
+          "tp": 16,
+          "fp": 1,
+          "fn": 0,
+          "positives": 16,
+          "negatives": 181,
+          "precision": 0.9411764705882353,
+          "recall": 1,
+          "f1": 0.9696969696969697,
+          "fpr": 0.0055248618784530384,
+          "neighbourFalsePositives": "1/21",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": [
+            "val/football-008"
+          ]
+        },
+        "basketball": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/29",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": []
+        },
+        "cryptocurrency": {
+          "tp": 12,
+          "fp": 0,
+          "fn": 1,
+          "positives": 13,
+          "negatives": 184,
+          "precision": 1,
+          "recall": 0.9230769230769231,
+          "f1": 0.9600000000000001,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/24",
+          "ambiguousSameClassHidden": "5/5",
+          "ambiguousOtherClassHidden": "0/21",
+          "falsePositives": []
+        },
+        "cars": {
+          "tp": 7,
+          "fp": 0,
+          "fn": 8,
+          "positives": 15,
+          "negatives": 182,
+          "precision": 1,
+          "recall": 0.4666666666666667,
+          "f1": 0.6363636363636364,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/9",
+          "ambiguousSameClassHidden": "0/1",
+          "ambiguousOtherClassHidden": "0/25",
+          "falsePositives": []
+        },
+        "airplanes": {
+          "tp": 9,
+          "fp": 1,
+          "fn": 0,
+          "positives": 9,
+          "negatives": 188,
+          "precision": 0.9,
+          "recall": 1,
+          "f1": 0.9473684210526316,
+          "fpr": 0.005319148936170213,
+          "neighbourFalsePositives": "0/15",
+          "ambiguousSameClassHidden": "2/7",
+          "ambiguousOtherClassHidden": "0/19",
+          "falsePositives": [
+            "val/stocks-001"
+          ]
+        },
+        "politics": {
+          "tp": 4,
+          "fp": 2,
+          "fn": 4,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 0.6666666666666666,
+          "recall": 0.5,
+          "f1": 0.5714285714285715,
+          "fpr": 0.010582010582010581,
+          "neighbourFalsePositives": "0/11",
+          "ambiguousSameClassHidden": "0/3",
+          "ambiguousOtherClassHidden": "0/23",
+          "falsePositives": [
+            "val/crypto-014",
+            "val/stocks-005"
+          ]
+        },
+        "fast food": {
+          "tp": 15,
+          "fp": 0,
+          "fn": 1,
+          "positives": 16,
+          "negatives": 181,
+          "precision": 1,
+          "recall": 0.9375,
+          "f1": 0.967741935483871,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/23",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": []
+        }
+      }
+    },
+    "aggressive": {
+      "rule": {
+        "minSimilarity": 0.03,
+        "minMargin": -0.015
+      },
+      "overall": {
+        "tp": 111,
+        "fp": 28,
+        "fn": 6,
+        "positives": 117,
+        "negatives": 1853,
+        "precision": 0.7985611510791367,
+        "recall": 0.9487179487179487,
+        "f1": 0.8671874999999999,
+        "fpr": 0.015110631408526714
+      },
+      "allTopicsActive": {
+        "hidden": 118,
+        "ofImages": 197,
+        "hiddenWithoutAnyTopicLabel": [
+          "val/stocks-000",
+          "val/stocks-001",
+          "val/stocks-002",
+          "val/stocks-005",
+          "val/portrait-015",
+          "val/landscape-010"
+        ],
+        "unrelatedImages": 80
+      },
+      "perTopic": {
+        "cats": {
+          "tp": 11,
+          "fp": 0,
+          "fn": 0,
+          "positives": 11,
+          "negatives": 186,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/13",
+          "ambiguousSameClassHidden": "2/3",
+          "ambiguousOtherClassHidden": "0/23",
+          "falsePositives": []
+        },
+        "dogs": {
+          "tp": 8,
+          "fp": 1,
+          "fn": 0,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 0.8888888888888888,
+          "recall": 1,
+          "f1": 0.9411764705882353,
+          "fpr": 0.005291005291005291,
+          "neighbourFalsePositives": "0/16",
+          "ambiguousSameClassHidden": "6/6",
+          "ambiguousOtherClassHidden": "0/20",
+          "falsePositives": [
+            "val/food-014"
+          ]
+        },
+        "football": {
+          "tp": 13,
+          "fp": 15,
+          "fn": 0,
+          "positives": 13,
+          "negatives": 184,
+          "precision": 0.4642857142857143,
+          "recall": 1,
+          "f1": 0.6341463414634146,
+          "fpr": 0.08152173913043478,
+          "neighbourFalsePositives": "15/24",
+          "ambiguousSameClassHidden": "1/1",
+          "ambiguousOtherClassHidden": "0/25",
+          "falsePositives": [
+            "val/rugby-000",
+            "val/rugby-002",
+            "val/rugby-003",
+            "val/rugby-004",
+            "val/rugby-005",
+            "val/rugby-006",
+            "val/rugby-007",
+            "val/rugby-008",
+            "val/rugby-009",
+            "val/rugby-010",
+            "val/rugby-011",
+            "val/rugby-012",
+            "val/rugby-013",
+            "val/rugby-014",
+            "val/rugby-015"
+          ]
+        },
+        "rugby": {
+          "tp": 16,
+          "fp": 2,
+          "fn": 0,
+          "positives": 16,
+          "negatives": 181,
+          "precision": 0.8888888888888888,
+          "recall": 1,
+          "f1": 0.9411764705882353,
+          "fpr": 0.011049723756906077,
+          "neighbourFalsePositives": "2/21",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "1/26",
+          "falsePositives": [
+            "val/football-008",
+            "val/football-009"
+          ]
+        },
+        "basketball": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/29",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": []
+        },
+        "cryptocurrency": {
+          "tp": 12,
+          "fp": 0,
+          "fn": 1,
+          "positives": 13,
+          "negatives": 184,
+          "precision": 1,
+          "recall": 0.9230769230769231,
+          "f1": 0.9600000000000001,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/24",
+          "ambiguousSameClassHidden": "5/5",
+          "ambiguousOtherClassHidden": "0/21",
+          "falsePositives": []
+        },
+        "cars": {
+          "tp": 12,
+          "fp": 0,
+          "fn": 3,
+          "positives": 15,
+          "negatives": 182,
+          "precision": 1,
+          "recall": 0.8,
+          "f1": 0.888888888888889,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/9",
+          "ambiguousSameClassHidden": "1/1",
+          "ambiguousOtherClassHidden": "0/25",
+          "falsePositives": []
+        },
+        "airplanes": {
+          "tp": 9,
+          "fp": 3,
+          "fn": 0,
+          "positives": 9,
+          "negatives": 188,
+          "precision": 0.75,
+          "recall": 1,
+          "f1": 0.8571428571428571,
+          "fpr": 0.015957446808510637,
+          "neighbourFalsePositives": "0/15",
+          "ambiguousSameClassHidden": "3/7",
+          "ambiguousOtherClassHidden": "0/19",
+          "falsePositives": [
+            "val/stocks-000",
+            "val/stocks-001",
+            "val/stocks-005"
+          ]
+        },
+        "politics": {
+          "tp": 6,
+          "fp": 7,
+          "fn": 2,
+          "positives": 8,
+          "negatives": 189,
+          "precision": 0.46153846153846156,
+          "recall": 0.75,
+          "f1": 0.5714285714285714,
+          "fpr": 0.037037037037037035,
+          "neighbourFalsePositives": "1/11",
+          "ambiguousSameClassHidden": "2/3",
+          "ambiguousOtherClassHidden": "0/23",
+          "falsePositives": [
+            "val/crypto-008",
+            "val/crypto-014",
+            "val/crypto-015",
+            "val/stocks-002",
+            "val/stocks-005",
+            "val/portrait-015",
+            "val/landscape-010"
+          ]
+        },
+        "fast food": {
+          "tp": 16,
+          "fp": 0,
+          "fn": 0,
+          "positives": 16,
+          "negatives": 181,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "fpr": 0,
+          "neighbourFalsePositives": "0/23",
+          "ambiguousSameClassHidden": "0/0",
+          "ambiguousOtherClassHidden": "0/26",
+          "falsePositives": []
+        }
+      }
+    }
+  }
+}
