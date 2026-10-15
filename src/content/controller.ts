@@ -15,13 +15,21 @@
  * Work is bounded: only units near the viewport (IntersectionObserver) are
  * queued, the queue is de-duplicated and capped, batches are small, and at
  * most MAX_INFLIGHT requests are outstanding per frame (backpressure).
+ *
+ * Images (opt-in) are handled by ImageFilter (image-filter.ts), which shares
+ * this controller's generation, observers, ownership tag and reveal clicks.
+ * Text and image hiding never nest: an image inside an item hidden because of
+ * its text is covered by that item, and one reveal shows both.
  */
 
 import { decide, LEXICAL_PARAMS, prepareTopic } from "../shared/classifier.ts";
 import type { ClassifyReply, ClassifyRequest, EngineStatus, TabActivity, TabStateReply } from "../shared/protocol.ts";
+import type { VisionReply, VisionRequest } from "../shared/vision.ts";
+import { ImageFilter } from "./image-filter.ts";
 import { activeTopics, type Settings } from "../shared/settings.ts";
 import { isUrlExcluded } from "../shared/sites.ts";
 import {
+  MEDIA_ATTR,
   OWNER_ATTR,
   STATE_ATTR,
   applyBlur,
@@ -53,7 +61,14 @@ export interface ControllerDeps {
   onInvalidated?(): void;
   /** Root margin for "near the viewport". */
   rootMargin?: string;
+  /** Image classification (cs:vision); without it image filtering stays off. */
+  classifyImage?(req: VisionRequest): Promise<VisionReply>;
+  /** Root margin for images (default: half a viewport). */
+  imageRootMargin?: string;
 }
+
+/** Attributes whose change can switch the image an element shows. */
+const MEDIA_ATTRIBUTES = ["src", "srcset", "sizes", "poster", "style"];
 
 interface UnitState {
   /** Text of the most recent classification request or verdict. */
@@ -94,9 +109,17 @@ export class FilterController {
   private readonly deps: ControllerDeps;
   /** Tags the elements this instance changes (see clearAllVisuals). */
   readonly instanceId = `cs${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  readonly images: ImageFilter;
+  private observingAttributes = false;
 
   constructor(deps: ControllerDeps) {
     this.deps = deps;
+    this.images = new ImageFilter({
+      doc: deps.doc,
+      owner: this.instanceId,
+      rootMargin: deps.imageRootMargin,
+      classifyImage: deps.classifyImage ?? (() => Promise.reject(new Error("image filtering unavailable"))),
+    });
   }
 
   get currentGeneration(): number {
@@ -122,7 +145,21 @@ export class FilterController {
     this.protectedSelector = compileProtectedSelector(settings.protectedSelectors, this.deps.doc);
     if (this.activity !== "active") this.start();
     this.activity = "active";
+    this.observe(settings.images && !!this.deps.classifyImage);
     this.rescan();
+    this.images.configure(settings, this.generation, compileProtectedSelector(settings.protectedSelectors, this.deps.doc, true), !!this.deps.classifyImage);
+  }
+
+  /** Attribute changes are observed only while image filtering needs them. */
+  private observe(attributes: boolean): void {
+    if (!this.mutationObserver || attributes === this.observingAttributes) return;
+    this.observingAttributes = attributes;
+    this.mutationObserver.observe(this.deps.doc.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      ...(attributes ? { attributes: true, attributeFilter: MEDIA_ATTRIBUTES } : {}),
+    });
   }
 
   /** Remove every trace of filtering from the page. */
@@ -131,6 +168,8 @@ export class FilterController {
     this.generation++;
     this.mutationObserver?.disconnect();
     this.mutationObserver = null;
+    this.observingAttributes = false;
+    this.images.stop();
     this.intersectionObserver?.disconnect();
     this.intersectionObserver = null;
     this.deps.doc.removeEventListener("click", this.onClick, true);
@@ -156,6 +195,7 @@ export class FilterController {
       revealed: doc.querySelectorAll(`[${STATE_ATTR}="revealed"]`).length,
       analyzed: this.analyzed,
       engine: this.lastEngine,
+      images: this.images.getState(),
     };
   }
 
@@ -180,8 +220,9 @@ export class FilterController {
     // Units that were blurred but are no longer candidates (e.g. a selector
     // became protected) must not stay blurred with a stale verdict. Items
     // are cleared through their members (touch → hide).
+    // Media elements belong to the image filter.
     this.deps.doc.querySelectorAll(`[${STATE_ATTR}]`).forEach((el) => {
-      if (!units.has(el) && !this.items.has(el)) clearVisual(el);
+      if (!units.has(el) && !this.items.has(el) && !el.hasAttribute(MEDIA_ATTR)) clearVisual(el);
     });
     this.scheduleFlush();
   }
@@ -194,7 +235,7 @@ export class FilterController {
     if (text === null) {
       if (st) this.hide(unit, st);
       // A hidden item is not a unit itself; it is cleared through its members.
-      if (visualState(unit) && !this.items.has(unit)) clearVisual(unit);
+      if (visualState(unit) && !this.items.has(unit) && !unit.hasAttribute(MEDIA_ATTR)) clearVisual(unit);
       return;
     }
     if (st && st.text === text && st.generation === this.generation && st.phase !== "dirty") return;
@@ -250,8 +291,10 @@ export class FilterController {
 
   private onMutations(records: MutationRecord[]): void {
     if (this.activity !== "active") return;
+    this.images.onMutations(records);
     const touched = new Set<Element>();
     for (const r of records) {
+      if (r.type === "attributes") continue;
       if (r.type === "characterData") {
         const u = unitOf(r.target);
         if (u) touched.add(u);
@@ -447,6 +490,7 @@ export class FilterController {
     members.add(unit);
     this.absorb(target, members);
     this.renderItem(target, members);
+    this.images.refreshWithin(target);
   }
 
   /** The unit no longer matches (or is no longer a candidate). */
@@ -504,6 +548,8 @@ export class FilterController {
     } else {
       this.items.delete(item);
       clearVisual(item);
+      // Images inside fall back to their own verdicts.
+      this.images.refreshWithin(item);
     }
   }
 
@@ -529,6 +575,7 @@ export class FilterController {
       if (st) st.revealedText = st.text;
     }
     markRevealed(el, this.instanceId);
+    this.images.revealed(el);
   }
 
   private handleClick(e: MouseEvent): void {

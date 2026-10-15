@@ -35,6 +35,17 @@ export interface Settings {
   excludedSites: string[];
   /** Extra CSS selectors whose subtrees are never analysed or blurred. */
   protectedSelectors: string[];
+  /**
+   * Image filtering: analyse the pixels of images with the on-device image
+   * model. Off by default (opt-in; existing users keep text-only behaviour).
+   */
+  images: boolean;
+  /**
+   * Let image filtering download a copy of images whose pixels the page does
+   * not expose (other-domain images), without cookies. Off by default: this
+   * is the only setting under which ClearScroll makes network requests.
+   */
+  imageDownloads: boolean;
 }
 
 export const SETTINGS_KEY = "clearscroll_settings";
@@ -62,6 +73,8 @@ export function defaultSettings(): Settings {
     topics: [],
     excludedSites: [],
     protectedSelectors: [],
+    images: false,
+    imageDownloads: false,
   };
 }
 
@@ -72,6 +85,11 @@ export function activeTopics(s: Settings): Topic[] {
 /** Filtering runs only when globally enabled and at least one topic is on. */
 export function isFilteringActive(s: Settings): boolean {
   return s.enabled && activeTopics(s).length > 0;
+}
+
+/** Image filtering runs only on top of active filtering. */
+export function isImageFilteringActive(s: Settings): boolean {
+  return isFilteringActive(s) && s.images;
 }
 
 /**
@@ -177,6 +195,9 @@ export function normalizeSettings(raw: unknown): Settings {
     protectedSelectors: [...new Set(stringList(raw.protectedSelectors))]
       .filter((s) => s.length <= LIMITS.maxSelectorChars)
       .slice(0, LIMITS.maxSelectors),
+    // Strictly `true`: anything else (missing in older settings, corrupted) is off.
+    images: raw.images === true,
+    imageDownloads: raw.imageDownloads === true,
   };
 }
 

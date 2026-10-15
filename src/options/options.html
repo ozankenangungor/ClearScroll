@@ -50,6 +50,20 @@
         <p id="new-topic-error" class="error-text" role="alert"></p>
       </section>
 
+      <section class="card" aria-labelledby="h-images">
+        <h2 id="h-images">Images <span class="badge">Experimental</span></h2>
+        <label class="switch">
+          <input type="checkbox" id="images" aria-describedby="images-help">
+          <span>Also hide pictures that show your topics</span>
+        </label>
+        <p id="images-help" class="muted small">An image model on this device looks at the pictures themselves — no caption needed — and blurs those that clearly show a topic. Works best for things you can see (animals, sports, vehicles, food, coins); abstract topics such as politics are rarely recognisable from a picture alone, and similar-looking subjects (football and rugby) can be confused. Uses noticeably more memory and CPU (about half a second per picture). Nothing is uploaded.</p>
+        <label class="switch">
+          <input type="checkbox" id="image-downloads" aria-describedby="downloads-help">
+          <span>Also check pictures from other domains</span>
+        </label>
+        <p id="downloads-help" class="muted small">Most sites serve pictures from separate image servers, and the browser does not let ClearScroll read those pixels in the page. With this on, ClearScroll downloads one more copy of such a picture from the address the page itself uses — without your cookies — and analyses it on this device; that image server sees an extra request. With it off, those pictures are left unchecked and ClearScroll makes no network requests at all.</p>
+      </section>
+
       <section class="card" aria-labelledby="h-mode">
         <h2 id="h-mode">Strictness</h2>
         <fieldset class="modes">
@@ -83,7 +97,7 @@
             <option value="cpu">CPU only</option>
             <option value="off">Keyword matching only (no AI model)</option>
           </select>
-          <p id="engine-help" class="muted small">Use “CPU only” if your graphics driver misbehaves. Keyword matching only hides text that literally contains your topic words.</p>
+          <p id="engine-help" class="muted small">Use “CPU only” if your graphics driver misbehaves. Keyword matching only hides text that literally contains your topic words. This setting is for text; the image model always runs on the CPU.</p>
         </div>
         <div class="field">
           <h3>Diagnostics</h3>

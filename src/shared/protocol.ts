@@ -13,6 +13,7 @@
  */
 
 import type { Decision } from "./classifier.ts";
+import type { TabImageState, VisionStatus } from "./vision.ts";
 import { FILTER_MODES, LIMITS, type FilterMode } from "./settings.ts";
 
 export const LIMITS_PROTOCOL = {
@@ -100,6 +101,7 @@ export interface RegistrationStatus {
 export interface UiStatusReply {
   engine: EngineStatus;
   registration: RegistrationStatus;
+  vision: VisionStatus;
 }
 
 export interface TabStateRequest {
@@ -114,6 +116,7 @@ export interface TabStateReply {
   revealed: number;
   analyzed: number;
   engine: EngineStatus | null;
+  images: TabImageState;
 }
 
 // ── Worker protocol (offscreen ⇄ engine.worker) ───────────────────────────

@@ -21,6 +21,8 @@
 export const STATE_ATTR = "data-clearscroll";
 /** Which controller instance applied the state (see clearAllVisuals). */
 export const OWNER_ATTR = "data-clearscroll-owner";
+/** Marks a media element hidden by image analysis (stronger blur, see content.css). */
+export const MEDIA_ATTR = "data-clearscroll-media";
 const ADDED_TABINDEX_ATTR = "data-clearscroll-tabindex";
 const ADDED_TITLE_ATTR = "data-clearscroll-title";
 export const REVEAL_HINT = "Hidden by ClearScroll — click or press Enter to reveal";
@@ -71,10 +73,19 @@ export const DEFAULT_PROTECTED_SELECTORS = [
   "[aria-hidden='true']",
 ];
 
+/**
+ * Default protections that do not apply to pictures. `aria-hidden` marks
+ * content as hidden from assistive technology, not from view; sites use it on
+ * visible thumbnails whose title link is the accessible copy (every YouTube
+ * thumbnail). Small decorative graphics are excluded by size instead.
+ */
+const NOT_PROTECTING_MEDIA = new Set(["[aria-hidden='true']"]);
+
 /** Combine selectors into one string, dropping any that do not parse. */
-export function compileProtectedSelector(custom: readonly string[], doc: Document = document): string {
+export function compileProtectedSelector(custom: readonly string[], doc: Document = document, forMedia = false): string {
   const valid: string[] = [];
-  for (const sel of [...DEFAULT_PROTECTED_SELECTORS, ...custom]) {
+  const defaults = forMedia ? DEFAULT_PROTECTED_SELECTORS.filter((s) => !NOT_PROTECTING_MEDIA.has(s)) : DEFAULT_PROTECTED_SELECTORS;
+  for (const sel of [...defaults, ...custom]) {
     try {
       doc.createDocumentFragment().querySelector(sel);
       valid.push(sel);
@@ -268,6 +279,7 @@ export function clearVisual(el: Element): void {
   removeAdditions(el);
   el.removeAttribute(STATE_ATTR);
   el.removeAttribute(OWNER_ATTR);
+  el.removeAttribute(MEDIA_ATTR);
 }
 
 /**

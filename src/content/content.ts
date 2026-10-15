@@ -9,6 +9,7 @@
  */
 
 import type { ClassifyReply, TabStateReply } from "../shared/protocol.ts";
+import type { VisionReply } from "../shared/vision.ts";
 import { STORAGE_KEYS, SETTINGS_KEY, migrateSettings } from "../shared/settings.ts";
 import { FilterController } from "./controller.ts";
 
@@ -32,6 +33,7 @@ if (!g.__clearscroll?.alive()) {
   const controller = new FilterController({
     doc: document,
     classify: (req) => chrome.runtime.sendMessage(req) as Promise<ClassifyReply>,
+    classifyImage: (req) => chrome.runtime.sendMessage(req) as Promise<VisionReply>,
     onInvalidated: () => console.info(TAG, "extension was reloaded or removed; filtering stopped"),
   });
 
