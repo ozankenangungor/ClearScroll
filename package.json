@@ -32,7 +32,9 @@
     "test:dom": "node --test --test-concurrency=1 \"tests/dom/**/*.test.ts\"",
     "verify:privacy": "node scripts/verify-no-egress.ts",
     "benchmark": "node scripts/benchmark.ts",
-    "screenshots": "node scripts/demo-screenshots.ts"
+    "screenshots": "node scripts/demo-screenshots.ts",
+    "setup:vision": "node scripts/setup-vision-model.mjs",
+    "evaluate:vision": "node scripts/evaluate-vision.ts"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.37",
@@ -41,5 +43,8 @@
     "esbuild": "^0.28.2",
     "playwright": "^1.64.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.30.0"
   }
 }
