@@ -37,6 +37,11 @@
  * once, and a request approved before a revocation (its `downloadGrant` is
  * older than the latest revocation) is refused without network access.
  *
+ * Late requests: a request authorised by the service worker before image
+ * filtering was turned off carries an older `visionGrant` than the
+ * shutdown's `revokedAt` and is refused in classify(), before the model is
+ * touched — so a delayed message cannot load the model again.
+ *
  * Lifecycle epoch: `shutdown()` starts a new epoch. Work begun in an earlier
  * epoch — a job already running, a model still initialising — re-checks the
  * epoch after every await and stops: it cannot download, start a worker,
@@ -167,6 +172,8 @@ export class VisionHost {
   private readonly downloads = new Set<AbortController>();
   /** Latest download revocation (service-worker timestamp); older grants are refused. */
   private downloadsRevokedAt = 0;
+  /** Latest image-filtering shutdown (service-worker timestamp); older requests are refused. */
+  private imagesRevokedAt = 0;
   /** Rejects a worker initialisation that is still in progress. */
   private readonly initAborts: Partial<Record<Role, (err: Error) => void>> = {};
   readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, backgroundPrecomputed: null };
@@ -190,8 +197,13 @@ export class VisionHost {
     this.deps.onStatus(this.status);
   }
 
-  /** Image filtering was turned off: release the models and everything cached. */
-  shutdown(): void {
+  /**
+   * Image filtering was turned off (at service-worker time `revokedAt`):
+   * release the models and everything cached, and refuse requests
+   * authorised before that time.
+   */
+  shutdown(revokedAt = this.imagesRevokedAt): void {
+    this.imagesRevokedAt = Math.max(this.imagesRevokedAt, revokedAt);
     this.epoch++;
     this.abortDownloads(new Skip("disabled", "image filtering turned off"));
     for (const job of this.queue.splice(0)) job.resolve(this.skipReply(job.msg, new Skip("disabled", "image filtering turned off")));
@@ -232,6 +244,10 @@ export class VisionHost {
   }
 
   classify(msg: OffscreenVision): Promise<VisionReply> {
+    // Authorised before image filtering was last turned off: never loads the model.
+    if (!(typeof msg.visionGrant === "number" && msg.visionGrant >= this.imagesRevokedAt)) {
+      return Promise.resolve(this.skipReply(msg, new Skip("disabled", "image filtering was turned off")));
+    }
     const latest = this.latestGeneration.get(msg.frameKey);
     if (latest !== undefined && msg.generation < latest) {
       this.stats.staleDropped++;
