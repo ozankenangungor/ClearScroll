@@ -134,6 +134,8 @@ export interface VisionStats {
   inferMs: number;
   /** How often the text encoder was started (new topics after it idled out). */
   textWorkerStarts: number;
+  /** How often the image encoder was started (once per load; restarts after failures or re-enabling). */
+  imageWorkerStarts: number;
   backgroundPrecomputed: boolean | null;
 }
 
@@ -190,7 +192,7 @@ export class VisionHost {
   private imagesRevokedAt = 0;
   /** Rejects a worker initialisation that is still in progress. */
   private readonly initAborts: Partial<Record<Role, (err: Error) => void>> = {};
-  readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, backgroundPrecomputed: null };
+  readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, imageWorkerStarts: 0, backgroundPrecomputed: null };
   private readonly deps: VisionHostDeps;
 
   constructor(deps: VisionHostDeps) {
@@ -490,6 +492,7 @@ export class VisionHost {
       const [{ loadMs, threads }] = await Promise.all([this.spawn("image"), this.loadBackground(epoch)]);
       // Shut down meanwhile: the new worker was already terminated; report nothing.
       if (epoch !== this.epoch) return false;
+      this.stats.imageWorkerStarts++;
       this.setStatus({ state: "ready", backend: "cpu", threads, loadMs, detail: this.restarts ? `restarted ${this.restarts}×` : null });
       return true;
     } catch (err) {
