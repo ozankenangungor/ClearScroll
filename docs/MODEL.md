@@ -379,7 +379,7 @@ Used only when *Images* is enabled; independent of the text encoder above.
 |---|---|
 | Model | SigLIP base, patch 16, 224 px — `google/siglip-base-patch16-224` @ `7fd15f0689c7` (Apache-2.0) |
 | Files shipped | int8 dynamically quantised ONNX export from `Xenova/siglip-base-patch16-224` @ `4649052661e5`: image encoder 94.9 MiB, text encoder 106.3 MiB, SentencePiece `tokenizer.json` 2.3 MiB; sha256 + size pinned in `tools/vision_model_lock.json` |
-| Runtime | ONNX Runtime Web 1.30.0, WebAssembly SIMD, 1 thread (13.6 MiB `.wasm`), in dedicated workers of the offscreen document |
+| Runtime | ONNX Runtime Web 1.30.0 (non-bundled build), WebAssembly SIMD, up to 4 threads (half the logical cores; 13.6 MiB `.wasm` + 24 KB glue), in dedicated workers of the cross-origin-isolated offscreen document |
 | Embedding | 768-d `pooler_output`, L2-normalised; image and text in one space (contrastive image–text pre-training with a sigmoid loss on WebLI) |
 | Preprocessing | RGB, resize the whole picture to 224 × 224 (no crop, as trained), ×1/255, mean 0.5, std 0.5, NCHW float32 (`src/vision/preprocess.ts`) |
 | Text | lowercase, ASCII punctuation removed, whitespace collapsed (SigLIP's canonicalisation), SentencePiece Unigram, `</s>`, padded to 64 with `</s>` (the model has no attention mask); `src/vision/siglip-tokenizer.ts` |

@@ -97,7 +97,7 @@ Install Playwright's browser once: `npx playwright install chromium`
    text blur stays; Diagnostics → Image model shows "off".
 10. On a large site (YouTube, BBC): popup reports "N from other domains not
    checked" with downloads off; tick *Also check pictures from other
-   domains* → thumbnails are analysed (expect ~0.6 s per picture on CPU).
+   domains* → thumbnails are analysed (expect ~0.2 s per picture with 4 CPU threads, ~0.6 s with one).
 
 ## Packaging
 

@@ -291,10 +291,14 @@ found no exploitable issue.
   of 22 generic descriptions *and* reach a similarity floor; thresholds were
   calibrated on development photos only and the validation photos scored
   once after pre-registration. Uncertain pictures stay visible.
-* **Not done:** multi-threading (needs cross-origin isolation of all extension
-  pages; crashed the renderer in the bundled configuration), WebGPU (no
-  WebGPU kernels for the int8 operators; fp16 files would double the size),
-  video frames, iframes and shadow roots.
+* **Multi-threaded inference (Task 06).** The extension pages are made
+  cross-origin isolated (COOP/COEP in the manifest) so the model workers get
+  `SharedArrayBuffer`; ONNX Runtime's non-bundled build starts its threads
+  from its own glue file. 564 → 166 ms per picture with 4 threads, identical
+  outputs. The Task 05 attempt had failed for a specific reason: the bundled
+  build, run on a page's main thread, starts its threads from its own script.
+* **Not done:** WebGPU (no WebGPU kernels for the int8 operators; fp16 files
+  would double the size), video frames, iframes and shadow roots.
 
 ## Things deliberately not done
 
