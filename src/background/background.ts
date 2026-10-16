@@ -245,6 +245,38 @@ async function forwardClassify(msg: OffscreenClassify): Promise<ClassifyReply> {
   }
 }
 
+// ── Download consent ──────────────────────────────────────────────────────
+//
+// When download permission is withdrawn the offscreen document must abort
+// downloads in flight and refuse requests approved earlier. Each approval
+// carries `downloadGrant` = the latest revocation time known here, read
+// *before* the settings check; the offscreen document refuses grants older
+// than the newest revocation it received. Kept in session storage so a
+// restarted service worker continues the sequence (the offscreen document
+// can outlive it).
+
+const REVOKED_KEY = "clearscroll_downloads_revoked_at";
+let downloadsRevokedAt = 0;
+const revocationLoaded: Promise<void> = chrome.storage.session.get(REVOKED_KEY).then(
+  (r) => {
+    downloadsRevokedAt = Math.max(downloadsRevokedAt, Number(r[REVOKED_KEY]) || 0);
+  },
+  () => undefined
+);
+
+function downloadsAllowed(s: Settings): boolean {
+  return isImageFilteringActive(s) && s.imageDownloads;
+}
+
+function revokeDownloads(): void {
+  downloadsRevokedAt = Math.max(Date.now(), downloadsRevokedAt + 1);
+  const revokedAt = downloadsRevokedAt;
+  void chrome.storage.session.set({ [REVOKED_KEY]: revokedAt }).catch(() => undefined);
+  void currentOffscreen()
+    .then((ctx) => (ctx ? chrome.runtime.sendMessage({ type: "off:vision-revoke-downloads", target: "offscreen", revokedAt }) : undefined))
+    .catch(() => undefined);
+}
+
 function unloadImageModel(): void {
   visionStatus = initialVisionStatus();
   void currentOffscreen()
@@ -257,6 +289,10 @@ function visionSkip(generation: number, reason: SkipReason, error: string): Visi
 }
 
 async function forwardVision(msg: OffscreenVision, frameUrl: string | undefined): Promise<VisionReply> {
+  // The grant is taken before the settings are read: if permission is
+  // withdrawn in between, the grant predates the revocation and is refused.
+  await revocationLoaded;
+  const grant = downloadsRevokedAt;
   const settings = await loadSettings();
   if (!isImageFilteringActive(settings)) return visionSkip(msg.generation, "disabled", "image filtering is off");
   if (!frameUrl || isUrlExcluded(frameUrl, settings.excludedSites)) return visionSkip(msg.generation, "disabled", "site excluded");
@@ -266,6 +302,9 @@ async function forwardVision(msg: OffscreenVision, frameUrl: string | undefined)
     if (!settings.imageDownloads) return visionSkip(msg.generation, "downloads-off", "image downloads are not allowed");
     const checked = checkImageUrl(msg.image.url);
     if (!checked.ok) return visionSkip(msg.generation, "ineligible-url", checked.error);
+    msg = { ...msg, downloadGrant: grant };
+  } else {
+    msg = { ...msg, downloadGrant: undefined };
   }
   await ensureOffscreen(settings);
   for (let attempt = 0; ; attempt++) {
@@ -362,6 +401,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // defaults) changes nothing: no second registration sync.
   if (prev && JSON.stringify(prev) === JSON.stringify(next)) return;
   void scheduleSync("settings-changed", shouldInjectOpenTabs(prev, next));
+  // Download permission withdrawn (downloads or images off, filtering paused,
+  // no active topic) or a site newly excluded: abort downloads in flight.
+  if (prev && downloadsAllowed(prev) && (!downloadsAllowed(next) || next.excludedSites.some((h) => !prev.excludedSites.includes(h)))) revokeDownloads();
   // Image filtering turned off: unload the image model; text keeps running.
   // Fire-and-forget and outside the registration chain: messaging the
   // offscreen document must never delay content-script registration.

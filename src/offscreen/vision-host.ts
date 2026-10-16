@@ -29,6 +29,19 @@
  * independent, so changing topics re-scores cached images without inference;
  * topic embeddings by topic text. Both are cleared with the worker.
  *
+ * Downloads (only for URL requests the service worker approved): no redirects
+ * are followed (`redirect: "manual"`; any redirect response, including the
+ * opaque one cross-origin redirects produce, is refused), so no request is
+ * ever made to an address that was not checked. Every download has an
+ * AbortController; `shutdown()` and `revokeDownloads()` abort all of them at
+ * once, and a request approved before a revocation (its `downloadGrant` is
+ * older than the latest revocation) is refused without network access.
+ *
+ * Lifecycle epoch: `shutdown()` starts a new epoch. Work begun in an earlier
+ * epoch — a job already running, a model still initialising — re-checks the
+ * epoch after every await and stops: it cannot download, start a worker,
+ * fill a cache or report a status after shutdown.
+ *
  * Failures: initialisation failure or timeout → state "error" (truthfully
  * reported; images are left visible) and a new attempt after
  * RECOVERY_COOLDOWN_MS. An image-worker crash or inference timeout restarts
@@ -148,6 +161,14 @@ export class VisionHost {
   private readonly jobTimeoutMs: number;
   private readonly textIdleMs: number;
   readonly queueCapacity: number;
+  /** Incremented by shutdown(); async work from an older epoch stops. */
+  private epoch = 0;
+  /** Downloads in flight. */
+  private readonly downloads = new Set<AbortController>();
+  /** Latest download revocation (service-worker timestamp); older grants are refused. */
+  private downloadsRevokedAt = 0;
+  /** Rejects a worker initialisation that is still in progress. */
+  private readonly initAborts: Partial<Record<Role, (err: Error) => void>> = {};
   readonly stats: VisionStats = { jobs: 0, inferred: 0, cacheHits: 0, staleDropped: 0, overloadRejected: 0, downloads: 0, downloadBytes: 0, skipped: {}, inferMs: 0, textWorkerStarts: 0, backgroundPrecomputed: null };
   private readonly deps: VisionHostDeps;
 
@@ -171,6 +192,8 @@ export class VisionHost {
 
   /** Image filtering was turned off: release the models and everything cached. */
   shutdown(): void {
+    this.epoch++;
+    this.abortDownloads(new Skip("disabled", "image filtering turned off"));
     for (const job of this.queue.splice(0)) job.resolve(this.skipReply(job.msg, new Skip("disabled", "image filtering turned off")));
     this.stopWorker("image");
     this.stopWorker("text");
@@ -181,6 +204,31 @@ export class VisionHost {
     this.failedAt = null;
     this.restarts = 0;
     if (this.status.state !== "idle") this.setStatus({ state: "idle", backend: null, detail: null, loadMs: null });
+  }
+
+  /**
+   * Download permission was withdrawn (at service-worker time `revokedAt`):
+   * abort every download in flight; requests approved earlier are refused.
+   * The models, caches and pixel-based analysis are unaffected.
+   */
+  revokeDownloads(revokedAt: number): void {
+    this.downloadsRevokedAt = Math.max(this.downloadsRevokedAt, revokedAt);
+    this.abortDownloads(new Skip("downloads-off", "image downloads were turned off"));
+  }
+
+  /** Number of downloads in flight (diagnostics and tests). */
+  activeDownloads(): number {
+    return this.downloads.size;
+  }
+
+  private abortDownloads(reason: Skip): void {
+    for (const ctrl of this.downloads) ctrl.abort(reason);
+    this.downloads.clear();
+  }
+
+  /** Throws when work started in `epoch` was overtaken by shutdown(). */
+  private alive(epoch: number): void {
+    if (epoch !== this.epoch) throw new Skip("disabled", "image filtering turned off");
   }
 
   classify(msg: OffscreenVision): Promise<VisionReply> {
@@ -242,10 +290,14 @@ export class VisionHost {
 
   private async run(msg: OffscreenVision): Promise<VisionReply> {
     this.stats.jobs++;
-    if (!(await this.ensureReady())) throw new Skip("unavailable", this.status.detail ?? "image model unavailable");
+    const epoch = this.epoch;
+    const ready = await this.ensureReady();
+    this.alive(epoch);
+    if (!ready) throw new Skip("unavailable", this.status.detail ?? "image model unavailable");
     // Image and topics in parallel: the text encoder (new topics only) and the
     // image encoder run in different workers.
-    const [image, text] = await Promise.allSettled([this.acquire(msg).then((input) => this.embedImage(input)), this.prepareTopics(msg.topics.map((t) => t.text))]);
+    const [image, text] = await Promise.allSettled([this.acquire(msg, epoch).then((input) => this.embedImage(input)), this.prepareTopics(msg.topics.map((t) => t.text))]);
+    this.alive(epoch);
     if (image.status === "rejected") throw image.reason;
     if (text.status === "rejected") throw text.reason;
     const vector = image.value;
@@ -270,17 +322,19 @@ export class VisionHost {
   }
 
   /** The image's cache key plus its cached embedding, or the data to embed. */
-  private async acquire(msg: OffscreenVision): Promise<{ key: string; cached?: Float32Array; rgb?: Uint8Array; blob?: Blob }> {
+  private async acquire(msg: OffscreenVision, epoch: number): Promise<{ key: string; cached?: Float32Array; rgb?: Uint8Array; blob?: Blob }> {
     if (msg.image.kind === "pixels") {
       const key = `p:${await this.deps.sha256(msg.image.rgb)}`;
       const cached = this.images.get(key);
       return cached ? { key, cached } : { key, rgb: base64ToBytes(msg.image.rgb) };
     }
+    // Approved by the service worker before the latest revocation: refused.
+    if (!(typeof msg.downloadGrant === "number" && msg.downloadGrant >= this.downloadsRevokedAt)) throw new Skip("downloads-off", "image downloads are not allowed");
     const checked = checkImageUrl(msg.image.url);
     if (!checked.ok) throw new Skip("ineligible-url", checked.error);
     const key = `u:${checked.url.href}`;
     const cached = this.images.get(key);
-    return cached ? { key, cached } : { key, blob: await this.download(checked.url) };
+    return cached ? { key, cached } : { key, blob: await this.download(checked.url, epoch) };
   }
 
   /**
@@ -292,16 +346,20 @@ export class VisionHost {
    * requested. Validating each hop instead is not possible with fetch: the
    * Location of an opaque redirect is not exposed.
    */
-  private async download(url: URL): Promise<Blob> {
+  private async download(url: URL, epoch: number): Promise<Blob> {
+    this.alive(epoch);
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), VISION_LIMITS.downloadTimeoutMs);
+    this.downloads.add(ctrl);
+    const timer = setTimeout(() => ctrl.abort(new Skip("download-failed", "download timed out")), VISION_LIMITS.downloadTimeoutMs);
+    const aborted = (err: unknown): Skip => (ctrl.signal.aborted ? (ctrl.signal.reason instanceof Skip ? ctrl.signal.reason : new Skip("download-failed", "download aborted")) : new Skip("download-failed", errorText(err)));
     try {
       let res: Response;
       try {
         res = await this.deps.fetch(url.href, { credentials: "omit", referrerPolicy: "no-referrer", cache: "default", redirect: "manual", signal: ctrl.signal });
       } catch (err) {
-        throw new Skip("download-failed", ctrl.signal.aborted ? "download timed out" : errorText(err));
+        throw aborted(err);
       }
+      if (ctrl.signal.aborted) throw aborted(null);
       if (res.type === "opaqueredirect" || res.redirected || (res.status >= 300 && res.status < 400)) {
         void res.body?.cancel().catch(() => undefined);
         throw new Skip("download-failed", "redirects are not followed");
@@ -320,21 +378,27 @@ export class VisionHost {
         try {
           r = await reader.read();
         } catch (err) {
-          throw new Skip("download-failed", ctrl.signal.aborted ? "download timed out" : errorText(err));
+          throw aborted(err);
+        }
+        if (ctrl.signal.aborted) {
+          void reader.cancel().catch(() => undefined);
+          throw aborted(null);
         }
         if (r.done) break;
         total += r.value.length;
         if (total > VISION_LIMITS.maxDownloadBytes) {
-          void reader.cancel();
+          void reader.cancel().catch(() => undefined);
           throw new Skip("too-large", `image exceeds ${VISION_LIMITS.maxDownloadBytes} bytes`);
         }
         chunks.push(r.value);
       }
+      this.alive(epoch);
       this.stats.downloads++;
       this.stats.downloadBytes += total;
       return new Blob(chunks as BlobPart[], { type });
     } finally {
       clearTimeout(timer);
+      this.downloads.delete(ctrl);
     }
   }
 
@@ -374,12 +438,16 @@ export class VisionHost {
 
   /** Start the image worker (and load the precomputed background alongside). */
   private async start(): Promise<boolean> {
+    const epoch = this.epoch;
     this.setStatus({ state: "loading", backend: null, detail: null });
     try {
-      const [loadMs] = await Promise.all([this.spawn("image"), this.loadBackground()]);
+      const [loadMs] = await Promise.all([this.spawn("image"), this.loadBackground(epoch)]);
+      // Shut down meanwhile: the new worker was already terminated; report nothing.
+      if (epoch !== this.epoch) return false;
       this.setStatus({ state: "ready", backend: "cpu", loadMs, detail: this.restarts ? `restarted ${this.restarts}×` : null });
       return true;
     } catch (err) {
+      if (epoch !== this.epoch) return false;
       this.stopWorker("image");
       this.failedAt = this.deps.now();
       this.setStatus({ state: "error", backend: null, detail: errorText(err) });
@@ -387,9 +455,10 @@ export class VisionHost {
     }
   }
 
-  private async loadBackground(): Promise<void> {
+  private async loadBackground(epoch: number): Promise<void> {
     if (this.background || !this.deps.loadBackground) return;
     const vectors = usableBackground(await this.deps.loadBackground().catch(() => null));
+    if (epoch !== this.epoch) return;
     this.stats.backgroundPrecomputed = vectors !== null;
     if (vectors) this.background = vectors;
   }
@@ -425,23 +494,27 @@ export class VisionHost {
     const worker = this.deps.createWorker();
     this.workers[role] = worker;
     return new Promise<number>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`${role} model initialisation timed out after ${this.initTimeoutMs} ms`)), this.initTimeoutMs);
+      const settle = (err: Error | null, loadMs = 0) => {
+        clearTimeout(timer);
+        if (this.initAborts[role] === abort) delete this.initAborts[role];
+        if (err) reject(err);
+        else resolve(loadMs);
+      };
+      // stopWorker() (shutdown, crash) ends an initialisation still in progress.
+      const abort = (err: Error) => settle(err);
+      this.initAborts[role] = abort;
+      const timer = setTimeout(() => settle(new Error(`${role} model initialisation timed out after ${this.initTimeoutMs} ms`)), this.initTimeoutMs);
       worker.onmessage = (ev) => {
         const m = ev.data;
         if (m.type === "ready") {
-          clearTimeout(timer);
           worker.onmessage = (e) => this.onWorkerMessage(e.data);
           worker.onerror = (e) => this.onWorkerCrash(role, new Error(e.message || `${role} worker crashed`));
-          resolve(m.loadMs);
+          settle(null, m.loadMs);
         } else if (m.type === "init-failed") {
-          clearTimeout(timer);
-          reject(new Error(m.error));
+          settle(new Error(m.error));
         }
       };
-      worker.onerror = (ev) => {
-        clearTimeout(timer);
-        reject(new Error(ev.message || `${role} worker crashed`));
-      };
+      worker.onerror = (ev) => settle(new Error(ev.message || `${role} worker crashed`));
       worker.postMessage({
         type: "init",
         role,
@@ -493,6 +566,7 @@ export class VisionHost {
   }
 
   private stopWorker(role: Role, err: Error = new Error(`${role} worker stopped`)): void {
+    this.initAborts[role]?.(err);
     const worker = this.workers[role];
     if (worker) {
       worker.onmessage = null;
