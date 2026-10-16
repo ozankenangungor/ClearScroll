@@ -20,6 +20,10 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   only, size/type/time limits). Off by default; with it off ClearScroll still
   makes no network requests at all.
 - Image-model status and counters in the popup and options diagnostics.
+- Image downloads never follow redirects (a redirect target is never
+  requested) and are aborted immediately when download permission or image
+  filtering is withdrawn; requests approved just before such a change are
+  refused (review fix, Task 05.1).
 - Image privacy checks (`npm run verify:privacy:images`), real-model browser
   tests, PyTorch parity fixtures, an image benchmark and a pre-registered
   image evaluation.

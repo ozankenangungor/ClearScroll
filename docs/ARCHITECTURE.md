@@ -172,7 +172,29 @@ style names).
 request. One job at a time; ≤ 32 waiting (`overloaded` beyond); per frame,
 older generations are answered `stale`. Downloads: `credentials: "omit"`,
 `referrerPolicy: "no-referrer"`, image MIME types only (no SVG), ≤ 8 MiB
-(header and streamed), 10 s timeout, the final URL after redirects re-checked.
+(header and streamed), 10 s timeout, and `redirect: "manual"`: any redirect
+answer (a readable 3xx, or the `opaqueredirect` response cross-origin
+redirects produce, whose `Location` is not exposed to fetch) fails the
+download, so a redirect target — possibly a private address — is never
+requested. Validating each hop is impossible with fetch, hence refusal.
+The URL check cannot see DNS answers (rebinding is not detected; see
+`checkImageUrl`).
+
+*Consent lifecycle.* Every download has an `AbortController`.
+`shutdown()` (image filtering off) and `revokeDownloads(revokedAt)` abort
+all of them immediately. The service worker stamps each approved URL request
+with `downloadGrant` = its latest revocation time, read *before* it checks
+the settings; when permission is withdrawn (downloads/images/filtering off,
+no active topic, a newly excluded site) it records a new revocation time
+(session storage, so it survives a service-worker restart) and sends
+`off:vision-revoke-downloads`; VisionHost refuses grants older than the
+newest revocation, so a request approved just before the change cannot start
+a download after it, whatever the message order. `shutdown()` also starts a
+new *epoch*: a job or model initialisation begun earlier re-checks the epoch
+after each await and stops — no download, worker start, cache write or
+status report after shutdown (pending initialisations are rejected at once
+instead of running into their timeout). Revoking downloads leaves the image
+model, its caches, pixel-based analysis and the text engine running.
 Caches, memory only: image embeddings by identity (`u:<url>` or `p:<sha256
 of the RGB frame>`; 1,000 entries; topic-independent, so changing topics
 re-scores without inference), topic embeddings by text (64). The background
@@ -214,7 +236,8 @@ both workers and clears the caches.
 | Image worker crash / 30 s inference timeout | worker restarted (≤ 2×), job retried by the content script | then `error` |
 | Text worker crash | the job fails (retryable); next topic starts a new worker | — |
 | Picture cannot be read (cross-origin, downloads off) | left visible | popup count "from other domains not checked" |
-| Download fails, not an image, too large, decode error, ineligible URL | left visible, not retried for that picture | diagnostics counters |
+| Download fails, redirect, not an image, too large, decode error, ineligible URL | left visible, not retried for that picture | diagnostics counters |
+| Download permission withdrawn / images turned off mid-download | download aborted at once, picture left visible | `downloads-off` / `disabled` |
 | Queue full / model loading | retried with backoff (1 s → 60 s, ≤ 5 attempts) | — |
 
 ## State and concurrency
