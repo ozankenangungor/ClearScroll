@@ -37,6 +37,20 @@ export interface MediaRequest {
   origin: string | null;
 }
 
+/**
+ * Image requests the server holds open (/hold/<key>): those made without a
+ * referrer — the extension's downloads — are not answered until released,
+ * so tests can change settings while a download is in flight. Page loads
+ * (with a referrer) are answered at once.
+ */
+export interface HeldDownloads {
+  /** Paths currently held open. */
+  waiting: string[];
+  /** Paths whose connection the client closed before the server answered. */
+  aborted: string[];
+  releaseAll(): void;
+}
+
 export interface Env {
   ctx: BrowserContext;
   sw: Worker;
@@ -44,23 +58,64 @@ export interface Env {
   base: string;
   port: number;
   mediaRequests: MediaRequest[];
+  held: HeldDownloads;
   close(): Promise<void>;
 }
 
-export function startServer(): Promise<{ base: string; port: number; mediaRequests: MediaRequest[]; close(): Promise<void> }> {
+function sendMedia(res: http.ServerResponse, key: string): void {
+  const name = MEDIA[key];
+  if (!name) {
+    // Served as an image type, but not decodable.
+    res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end("not an image");
+    return;
+  }
+  const type = name.endsWith(".webp") ? "image/webp" : "image/jpeg";
+  res.writeHead(200, { "content-type": type, "cache-control": "no-store" }).end(fs.readFileSync(path.join(IMAGES, name)));
+}
+
+export function startServer(): Promise<{ base: string; port: number; mediaRequests: MediaRequest[]; held: HeldDownloads; close(): Promise<void> }> {
   const mediaRequests: MediaRequest[] = [];
+  const holding = new Map<string, () => void>();
+  const held: HeldDownloads = {
+    get waiting() {
+      return [...holding.keys()];
+    },
+    aborted: [],
+    releaseAll: () => {
+      for (const release of [...holding.values()]) release();
+    },
+  };
   const srv = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
+    const record = () => mediaRequests.push({ host: req.headers.host ?? "", path: url.pathname + url.search, cookie: req.headers.cookie ?? null, referer: req.headers.referer ?? null, origin: req.headers.origin ?? null });
+    // /redirect/<key>?to=<url>: a 302 to an arbitrary address (e.g. a private one).
+    if (url.pathname.startsWith("/redirect/")) {
+      record();
+      res.writeHead(302, { location: url.searchParams.get("to") ?? "/", "cache-control": "no-store" }).end();
+      return;
+    }
+    if (url.pathname.startsWith("/hold/")) {
+      record();
+      const key = url.pathname.slice(6);
+      if (req.headers.referer) return void sendMedia(res, key);
+      const id = url.pathname + url.search;
+      let done = false;
+      holding.set(id, () => {
+        done = true;
+        holding.delete(id);
+        sendMedia(res, key);
+      });
+      res.on("close", () => {
+        if (!done) {
+          holding.delete(id);
+          held.aborted.push(id);
+        }
+      });
+      return;
+    }
     if (url.pathname.startsWith("/media/")) {
-      mediaRequests.push({ host: req.headers.host ?? "", path: url.pathname + url.search, cookie: req.headers.cookie ?? null, referer: req.headers.referer ?? null, origin: req.headers.origin ?? null });
-      const name = MEDIA[url.pathname.slice(7)];
-      if (!name) {
-        // Served as an image type, but not decodable.
-        res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end("not an image");
-        return;
-      }
-      const type = name.endsWith(".webp") ? "image/webp" : "image/jpeg";
-      res.writeHead(200, { "content-type": type, "cache-control": "no-store" }).end(fs.readFileSync(path.join(IMAGES, name)));
+      record();
+      sendMedia(res, url.pathname.slice(7));
       return;
     }
     if (url.pathname === "/set-cookie") {
@@ -81,7 +136,18 @@ export function startServer(): Promise<{ base: string; port: number; mediaReques
   return new Promise((resolve) =>
     srv.listen(0, "127.0.0.1", () => {
       const { port } = srv.address() as { port: number };
-      resolve({ base: `http://127.0.0.1:${port}`, port, mediaRequests, close: () => new Promise((r) => srv.close(() => r())) });
+      resolve({
+        base: `http://127.0.0.1:${port}`,
+        port,
+        mediaRequests,
+        held,
+        close: () =>
+          new Promise((r) => {
+            held.releaseAll();
+            srv.closeAllConnections();
+            srv.close(() => r());
+          }),
+      });
     })
   );
 }
@@ -151,6 +217,7 @@ export async function launchExtension(opts: LaunchOptions = {}): Promise<Env> {
     base: server.base,
     port: server.port,
     mediaRequests: server.mediaRequests,
+    held: server.held,
     close: async () => {
       await ctx.close();
       await server.close();

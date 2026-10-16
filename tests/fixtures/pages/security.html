@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Image download security fixtures</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; }
+  main { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; }
+  img { width: 300px; height: 220px; object-fit: cover; display: block; }
+</style>
+</head>
+<body>
+<!-- A same-origin picture (readable from pixels, no download needed); tests
+     add other-domain pictures to #slot. -->
+<main id="slot"><img id="local-cat" src="/media/k1?local"></main>
+</body>
+</html>
