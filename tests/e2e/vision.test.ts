@@ -435,9 +435,15 @@ test("rapid image-filtering toggles: ending off leaves the model unloaded; endin
   await page.waitForTimeout(3000);
   assert.equal((await uiStatus(env)).vision.state, "idle", "ended off: no model loaded by any earlier request");
   assert.equal(await page.locator("img[data-clearscroll]").count(), 0, "ended off: nothing hidden");
-  // Back on: legitimate image-only analysis works again.
+  // Back on: legitimate image-only analysis works again — and the topic's
+  // embedding comes from the persistent store: no text encoder is started.
+  const statsPage = await extensionPage(env);
+  const stats = () => statsPage.evaluate(() => chrome.runtime.sendMessage({ type: "off:vision-stats", target: "offscreen" }));
+  const startsBefore = (await stats()).textWorkerStarts;
   await setSettings(env, { images: true });
   await addLocal("t4", "k1");
   await waitAttr(page, "#t4", "blurred", COLD_MS);
   assert.equal((await uiStatus(env)).vision.state, "ready");
+  assert.equal((await stats()).textWorkerStarts, startsBefore, "known topic: text encoder not restarted");
+  await statsPage.close();
 });

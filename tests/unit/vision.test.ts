@@ -688,3 +688,26 @@ test("VisionHost: each model worker is started with its configured thread count"
   await d.host.classify(msg({ kind: "pixels", rgb: frame(true) }));
   assert.equal(d.image()[0]!.initThreads, 1, "default: one thread");
 });
+
+test("VisionHost: topic embeddings persist across sessions — no text encoder for a known topic", async () => {
+  const saved = new Map<string, Float32Array>();
+  const topicStore = { get: async (k: string) => saved.get(k) ?? null, set: async (k: string, v: Float32Array) => void saved.set(k, v) };
+  const good = { model: "siglip-base-p16-224-int8", prompts: [...VISION_BACKGROUND_PROMPTS], vectors: VISION_BACKGROUND_PROMPTS.map(textVec) };
+  const first = harness({}, undefined, { topicStore, loadBackground: async () => good });
+  assert.ok(okDecision(await first.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched);
+  assert.equal(first.text().length, 1, "first session: the topic is embedded once");
+  assert.equal(saved.size, 1, "and stored");
+  // A new session (browser restart, images off/on): same decision, no text encoder.
+  const second = harness({}, undefined, { topicStore, loadBackground: async () => good });
+  assert.ok(okDecision(await second.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched);
+  assert.equal(second.text().length, 0, "no text worker started");
+  // A new topic still uses the text encoder; unusable stored vectors are recomputed.
+  saved.set([...saved.keys()][0]!, Float32Array.from([NaN, 0, 0, 0]));
+  const third = harness({}, undefined, { topicStore, loadBackground: async () => good });
+  assert.ok(okDecision(await third.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched);
+  assert.equal(third.text().length, 1, "a corrupt stored vector is ignored");
+  saved.set([...saved.keys()][0]!, Float32Array.from([1, 0, 0]));
+  const fourth = harness({}, undefined, { topicStore, loadBackground: async () => good });
+  await fourth.host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.equal(fourth.text().length, 1, "a vector of the wrong dimension is ignored");
+});
