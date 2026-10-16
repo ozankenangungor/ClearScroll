@@ -1,32 +1,33 @@
 {
   "label": "cpu-chromium",
   "browser": "chromium",
-  "date": "2026-10-15",
+  "date": "2026-10-16",
   "cpu": "11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz",
   "cores": 16,
   "gallery": {
     "photos": 40,
-    "inferred": 41,
-    "wallMs": 26146,
-    "wallPerPictureMs": 654,
-    "meanInferMs": 636
+    "inferred": 40,
+    "wallMs": 6663,
+    "wallPerPictureMs": 167,
+    "meanInferMs": 166
   },
-  "modelLoadMs": 594,
-  "coldFirstPictureMs": 2378,
+  "modelLoadMs": 476,
+  "imageModelThreads": 4,
+  "coldFirstPictureMs": 1854,
   "repeatVisit": {
-    "wallMs": 493,
-    "cacheHits": 40
+    "wallMs": 358,
+    "cacheHits": 41
   },
   "memory": {
-    "pssBeforeImagesMiB": 633,
-    "pssAfterGalleryMiB": 1106,
-    "peakDeltaMiB": 473,
-    "steadyDeltaMiB": 359,
-    "note": "sum of PSS over all browser processes of the profile; steady = 25 s after the last new topic (text encoder released)"
+    "pssBeforeImagesMiB": 640,
+    "pssAfterGalleryMiB": 1470,
+    "peakDeltaMiB": 952,
+    "steadyDeltaMiB": 361,
+    "note": "sum of PSS over all browser processes of the profile; peak = maximum of 250 ms samples from turning images on until the steady reading; steady = 25 s after the last new topic (text encoder released)"
   },
   "textFiltering": {
-    "aloneMs": 146,
-    "whileGalleryAnalysedMs": 148,
+    "aloneMs": 137,
+    "whileGalleryAnalysedMs": 154,
     "note": "time until every paragraph within 2.5 viewports of long.html is analysed"
   },
   "package": {

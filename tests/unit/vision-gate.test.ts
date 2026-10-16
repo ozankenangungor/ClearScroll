@@ -29,7 +29,7 @@ class Worker implements VisionWorkerLike {
   postMessage(msg: VisionWorkerRequest): void {
     if (msg.type === "init") {
       this.role = msg.role;
-      this.send({ type: "ready", loadMs: 1 });
+      this.send({ type: "ready", loadMs: 1, threads: 1 });
     } else if (msg.type === "text") {
       this.send({ type: "text-done", id: msg.id, vectors: Float32Array.from(msg.prompts.flatMap((p) => (/cat/.test(p) ? [1, 0, 0, 0] : [0, 0, 0, 1]))), ms: 1 });
     } else {

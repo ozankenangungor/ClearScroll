@@ -32,7 +32,8 @@ if (verifyVisionModel().length) run("node", ["scripts/setup-vision-model.mjs"]);
 const visionProblems = verifyVisionModel();
 if (visionProblems.length) fail(`image model not verified:\n  ${visionProblems.join("\n  ")}`);
 const ORT_WASM = "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm";
-if (!fs.existsSync(path.join(REPO, ORT_WASM))) fail(`${ORT_WASM} missing — run: npm ci`);
+const ORT_GLUE = "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs";
+for (const f of [ORT_WASM, ORT_GLUE]) if (!fs.existsSync(path.join(REPO, f))) fail(`${f} missing — run: npm ci`);
 
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
@@ -49,7 +50,20 @@ const entries = [
   { in: "src/options/options.ts", out: "options/options.js", format: "esm" },
   { in: "src/popup/popup.ts", out: "popup/popup.js", format: "esm" },
 ];
-await Promise.all(entries.map((e) => esbuild.build({ ...common, entryPoints: [path.join(REPO, e.in)], outfile: path.join(DIST, e.out), format: e.format })));
+await Promise.all(
+  entries.map((e) =>
+    esbuild.build({
+      ...common,
+      entryPoints: [path.join(REPO, e.in)],
+      outfile: path.join(DIST, e.out),
+      format: e.format,
+      // ONNX Runtime's non-bundled build: its WebAssembly glue stays a separate
+      // file (offscreen/vision/ort-wasm-simd-threaded.mjs) from which its
+      // worker threads start.
+      ...(e.in.includes("vision.worker") ? { conditions: ["onnxruntime-web-use-extern-wasm"] } : {}),
+    })
+  )
+);
 
 step("Copying static assets");
 const copy = (from, to) => {
@@ -81,6 +95,7 @@ copy("pkg/clearscroll_engine_bg.wasm", "offscreen/pkg/clearscroll_engine_bg.wasm
 for (const f of ["weights.bin", "vocab.txt", "model.json"]) copy(path.relative(REPO, path.join(MODEL_DIR, f)), `offscreen/model/${f}`);
 // Image model (loaded only when image filtering is on) and the ONNX Runtime WebAssembly binary.
 copy(ORT_WASM, "offscreen/vision/ort-wasm-simd-threaded.wasm");
+copy(ORT_GLUE, "offscreen/vision/ort-wasm-simd-threaded.mjs");
 for (const f of ["onnx/vision_model_quantized.onnx", "onnx/text_model_quantized.onnx", "tokenizer.json"]) copy(path.relative(REPO, path.join(VISION_DIR, f)), `offscreen/vision/${path.basename(f)}`);
 step("Embedding the image filter's background prompts (ONNX Runtime WebAssembly, pinned text encoder)");
 fs.writeFileSync(path.join(DIST, "offscreen/vision/background.json"), JSON.stringify(await computeBackground(VISION_DIR)));

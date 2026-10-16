@@ -91,6 +91,9 @@ test("cats: a cat photo with no caption is blurred from its pixels; dog, landsca
   const status = await uiStatus(env);
   assert.equal(status.vision.state, "ready");
   assert.equal(status.vision.model, "siglip-base-p16-224-int8");
+  // Multi-threaded where the machine allows it: half the logical cores, at most 4.
+  const cores = await env.sw.evaluate(() => navigator.hardwareConcurrency);
+  assert.equal(status.vision.threads, Math.max(1, Math.min(4, Math.floor(cores / 2))), `threads for ${cores} logical cores`);
 });
 
 test("reveal: one click shows the photo (also inside a link, without navigating); keyboard works too", async () => {
@@ -187,7 +190,7 @@ test("the image model's embeddings match the PyTorch reference (browser decoding
   const bgPrompts = JSON.parse(fs.readFileSync(path.join(DIST, "offscreen/vision/background.json"), "utf8"));
   const result = await page.evaluate(
     async ({ base, keys, prompts, background }) => {
-      const spawn = async (role: "image" | "text") => {
+      const spawn = async (role: "image" | "text", threads = 4) => {
         const w = new Worker(chrome.runtime.getURL("offscreen/vision.worker.js"), { type: "module" });
         let next = 1;
         const call = (m: Record<string, unknown>) =>
@@ -203,9 +206,9 @@ test("the image model's embeddings match the PyTorch reference (browser decoding
             w.postMessage({ ...m, id });
           });
         const u = (p: string) => chrome.runtime.getURL(`offscreen/vision/${p}`);
-        const init = await call({ type: "init", role, ortWasmUrl: u("ort-wasm-simd-threaded.wasm"), modelUrl: u(role === "image" ? "vision_model_quantized.onnx" : "text_model_quantized.onnx"), tokenizerUrl: role === "text" ? u("tokenizer.json") : undefined });
+        const init = await call({ type: "init", role, ortPrefix: u(""), threads, modelUrl: u(role === "image" ? "vision_model_quantized.onnx" : "text_model_quantized.onnx"), tokenizerUrl: role === "text" ? u("tokenizer.json") : undefined });
         if (init.type !== "ready") throw new Error(init.error);
-        return { w, call };
+        return { w, call, threads: init.threads as number };
       };
       try {
         const img = await spawn("image");
@@ -218,9 +221,17 @@ test("the image model's embeddings match the PyTorch reference (browser decoding
         }
         const t = await txt.call({ type: "text", prompts });
         const bg = await txt.call({ type: "text", prompts: background.prompts.slice(0, 3) });
+        // The same images on one thread: threading must not change any result.
+        const single = await spawn("image", 1);
+        const singleImages: number[][] = [];
+        for (const k of keys.slice(0, 3)) {
+          const blob = await (await fetch(`${base}/media/${k}`)).blob();
+          singleImages.push(Array.from((await single.call({ type: "image", blob, maxPixels: 24e6 })).vector));
+        }
         img.w.terminate();
         txt.w.terminate();
-        return { images, text: Array.from(t.vectors as Float32Array), bg: Array.from(bg.vectors as Float32Array) };
+        single.w.terminate();
+        return { images, singleImages, threads: img.threads, singleThreads: single.threads, isolated: crossOriginIsolated, text: Array.from(t.vectors as Float32Array), bg: Array.from(bg.vectors as Float32Array) };
       } catch (err) {
         return { error: String(err) };
       }
@@ -243,6 +254,16 @@ test("the image model's embeddings match the PyTorch reference (browser decoding
     const theirs = best((j) => cos(ref.images[f], ref.prompts[prompts[j]!]));
     assert.equal(prompts[ours!], prompts[theirs!], `${f}: best prompt differs from the reference`);
   }
+  // Extension pages are cross-origin isolated, so the model really runs on 4
+  // threads — with results identical to one thread.
+  assert.equal(result.isolated, true, "extension pages are cross-origin isolated (COOP/COEP)");
+  assert.equal(result.threads, 4);
+  assert.equal(result.singleThreads, 1);
+  const singles: number[][] = result.singleImages;
+  singles.forEach((v, i) => {
+    const maxDiff = Math.max(...v.map((x, j) => Math.abs(x - result.images[i]![j]!)));
+    assert.ok(maxDiff < 1e-6, `image ${i}: 1-thread and 4-thread embeddings differ by ${maxDiff}`);
+  });
   // The background vectors computed at build time (Node, same WebAssembly runtime) equal the extension's own.
   const bdim = result.bg.length / 3;
   for (let j = 0; j < 3; j++) assert.ok(cos(result.bg.slice(j * bdim, (j + 1) * bdim), bgPrompts.vectors[j]) > 0.9999, `background prompt ${j}`);

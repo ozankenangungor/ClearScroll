@@ -78,8 +78,16 @@ const host = new EngineHost({
   now: () => Date.now(),
 });
 
+// Half the logical cores, at most 4: measured 564 → 166 ms per image with 4
+// threads (docs/BENCHMARKS.md), no gain beyond; leaves cores for the page and
+// the text engine. Used only where the worker is cross-origin isolated.
+const MODEL_THREADS = Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2)));
+
 const vision = new VisionHost({
   createWorker: () => new Worker(new URL("vision.worker.js", location.href), { type: "module" }),
+  threads: MODEL_THREADS,
+  // The text encoder is short-lived; threads shorten the first-picture path.
+  textThreads: MODEL_THREADS,
   assetUrl: (path) => new URL(path, location.href).href,
   // Bound: the host calls fetch as a free function.
   fetch: (input, init) => fetch(input, init),
