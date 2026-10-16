@@ -23,7 +23,10 @@ First version under the ClearScroll name (previously "IdeaBlocker").
 - Image downloads never follow redirects (a redirect target is never
   requested) and are aborted immediately when download permission or image
   filtering is withdrawn; requests approved just before such a change are
-  refused (review fix, Task 05.1).
+  refused (review fix, Task 05.1). An image request authorised just before
+  image filtering was turned off can no longer load the image model again
+  or recreate a closed offscreen document when it is delivered late
+  (review fix, Task 05.2).
 - Image privacy checks (`npm run verify:privacy:images`), real-model browser
   tests, PyTorch parity fixtures, an image benchmark and a pre-registered
   image evaluation.

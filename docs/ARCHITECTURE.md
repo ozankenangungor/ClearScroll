@@ -193,7 +193,23 @@ a download after it, whatever the message order. `shutdown()` also starts a
 new *epoch*: a job or model initialisation begun earlier re-checks the epoch
 after each await and stops — no download, worker start, cache write or
 status report after shutdown (pending initialisations are rejected at once
-instead of running into their timeout). Revoking downloads leaves the image
+instead of running into their timeout).
+
+*Late requests* (`src/background/vision-gate.ts`). A request can pass the
+service worker's settings check and then wait — for the offscreen lock or
+document creation, or in message delivery — while the user turns image
+filtering off. Whenever image filtering stops being active (Images off,
+paused, no active topic) the gate records an images-revocation time
+(session storage) and sends `off:vision-shutdown` with it; every request
+carries `visionGrant`, the latest such time when it was authorised (read
+before the settings check). A revocation overtaking a waiting request ends
+it in the gate — checked inside the offscreen lock right before a document
+would be created (so a paused session's closed document is not recreated),
+after `ensureOffscreen` and before every send — and a request already on
+its way is refused by VisionHost because its grant predates the shutdown.
+It therefore never loads the model again; requests authorised after
+re-enabling work normally. Deterministic ordering tests drive the real gate
+and host together: `tests/unit/vision-gate.test.ts`. Revoking downloads leaves the image
 model, its caches, pixel-based analysis and the text engine running.
 Caches, memory only: image embeddings by identity (`u:<url>` or `p:<sha256
 of the RGB frame>`; 1,000 entries; topic-independent, so changing topics

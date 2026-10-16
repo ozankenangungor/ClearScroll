@@ -74,7 +74,9 @@ ClearScroll's offscreen document requests a copy of such a picture:
   reach the network. The same happens when *Images* or filtering is turned
   off, the last topic is disabled, or a site is newly excluded. Pictures the
   page itself exposes keep being analysed from their pixels; the text engine
-  is not restarted.
+  is not restarted. Likewise, turning *Images* off cannot be undone by a
+  request that was already under way: it is refused and the image model is
+  not loaded again.
 
 Picture pixels, their URLs, your topics and the results are never sent
 anywhere. Picture URLs are not logged.
