@@ -37,6 +37,8 @@ export const IMAGE_MAX_QUEUE = 200;
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 60_000;
 const VERDICT_CACHE = 2000;
+/** Look-ahead in viewport heights above and below: pictures this close to the viewport are analysed. */
+export const IMAGE_LOOKAHEAD = 0.5;
 /** Re-check interval for near-viewport pictures still loading, hidden or fading in. */
 const WAITING_RECHECK_MS = 1000;
 /** At most this many waiting pictures are re-checked per round. */
@@ -167,7 +169,7 @@ export class ImageFilter {
   private start(): void {
     const view = this.deps.doc.defaultView!;
     // Images are expensive: a shorter look-ahead than text (half a viewport).
-    this.observer = new view.IntersectionObserver((entries) => this.onIntersect(entries), { rootMargin: this.deps.rootMargin ?? "50% 0px" });
+    this.observer = new view.IntersectionObserver((entries) => this.onIntersect(entries), { rootMargin: this.deps.rootMargin ?? `${IMAGE_LOOKAHEAD * 100}% 0px` });
     this.deps.doc.addEventListener("load", this.onLoad, true);
     this.deps.doc.addEventListener("transitionend", this.onTransitionEnd, true);
     this.deps.doc.addEventListener("animationend", this.onTransitionEnd, true);
@@ -262,7 +264,7 @@ export class ImageFilter {
         // Layout position, not the observer: a picture that was 0 × 0 when
         // observed gets no new intersection entry when it grows.
         const r = el.getBoundingClientRect();
-        if (r.bottom >= -h * 0.5 && r.top <= h * 1.5) {
+        if (r.bottom >= -h * IMAGE_LOOKAHEAD && r.top <= h * (1 + IMAGE_LOOKAHEAD)) {
           this.near.add(el);
           this.touch(el);
         }
@@ -288,7 +290,7 @@ export class ImageFilter {
     if (this.deps.doc.visibilityState !== "hidden") return false;
     const h = this.deps.doc.defaultView!.innerHeight;
     const r = el.getBoundingClientRect();
-    return r.bottom >= -h * 0.5 && r.top <= h * 1.5;
+    return r.bottom >= -h * IMAGE_LOOKAHEAD && r.top <= h * (1 + IMAGE_LOOKAHEAD);
   }
 
   private onIntersect(entries: IntersectionObserverEntry[]): void {
