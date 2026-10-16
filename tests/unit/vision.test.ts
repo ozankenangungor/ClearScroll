@@ -282,7 +282,7 @@ interface FetchCall {
   init: RequestInit | undefined;
 }
 
-function harness(script: WorkerScript = {}, fetchImpl?: (url: string) => Response | Promise<Response>, extra: Partial<VisionHostDeps> = {}) {
+function harness(script: WorkerScript = {}, fetchImpl?: (url: string, init?: RequestInit) => Response | Promise<Response>, extra: Partial<VisionHostDeps> = {}) {
   const workers: FakeVisionWorker[] = [];
   const statuses: VisionStatus[] = [];
   const fetches: FetchCall[] = [];
@@ -297,7 +297,7 @@ function harness(script: WorkerScript = {}, fetchImpl?: (url: string) => Respons
     fetch: (async (url: string, init?: RequestInit) => {
       fetches.push({ url, init });
       if (!fetchImpl) throw new Error("no network in tests");
-      return fetchImpl(url);
+      return fetchImpl(url, init);
     }) as typeof fetch,
     onStatus: (s) => statuses.push(s),
     now: () => now,
@@ -431,17 +431,13 @@ test("VisionHost: downloads omit credentials and the referrer, and accept images
   assert.equal(image()[0]!.blobs.length, 1, "rejected bodies never reach the decoder");
 });
 
-test("VisionHost: oversized bodies are rejected by header and while streaming; redirects to private hosts are refused", async () => {
+test("VisionHost: oversized bodies are rejected by header and while streaming", async () => {
   const big = new Uint8Array(9 * 1024 * 1024);
   const { host } = harness({}, (url) => {
     if (url.includes("declared")) return imgResponse("x", { "content-length": String(50 * 1024 * 1024) });
-    if (url.includes("stream")) return new Response(big, { headers: { "content-type": "image/png" } });
-    const r = imgResponse("CAT");
-    Object.defineProperty(r, "redirected", { value: true });
-    Object.defineProperty(r, "url", { value: "http://10.0.0.5/internal.jpg" });
-    return r;
+    return new Response(big, { headers: { "content-type": "image/png" } });
   });
-  for (const [url, reason] of [["https://a.example/declared.jpg", "too-large"], ["https://a.example/stream.png", "too-large"], ["https://a.example/redirect.jpg", "ineligible-url"]] as const) {
+  for (const [url, reason] of [["https://a.example/declared.jpg", "too-large"], ["https://a.example/stream.png", "too-large"]] as const) {
     const r = await host.classify(msg({ kind: "url", url }));
     assert.deepEqual([r.ok, !r.ok && r.reason], [false, reason], url);
   }
@@ -533,3 +529,43 @@ test("VisionHost: a text-encoder crash fails that job (retryable) without touchi
     FakeVisionWorker.prototype.postMessage = orig;
   }
 });
+
+// ── Download security and consent lifecycle (Task 05.1) ───────────────────
+
+/**
+ * A fetch that behaves like the browser's for redirects: with
+ * `redirect: "follow"` it requests the Location target itself (recording
+ * it); with "manual" it returns the opaque redirect response and requests
+ * nothing else.
+ */
+function redirectingFetch(target: string) {
+  const requested: { url: string; init?: RequestInit }[] = [];
+  const impl = async (url: string, init?: RequestInit): Promise<Response> => {
+    requested.push({ url, init });
+    if (url === target) return imgResponse("CAT");
+    if (init?.redirect === "follow") return impl(target, init);
+    if (init?.redirect === "error") throw new TypeError("redirect");
+    // Cross-origin manual redirect: an opaque response, Location unreadable.
+    return { type: "opaqueredirect", status: 0, ok: false, redirected: false, url: "", headers: new Headers(), body: null } as unknown as Response;
+  };
+  return { requested, impl };
+}
+
+test("security: a redirect to a private address is never requested (manual redirects, opaque redirects refused)", async () => {
+  for (const target of ["http://127.0.0.1/admin.jpg", "http://169.254.169.254/latest/meta-data", "http://192.168.1.1/cam.jpg", "http://localhost/x.jpg"]) {
+    const { requested, impl } = redirectingFetch(target);
+    const { host } = harness({}, impl);
+    const r = await host.classify(msg({ kind: "url", url: "https://cdn.example.com/redirect.jpg" }));
+    assert.deepEqual([r.ok, !r.ok && r.reason], [false, "download-failed"], target);
+    assert.match(!r.ok ? r.error : "", /redirect/);
+    assert.deepEqual(requested.map((q) => q.url), ["https://cdn.example.com/redirect.jpg"], `${target} was never requested`);
+    assert.equal(requested[0]!.init?.redirect, "manual");
+    assert.equal(requested[0]!.init?.credentials, "omit");
+    assert.equal(requested[0]!.init?.referrerPolicy, "no-referrer");
+  }
+  // Same-origin manual redirects arrive as a readable 3xx: also refused.
+  const { host } = harness({}, () => new Response(null, { status: 302, headers: { location: "http://10.0.0.5/x.jpg" } }));
+  const r = await host.classify(msg({ kind: "url", url: "https://cdn.example.com/a.jpg" }));
+  assert.deepEqual([r.ok, !r.ok && r.reason], [false, "download-failed"]);
+});
+

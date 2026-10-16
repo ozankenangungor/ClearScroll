@@ -284,9 +284,13 @@ export class VisionHost {
   }
 
   /**
-   * Download one image the page displays. No cookies or other credentials,
-   * no referrer, bounded time and size, image types only; the final URL
-   * after redirects must pass the same eligibility check.
+   * Download one image the page displays: no cookies or other credentials,
+   * no referrer, bounded time and size, image types only, and no redirects —
+   * with `redirect: "manual"` the browser returns the redirect itself
+   * (status 3xx, or an opaque "opaqueredirect" response for cross-origin
+   * redirects, whose target cannot even be read), so the target is never
+   * requested. Validating each hop instead is not possible with fetch: the
+   * Location of an opaque redirect is not exposed.
    */
   private async download(url: URL): Promise<Blob> {
     const ctrl = new AbortController();
@@ -294,11 +298,14 @@ export class VisionHost {
     try {
       let res: Response;
       try {
-        res = await this.deps.fetch(url.href, { credentials: "omit", referrerPolicy: "no-referrer", cache: "default", redirect: "follow", signal: ctrl.signal });
+        res = await this.deps.fetch(url.href, { credentials: "omit", referrerPolicy: "no-referrer", cache: "default", redirect: "manual", signal: ctrl.signal });
       } catch (err) {
         throw new Skip("download-failed", ctrl.signal.aborted ? "download timed out" : errorText(err));
       }
-      if (res.redirected && !checkImageUrl(res.url).ok) throw new Skip("ineligible-url", "redirected to an ineligible URL");
+      if (res.type === "opaqueredirect" || res.redirected || (res.status >= 300 && res.status < 400)) {
+        void res.body?.cancel().catch(() => undefined);
+        throw new Skip("download-failed", "redirects are not followed");
+      }
       if (!res.ok) throw new Skip("download-failed", `HTTP ${res.status}`);
       const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
       if (!IMAGE_TYPES.test(type)) throw new Skip("download-failed", `not a supported image type (${type || "none"})`);
