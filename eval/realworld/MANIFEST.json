@@ -161,6 +161,83 @@
         "youtube.com/results?search_query=funny+cats+compilation",
         "youtube.com/results?search_query=horse+riding+lesson"
       ]
+    },
+    "task07-heldout": {
+      "description": "Task 07 final held-out split: 22 pages listed in docs/evaluation/realworld/PREREGISTRATION-task07.md, captured after it was pushed with no topic active, at most 100 distinct texts per page, labelled before any prediction was computed",
+      "sha256": "7dd25503e22475f2869fff6cc0158d487dc98805b653bc3183bd17c5c7a7f5dc",
+      "texts": 3219,
+      "captured": [
+        "2026-10-17"
+      ],
+      "cards": true,
+      "by_topic": {
+        "cats": {
+          "en_positive": 93,
+          "en_negative": 313,
+          "en_ambiguous": 4,
+          "other_language": 69
+        },
+        "dogs": {
+          "en_positive": 92,
+          "en_negative": 299,
+          "en_ambiguous": 4,
+          "other_language": 69
+        },
+        "cryptocurrency": {
+          "en_positive": 95,
+          "en_negative": 302,
+          "en_ambiguous": 5,
+          "other_language": 57
+        },
+        "stock market": {
+          "en_positive": 53,
+          "en_negative": 322,
+          "en_ambiguous": 12,
+          "other_language": 57
+        },
+        "football": {
+          "en_positive": 92,
+          "en_negative": 327,
+          "en_ambiguous": 4,
+          "other_language": 82
+        },
+        "movie spoilers": {
+          "en_positive": 62,
+          "en_negative": 227,
+          "en_ambiguous": 15,
+          "other_language": 74
+        },
+        "basketball": {
+          "en_positive": 87,
+          "en_negative": 317,
+          "en_ambiguous": 4,
+          "other_language": 82
+        }
+      },
+      "pages": [
+        "commons.wikimedia.org/wiki/Category:Featured_pictures_of_cats",
+        "commons.wikimedia.org/wiki/Category:Featured_pictures_of_dogs",
+        "theguardian.com/lifeandstyle/pets",
+        "youtube.com/results?search_query=cute+kittens+playing",
+        "youtube.com/results?search_query=puppy+compilation",
+        "youtube.com/results?search_query=parrot+talking",
+        "theguardian.com/business/economics",
+        "theguardian.com/technology/bitcoin",
+        "youtube.com/results?search_query=solana+news+today",
+        "youtube.com/results?search_query=nasdaq+stock+analysis",
+        "youtube.com/results?search_query=gold+price+forecast",
+        "theguardian.com/world",
+        "bbc.com/news/world",
+        "youtube.com/results?search_query=season+finale+explained",
+        "youtube.com/results?search_query=new+movie+trailer+2027",
+        "youtube.com/results?search_query=honest+movie+review",
+        "bbc.com/sport/cricket",
+        "theguardian.com/sport/nba",
+        "theguardian.com/football/premierleague",
+        "youtube.com/results?search_query=champions+league+goals",
+        "youtube.com/results?search_query=nba+top+10+plays",
+        "youtube.com/results?search_query=atp+tennis+highlights"
+      ]
     }
   }
 }
