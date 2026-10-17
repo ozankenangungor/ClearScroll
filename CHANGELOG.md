@@ -37,6 +37,15 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   encoder (first picture 1.9 → 0.85 s).
 - The image model is unloaded after 5 minutes without pictures.
 - The popup says how many pictures were checked, hidden and still pending.
+- **Fewer wrong text matches on neighbouring subjects (Task 07).** A text
+  is no longer hidden when it is clearly about a sibling of the topic —
+  rugby or basketball for "football", dogs for "cats", gold or stocks for
+  "cryptocurrency", trailers for "movie spoilers" (sibling veto,
+  `src/shared/siblings.ts`). Pre-registered held-out evaluation, 22 new
+  pages, 7 topics (3 never used in development), balanced: precision
+  44.2 → 81.1 %, recall 83.4 → 82.1 %, false-positive rate 28.7 → 5.2 %;
+  hidden cards 33.0 → 6.6 % false positives. Keyword matches and topics
+  outside the six covered domains are unchanged.
 - *Thorough* now filters pictures like *Balanced*: its looser picture rule
   mostly hid the wrong photos (held-out: 27 → 9 false positives).
 - Image privacy checks (`npm run verify:privacy:images`), real-model browser
