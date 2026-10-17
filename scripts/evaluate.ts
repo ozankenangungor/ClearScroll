@@ -31,6 +31,7 @@ import { decide, LEXICAL_PARAMS, prepareTopic, type Background, type ModeParams 
 import type { FilterMode } from "../src/shared/settings.ts";
 import { modelDir as sharedModelDir } from "./lib.mjs";
 import { BACKGROUND_TOPICS, MIN_SEMANTIC_CHARS, MODEL_PROFILES, TOPIC_TEMPLATE, applyTopicTemplate } from "../src/shared/models.ts";
+import { planSiblings, SIBLING_PHRASES, topicParts, type SiblingTable } from "../src/shared/siblings.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const CLI = path.join(REPO, "target/release/clearscroll-embed");
@@ -131,42 +132,51 @@ const fbeta = (c: Counts, b: number) => {
 };
 
 type System = "lexical" | "semantic" | "hybrid";
-interface Pair { q: Query; it: Item; actual: boolean; score: number; lexical: boolean }
+interface Pair { q: Query; it: Item; actual: boolean; score: number; lexical: boolean; rivalled: boolean }
+
+/** Sibling veto inputs for one model (siblings.ts); null when its profile has no veto or scoring is forced. */
+interface Veto { table: SiblingTable; partVec: Map<string, Float32Array>; ratio: Record<FilterMode, number> }
 
 /** Pre-compute per-pair score and lexical verdict; thresholds are applied later. */
-function buildPairs(subset: Item[], textVec: Map<string, Float32Array>, queryVec: Map<string, Float32Array>, dim: number, mode: FilterMode, background: Background | null): Pair[] {
+function buildPairs(subset: Item[], textVec: Map<string, Float32Array>, queryVec: Map<string, Float32Array>, dim: number, mode: FilterMode, background: Background | null, veto: Veto | null): Pair[] {
   const pairs: Pair[] = [];
-  const params: ModeParams = { threshold: Infinity, minSemanticChars: MIN_SEMANTIC_CHARS[mode], lexical: LEXICAL_PARAMS[mode] };
+  const params: ModeParams = { threshold: Infinity, minSemanticChars: MIN_SEMANTIC_CHARS[mode], lexical: LEXICAL_PARAMS[mode], siblingRatio: veto?.ratio[mode] };
   for (const q of queries) {
     const langItems = subset.filter((it) => it.lang === q.lang);
-    const topic = prepareTopic({ id: q.topic, text: q.text }, queryVec.get(`${q.lang}|${q.text}`)!, params, background);
+    const qv = queryVec.get(`${q.lang}|${q.text}`)!;
+    const parts = topicParts(q.text);
+    const plan = veto ? planSiblings(qv, parts.length > 1 ? parts.map((p) => veto.partVec.get(applyTopicTemplate(p, template))!) : [qv], veto.table, dim) : null;
+    const topic = prepareTopic({ id: q.topic, text: q.text }, qv, params, background, undefined, plan);
     const flat = new Float32Array(langItems.length * dim);
     langItems.forEach((it, i) => flat.set(textVec.get(it.id)!, i * dim));
     // threshold=Infinity → decide() reports pure lexical verdicts plus scores.
     const lex = decide(langItems.map((it) => it.text), flat, dim, [topic], params, background);
-    langItems.forEach((it, i) => pairs.push({ q, it, actual: it.labels.includes(q.topic), score: lex[i]!.score, lexical: lex[i]!.matched }));
+    langItems.forEach((it, i) => pairs.push({ q, it, actual: it.labels.includes(q.topic), score: lex[i]!.score, lexical: lex[i]!.matched, rivalled: lex[i]!.rivalled }));
   }
   return pairs;
 }
 
-function predict(p: Pair, system: System, threshold: number, mode: FilterMode): boolean {
-  const semantic = p.score >= threshold && p.it.text.trim().length >= MIN_SEMANTIC_CHARS[mode];
+/** `veto` false: the classifier without the sibling veto (threshold calibration, comparison row). */
+function predict(p: Pair, system: System, threshold: number, mode: FilterMode, veto = true): boolean {
+  const semantic = !(veto && p.rivalled) && p.score >= threshold && p.it.text.trim().length >= MIN_SEMANTIC_CHARS[mode];
   if (system === "lexical") return p.lexical;
   if (system === "semantic") return semantic;
   return semantic || p.lexical;
 }
 
-function count(pairs: Pair[], system: System, threshold: number, mode: FilterMode, filter: (p: Pair) => boolean = () => true): Counts {
+function count(pairs: Pair[], system: System, threshold: number, mode: FilterMode, filter: (p: Pair) => boolean = () => true, veto = true): Counts {
   const c = zero();
-  for (const p of pairs) if (filter(p)) add(c, predict(p, system, threshold, mode), p.actual);
+  for (const p of pairs) if (filter(p)) add(c, predict(p, system, threshold, mode, veto), p.actual);
   return c;
 }
 
 function calibrate(pairs: Pair[], mode: FilterMode): number {
   let best = { t: 1, f: -1 };
   // Margin scores can be negative or small; scan a wide range.
+  // Thresholds belong to margin scoring alone: calibrated without the sibling
+  // veto, whose ratio is calibrated on the real-world dev split (models.ts).
   for (let t = -0.5; t <= 1.0001; t += 0.005) {
-    const f = fbeta(count(pairs, "hybrid", t, mode), BETA[mode]);
+    const f = fbeta(count(pairs, "hybrid", t, mode, () => true, false), BETA[mode]);
     if (f > best.f + 1e-12) best = { t: Math.round(t * 1000) / 1000, f };
   }
   return best.t;
@@ -194,7 +204,11 @@ for (const model of models) {
   const scoring = scoringOverride ?? MODEL_PROFILES[model]?.scoring ?? "margin";
   // Background phrases are embedded verbatim (never templated), as in prepare_model.py.
   const bgTexts = [...BACKGROUND_TOPICS];
-  const { dim, vectors, ms, cached } = embed(model, [...allTexts, ...qTexts, ...bgTexts]);
+  const ratio = scoringOverride ? undefined : MODEL_PROFILES[model]?.siblingRatio;
+  // Parts of compound queries are embedded like queries (templated), as the engine does.
+  const partTexts = ratio ? [...new Set(queries.flatMap((q) => (topicParts(q.text).length > 1 ? topicParts(q.text).map((p) => applyTopicTemplate(p, template)) : [])))] : [];
+  const sibTexts = ratio ? [...SIBLING_PHRASES] : [];
+  const { dim, vectors, ms, cached } = embed(model, [...allTexts, ...qTexts, ...bgTexts, ...sibTexts, ...partTexts]);
   const textVec = new Map(items.map((it, i) => [it.id, vectors[i]!]));
   const queryVec = new Map(queries.map((q, i) => [`${q.lang}|${q.text}`, vectors[items.length + i]!]));
   const bgStart = items.length + queries.length;
@@ -202,13 +216,21 @@ for (const model of models) {
     scoring === "margin"
       ? { vectors: Float32Array.from(vectors.slice(bgStart, bgStart + bgTexts.length).flatMap((v) => [...v])), count: bgTexts.length }
       : null;
+  const sibStart = bgStart + bgTexts.length;
+  const veto: Veto | null = ratio
+    ? {
+        table: { vectors: Float32Array.from(vectors.slice(sibStart, sibStart + sibTexts.length).flatMap((v) => [...v])), count: sibTexts.length },
+        partVec: new Map(partTexts.map((p, i) => [p, vectors[sibStart + sibTexts.length + i]!])),
+        ratio,
+      }
+    : null;
 
   const modelResult: Record<string, unknown> = { dim, cpuEmbedMsTotal: ms, texts: allTexts.length + qTexts.length };
   report.push(`## Model: \`${model}\`${dtype === "f32" ? "" : ` (${dtype} weights)`}, ${scoring === "margin" ? "margin" : "raw cosine"} scoring`, "");
   report.push(`Native CPU embedding of ${allTexts.length + qTexts.length} texts took ${ms.toFixed(0)} ms (single thread, release build${cached ? "; measured when build/eval cache was created" : ""}). In-browser latency: docs/benchmarks.`, "");
 
   // Similarity separation (all pairs, both splits): how far apart are positives and negatives?
-  const allPairs = buildPairs(items, textVec, queryVec, dim, "balanced", background);
+  const allPairs = buildPairs(items, textVec, queryVec, dim, "balanced", background, veto);
   const pos = allPairs.filter((p) => p.actual).map((p) => p.score);
   const neg = allPairs.filter((p) => !p.actual).map((p) => p.score);
   const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
@@ -230,8 +252,8 @@ for (const model of models) {
   report.push("| Mode | Threshold (calibrated) | System | Precision | Recall | F1 | FPR | TP | FP | FN | TN |", "|---|---|---|---|---|---|---|---|---|---|---|");
   const modes: Record<string, unknown> = {};
   for (const mode of MODES) {
-    const calib = buildPairs(calibItems, textVec, queryVec, dim, mode, background);
-    const test = buildPairs(testItems, textVec, queryVec, dim, mode, background);
+    const calib = buildPairs(calibItems, textVec, queryVec, dim, mode, background, veto);
+    const test = buildPairs(testItems, textVec, queryVec, dim, mode, background, veto);
     const t = calibrate(calib.filter((p) => calibLangs.includes(p.it.lang)), mode);
     const rows: Record<string, unknown> = { threshold: t };
     const en = (p: Pair) => p.it.lang === "en";
@@ -243,6 +265,11 @@ for (const model of models) {
     for (const system of ["lexical", "semantic", "hybrid"] as System[]) {
       const m = metrics(count(test, system, t, mode, (p) => p.it.lang === "en"));
       rows[`${system}_en`] = m;
+    }
+    if (veto) {
+      const nv = metrics(count(test, "hybrid", t, mode, en, false));
+      rows.hybridNoSiblingVeto_en = nv;
+      report.push(`| ${mode} | ${t.toFixed(3)} | hybrid without sibling veto | ${pct(nv.precision)} | ${pct(nv.recall)} | ${pct(nv.f1)} | ${pct(nv.fpr)} | ${nv.tp} | ${nv.fp} | ${nv.fn} | ${nv.tn} |`);
     }
     const legacy = metrics(count(test, "hybrid", LEGACY[mode], mode, en));
     rows.legacyThreshold = { threshold: LEGACY[mode], ...legacy };

@@ -3,13 +3,20 @@ import { test } from "node:test";
 
 import { EngineHost, type EngineHostDeps, type ModelMeta, type WorkerLike } from "../../src/offscreen/engine-host.ts";
 import { BACKGROUND_TOPICS } from "../../src/shared/models.ts";
+import { SIBLING_PHRASES } from "../../src/shared/siblings.ts";
 import type { Backend, ClassifyReply, EngineStatus, OffscreenClassify, WorkerRequest, WorkerResponse } from "../../src/shared/protocol.ts";
 
 const DIM = 4;
 
-/** Deterministic fake embedding: one orthogonal axis per cluster (crypto, sports, other). */
+/**
+ * Deterministic fake embedding: one orthogonal axis per cluster (crypto,
+ * sports, stocks, other). "shares" texts lean towards crypto but are closer
+ * to stocks, a sibling of cryptocurrency (siblings.ts).
+ */
 function fakeEmbed(text: string): number[] {
   const t = text.toLowerCase();
+  if (/shares/.test(t)) return [0.5, 0, Math.sqrt(0.75), 0];
+  if (t === "stock market") return [0, 0, 1, 0];
   return /crypto|bitcoin|coin/.test(t) ? [1, 0, 0, 0] : /sport|goal/.test(t) ? [0, 1, 0, 0] : [0, 0, 0, 1];
 }
 
@@ -18,6 +25,7 @@ const META: ModelMeta = {
   id: "minilm-l6",
   selftest: { texts: SELFTEST, embeddings: SELFTEST.map(fakeEmbed), max_abs_tol: 1e-3 },
   background: { topics: [...BACKGROUND_TOPICS], embeddings: BACKGROUND_TOPICS.map(fakeEmbed) },
+  siblings: { phrases: [...SIBLING_PHRASES], embeddings: SIBLING_PHRASES.map(fakeEmbed) },
 };
 
 type Behaviour = {
@@ -304,10 +312,10 @@ test("cached vectors of a replaced backend are not reused", async () => {
 
 test("background vectors embedded on a replaced backend are recomputed on the new one", async () => {
   const workers: FakeWorker[] = [];
-  // No precomputed background: WebGPU embeds self-test (1), background (2), fails on the job (3).
+  // No precomputed vectors: WebGPU embeds self-test (1), background (2), siblings (3), fails on the job (4).
   const host = new EngineHost({
     createWorker: () => {
-      const w = new FakeWorker({ failAfter: { webgpu: 2 } }, []);
+      const w = new FakeWorker({ failAfter: { webgpu: 3 } }, []);
       workers.push(w);
       return w;
     },
@@ -611,4 +619,50 @@ test("an unexpected exception in a job is answered and does not stall the queue"
   assert.ok(settled, "every request settles");
   const [r1] = settled;
   assert.ok(r1 && !r1.ok && /status listener failed/.test(r1.error), JSON.stringify(r1));
+});
+
+// ── Sibling veto (siblings.ts) ───────────────────────────────────────────────
+
+test("a text closer to a sibling subject of the topic is not matched; keyword matches still are", async () => {
+  const { host, workers } = makeHost({}, ["cpu"]);
+  const r = await host.classify(req(["Shares in crypto miners fall sharply", "Bitcoin rallies again today", "Cryptocurrency shares slide"]));
+  assert.ok(r.ok);
+  // "Shares …": margin 0.5 over the background, but closer to "stock market" (0.87 > 1.3 × 0.5).
+  assert.deepEqual(r.decisions.map((d) => [d.matched, d.via, d.rivalled]), [[false, null, true], [true, "semantic", false], [true, "lexical", true]]);
+  assert.ok(!workers[0]!.embedTexts.some((b) => b.includes(SIBLING_PHRASES[0]!)), "precomputed sibling vectors from model.json are used");
+});
+
+test("a broad topic (closer to its group's label than to any member) gets no sibling veto", async () => {
+  const { host } = makeHost({}, ["cpu"]);
+  // "sports" equals the group label "sports" (and its member "skiing and winter sports") → broad → no rivals.
+  const r = await host.classify(req(["Sports goal of the season"], 1, "1:0:a", [{ id: "s", text: "sports" }]));
+  assert.ok(r.ok);
+  assert.deepEqual(r.decisions.map((d) => [d.matched, d.via, d.rivalled]), [[true, "semantic", false]]);
+});
+
+test("sibling phrases are embedded at run time when model.json lacks them", async () => {
+  const workers: FakeWorker[] = [];
+  const host = new EngineHost({
+    createWorker: () => {
+      const w = new FakeWorker({}, []);
+      workers.push(w);
+      return w;
+    },
+    assetUrl: (p) => p,
+    backends: async () => ["cpu"],
+    loadModelMeta: async () => ({ id: META.id, selftest: META.selftest, background: META.background }),
+    onStatus: () => {},
+    now: () => Date.now(),
+  });
+  const r = await host.classify(req(["Shares in crypto miners fall sharply"]));
+  assert.deepEqual(matched(r), [false]);
+  assert.ok(workers[0]!.embedTexts.some((b) => b.length === SIBLING_PHRASES.length && b[0] === SIBLING_PHRASES[0]));
+});
+
+test("compound topics embed their parts once and never treat a part as a rival", async () => {
+  const { host, workers } = makeHost({}, ["cpu"]);
+  const r = await host.classify(req(["Shares in crypto miners fall sharply"], 1, "1:0:a", [{ id: "t", text: "cryptocurrency and stock market" }]));
+  assert.ok(r.ok);
+  assert.equal(r.decisions[0]!.rivalled, false, "stock market is the user's own subject here");
+  assert.ok(workers[0]!.embedTexts.some((b) => b.includes("cryptocurrency") && b.includes("stock market")), "parts are embedded with the job");
 });

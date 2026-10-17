@@ -66,6 +66,7 @@ import type {
   WorkerResponse,
 } from "../shared/protocol.ts";
 import type { FilterMode } from "../shared/settings.ts";
+import { planSiblings, SIBLING_PHRASES, topicParts, type SiblingPlan, type SiblingTable } from "../shared/siblings.ts";
 import { LruCache } from "./lru.ts";
 
 export interface WorkerLike {
@@ -100,6 +101,8 @@ export interface ModelMeta {
   selftest: { texts: string[]; embeddings: number[][]; max_abs_tol: number };
   /** Precomputed background-topic embeddings (optional; see classifier.ts). */
   background?: { topics: string[]; embeddings: number[][] };
+  /** Precomputed sibling-phrase embeddings (optional; see siblings.ts). */
+  siblings?: { phrases: string[]; embeddings: number[][] };
 }
 
 interface Job {
@@ -122,6 +125,8 @@ export class EngineHost {
   private background: Background | null = null;
   /** The background vectors were computed by the current worker (not model.json). */
   private backgroundFromWorker = false;
+  private siblings: SiblingTable | null = null;
+  private siblingsFromWorker = false;
   private remainingBackends: Backend[] | null = null;
   private ready: Promise<boolean> | null = null;
   private nextId = 1;
@@ -230,13 +235,16 @@ export class EngineHost {
 
   private params(mode: FilterMode): ModeParams {
     const threshold = this.profile ? this.profile.thresholds[mode] : Infinity;
-    return { threshold, minSemanticChars: MIN_SEMANTIC_CHARS[mode], lexical: LEXICAL_PARAMS[mode] };
+    return { threshold, minSemanticChars: MIN_SEMANTIC_CHARS[mode], lexical: LEXICAL_PARAMS[mode], siblingRatio: this.profile?.siblingRatio?.[mode] };
   }
 
   private async run(msg: OffscreenClassify): Promise<ClassifyReply> {
     this.stats.jobs++;
-    const keys = [...msg.topics.map((t) => topicKey(t.text)), ...msg.texts.map(textKey)];
     let semantic = await this.ensureReady();
+    // After ensureReady (the model profile is known): compound topics
+    // ("football and basketball") also need each part's vector (siblings.ts).
+    const partKeys = this.profile?.siblingRatio ? msg.topics.flatMap((t) => (topicParts(t.text).length > 1 ? topicParts(t.text).map(topicKey) : [])) : [];
+    const keys = [...msg.topics.map((t) => topicKey(t.text)), ...partKeys, ...msg.texts.map(textKey)];
     let vectors: Map<string, Float32Array> | null = null;
     // Retry on each backend that fail-over brings up until the job has its
     // embeddings, the engine degrades (semantic = false) or the budget is spent.
@@ -258,9 +266,10 @@ export class EngineHost {
 
     const params = this.params(msg.mode);
     const background = vectors && this.profile?.scoring === "margin" ? this.background : null;
-    const topics = msg.topics.map((t) =>
-      prepareTopic(t, vectors?.get(topicKey(t.text)) ?? null, params, background)
-    );
+    const topics = msg.topics.map((t) => {
+      const vector = vectors?.get(topicKey(t.text)) ?? null;
+      return prepareTopic(t, vector, params, background, undefined, vector && vectors ? this.siblingPlan(t.text, vector, vectors) : null);
+    });
     let flat: Float32Array | null = null;
     if (vectors) {
       flat = new Float32Array(msg.texts.length * this.dim);
@@ -273,6 +282,15 @@ export class EngineHost {
       return { ok: false, generation: msg.generation, error: errorText(err), engine: this.status };
     }
     return { ok: true, generation: msg.generation, decisions, engine: this.status };
+  }
+
+  private siblingPlan(topic: string, vector: Float32Array, vectors: Map<string, Float32Array>): SiblingPlan | null {
+    if (!this.siblings || !this.profile?.siblingRatio) return null;
+    const parts = topicParts(topic);
+    const partVectors = parts.length > 1 ? parts.map((p) => vectors.get(topicKey(p))) : [vector];
+    // A missing part vector (never expected) means no veto rather than a failed job.
+    if (partVectors.some((v) => !v)) return null;
+    return planSiblings(vector, partVectors as Float32Array[], this.siblings, this.dim);
   }
 
   private async embedCached(keys: string[]): Promise<Map<string, Float32Array>> {
@@ -386,6 +404,7 @@ export class EngineHost {
         this.dim = dim;
         await this.selfTest();
         await this.loadBackground();
+        await this.loadSiblings();
         const notes = [...errors];
         const note = this.deps.backendNote?.();
         if (note && backend !== "webgpu") notes.unshift(note);
@@ -394,6 +413,8 @@ export class EngineHost {
       } catch (err) {
         errors.push(`${backend}: ${errorText(err)}`);
         this.stopWorker();
+        // Vectors this backend computed before it failed are not reused by the next one.
+        this.dropWorkerVectors();
       }
     }
     // Recoverable only if real backends were tried (not "engine: off").
@@ -446,6 +467,33 @@ export class EngineHost {
     this.backgroundFromWorker = !usable;
   }
 
+  /** Background and sibling vectors embedded by the current worker (not model.json) belong to it. */
+  private dropWorkerVectors(): void {
+    if (this.backgroundFromWorker) {
+      this.background = null;
+      this.backgroundFromWorker = false;
+    }
+    if (this.siblingsFromWorker) {
+      this.siblings = null;
+      this.siblingsFromWorker = false;
+    }
+  }
+
+  /** Sibling phrases (siblings.ts), like the background: model.json if it matches, else embedded once here. */
+  private async loadSiblings(): Promise<void> {
+    if (this.siblings || !this.profile?.siblingRatio) return;
+    const pre = this.meta?.siblings;
+    const usable =
+      pre &&
+      pre.phrases.length === SIBLING_PHRASES.length &&
+      pre.phrases.every((t, i) => t === SIBLING_PHRASES[i]) &&
+      pre.embeddings.length === pre.phrases.length &&
+      pre.embeddings.every((e) => e.length === this.dim && e.every(Number.isFinite));
+    const vectors = usable ? Float32Array.from(pre.embeddings.flat()) : await this.embedRaw([...SIBLING_PHRASES]);
+    this.siblings = { vectors, count: SIBLING_PHRASES.length };
+    this.siblingsFromWorker = !usable;
+  }
+
   private degrade(detail: string, recoverable: boolean): boolean {
     this.degradedAt = recoverable ? this.deps.now() : null;
     this.setStatus({ state: "lexical-fallback", backend: null, detail });
@@ -457,10 +505,7 @@ export class EngineHost {
     this.stopWorker();
     // Nothing computed by the failed worker is reused by its replacement.
     this.cache.clear();
-    if (this.backgroundFromWorker) {
-      this.background = null;
-      this.backgroundFromWorker = false;
-    }
+    this.dropWorkerVectors();
     // Prefer the next backend; if this was the last one, restart it a few times.
     if (failed && this.remainingBackends?.length === 0 && (this.restarts[failed] ?? 0) < MAX_RESTARTS) {
       this.restarts[failed] = (this.restarts[failed] ?? 0) + 1;

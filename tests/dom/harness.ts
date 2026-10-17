@@ -79,7 +79,7 @@ function respond(i: number, needle = "MATCH", generation?: number): void {
   p.resolve({
     ok: true,
     generation: generation ?? p.req.generation,
-    decisions: p.req.texts.map((t) => ({ matched: t.includes(needle), topicId: t.includes(needle) ? "t1" : null, score: 0.9, similarity: 0.9, via: "semantic" as const })),
+    decisions: p.req.texts.map((t) => ({ matched: t.includes(needle), topicId: t.includes(needle) ? "t1" : null, score: 0.9, similarity: 0.9, via: "semantic" as const, rivalled: false })),
     engine: { state: "semantic", backend: "cpu", model: "test", detail: null, loadMs: 1, updatedAt: Date.now() },
   });
 }
@@ -116,7 +116,7 @@ Object.assign(window, {
       p.resolve({
         ok: true,
         generation: p.req.generation,
-        decisions: p.req.texts.map((t) => ({ matched: t.includes(needle), topicId: "t1", score: 0.9, similarity: 0.9, via: "semantic" as const })),
+        decisions: p.req.texts.map((t) => ({ matched: t.includes(needle), topicId: "t1", score: 0.9, similarity: 0.9, via: "semantic" as const, rivalled: false })),
         engine: null as never,
       });
     },

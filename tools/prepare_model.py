@@ -42,6 +42,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCK_PATH = REPO_ROOT / "tools" / "model_lock.json"
 BACKGROUND_PATH = REPO_ROOT / "src" / "shared" / "background-topics.json"
+SIBLINGS_PATH = REPO_ROOT / "src" / "shared" / "topic-siblings.json"
 MAGIC = b"CSWT"
 FORMAT_VERSION = 1
 MAX_SEQ_LEN = 128
@@ -244,6 +245,18 @@ def background_topics() -> list[str]:
         return json.load(f)["topics"]
 
 
+def sibling_phrases() -> list[str]:
+    """Group labels and members in file order, without duplicates (SIBLING_PHRASES in siblings.ts)."""
+    with open(SIBLINGS_PATH, encoding="utf-8") as f:
+        groups = json.load(f)["groups"]
+    out: list[str] = []
+    for g in groups:
+        for p in [*g["labels"], *g["members"]]:
+            if p not in out:
+                out.append(p)
+    return out
+
+
 def round_model_to(model, dtype: str) -> None:
     """Round parameters in place to the storage precision, so self-test
     references describe exactly the weights that ship."""
@@ -340,6 +353,11 @@ def main() -> None:
         "background": {
             "topics": background_topics(),
             "embeddings": reference_embeddings(torch_model, vocab_path, background_topics()),
+        },
+        # Sibling-veto phrases (siblings.ts), precomputed for the same reason.
+        "siblings": {
+            "phrases": sibling_phrases(),
+            "embeddings": reference_embeddings(torch_model, vocab_path, sibling_phrases()),
         },
     }
     with open(out_dir / "model.json", "w", encoding="utf-8") as f:

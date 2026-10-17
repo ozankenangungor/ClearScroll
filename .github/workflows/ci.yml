@@ -73,8 +73,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/models
-          # model.json embeds the background-topic vectors, so their list is part of the key.
-          key: model-${{ env.CLEARSCROLL_MODEL }}-f16-f32-${{ hashFiles('tools/model_lock.json', 'tools/prepare_model.py', 'tools/requirements.lock', 'src/shared/background-topics.json') }}
+          # model.json embeds the background-topic and sibling vectors, so their lists are part of the key.
+          key: model-${{ env.CLEARSCROLL_MODEL }}-f16-f32-${{ hashFiles('tools/model_lock.json', 'tools/prepare_model.py', 'tools/requirements.lock', 'src/shared/background-topics.json', 'src/shared/topic-siblings.json') }}
       - uses: actions/setup-python@v5
         if: steps.cache.outputs.cache-hit != 'true'
         with:
@@ -138,6 +138,10 @@ jobs:
         run: node --test tests/unit/vision-model.test.ts
         env:
           CLEARSCROLL_REQUIRE_VISION_MODEL: "1"
+      - name: Sibling-veto plans on the real model vectors (model required)
+        run: node --test tests/unit/siblings.test.ts
+        env:
+          CLEARSCROLL_REQUIRE_MODEL: "1"
       - name: Rust parity against PyTorch fixtures (model required)
         run: cargo test --locked --no-default-features --features cpu --test parity
         env:

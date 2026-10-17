@@ -1,0 +1,29 @@
+{
+  "_comment": "Sibling subjects for the sibling veto (src/shared/siblings.ts). A user's topic that clearly names one member of a group competes against the other members of that group (rugby and basketball for \"football\"), never against the group itself or its own subject. Groups are general domains, not derived from evaluation pages. Read by the extension and by tools/prepare_model.py (precomputed vectors in model.json); changing it requires re-running prepare_model.py and re-validating on the real-world evaluation (docs/evaluation/realworld/).",
+  "groups": [
+    {
+      "labels": ["sports"],
+      "members": ["soccer", "American football", "rugby", "cricket", "tennis", "golf", "basketball", "baseball", "ice hockey", "Formula 1 and motor racing", "cycling", "boxing and martial arts", "athletics and running", "horse racing", "swimming", "skiing and winter sports"]
+    },
+    {
+      "labels": ["animals", "pets and animals"],
+      "members": ["cats", "dogs", "horses", "birds", "fish", "reptiles and snakes", "rabbits and hamsters", "farm animals", "wild animals", "insects"]
+    },
+    {
+      "labels": ["finance", "finance and markets", "money"],
+      "members": ["cryptocurrency", "stock market", "gold and silver prices", "banks and interest rates", "inflation and the economy", "oil and gas prices", "housing market", "currency exchange rates", "personal finance", "taxes"]
+    },
+    {
+      "labels": ["movies", "film and television", "entertainment"],
+      "members": ["movie trailers", "film reviews", "box office", "TV series", "celebrity news", "streaming services", "animated films", "film awards", "movie and TV spoilers"]
+    },
+    {
+      "labels": ["technology"],
+      "members": ["artificial intelligence", "smartphones", "video games", "computers and software", "social media", "cybersecurity", "electric cars", "space exploration"]
+    },
+    {
+      "labels": ["music"],
+      "members": ["pop music", "rock music", "hip hop and rap", "classical music", "concerts and festivals"]
+    }
+  ]
+}
