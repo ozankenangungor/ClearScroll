@@ -24,9 +24,10 @@ export interface Decision {
   similarity: number;
   via: MatchVia | null;
   /**
-   * The semantic match was withheld because the text is closer to a sibling
-   * subject of the topic than to the topic (siblings.ts). Keyword matches are
-   * never withheld.
+   * The best topic's sibling veto applies to this text: it is clearly closer
+   * to a sibling subject than to the topic (siblings.ts), so it cannot match
+   * semantically — set whether or not its score would have reached the
+   * threshold. Keyword matches are never withheld.
    */
   rivalled: boolean;
 }

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Text and pictures together</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; }
+  main { display: grid; grid-template-columns: repeat(3, 300px); gap: 16px; padding: 16px; }
+  img { width: 300px; height: 220px; object-fit: cover; display: block; }
+  .card { border: 1px solid #ccc; padding: 8px; }
+</style>
+</head>
+<body>
+<!-- Topic "cats", text and image filtering on. Pictures under neutral URLs,
+     no alt text: only their pixels say what they show. -->
+<main>
+  <!-- Text negative, picture negative: untouched. -->
+  <article class="card" id="none"><img id="none-pic" src="/media/k3?mixed-none"><p>The council will repave the High Street between May and June, with diversions in place.</p></article>
+  <!-- Text positive, picture negative: the card is hidden by its text. -->
+  <article class="card" id="text"><img id="text-pic" src="/media/k3?mixed-text"><p>Cat owners: how to keep your pet calm during fireworks night</p></article>
+  <!-- Text negative, picture positive: only the picture is hidden. -->
+  <article class="card" id="img"><img id="img-pic" src="/media/k1?mixed-img"><p>Weekend weather: light rain in the morning, clearing by the afternoon.</p></article>
+  <!-- Both positive: one hidden card, no nested picture blur, one reveal. -->
+  <article class="card" id="both"><img id="both-pic" src="/media/k10?mixed-both"><p>Our kitten finally learned to use the cat flap after three weeks</p></article>
+  <!-- Changes after its verdict: the stale verdict must not stick. -->
+  <article class="card" id="dyn"><img id="dyn-pic" src="/media/k3?mixed-dyn"><p id="dyn-text">A guide to choosing a carrier for your cat before a long journey</p></article>
+  <!-- Cat text without a picture: the text itself is hidden (positive control for the dog cards). -->
+  <article class="card" id="cat-p"><p>Cats sleep for up to sixteen hours a day, so let your cat nap in peace</p></article>
+  <!-- Neighbouring subject (dogs): without the sibling veto these match "cats". -->
+  <article class="card" id="dog-1"><p>Ten dog breeds that are easy to train for first-time owners</p></article>
+  <article class="card" id="dog-2"><p>Why does my dog bark at the postman every morning?</p></article>
+  <article class="card" id="dog-3"><p>Golden retriever puppies playing in the snow for the first time</p></article>
+</main>
+</body>
+</html>
