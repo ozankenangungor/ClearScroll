@@ -403,7 +403,7 @@ export function describeVision(s: VisionStatus | null, enabled: boolean): string
   switch (s?.state ?? "idle") {
     case "off":
     case "idle":
-      return "Image model not loaded yet (loads when a page has images to check)";
+      return "Image model not loaded (loads when a page has pictures to check; unloaded after 5 minutes without any)";
     case "loading":
       return "Loading image model…";
     case "ready":
