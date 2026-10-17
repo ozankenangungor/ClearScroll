@@ -130,6 +130,14 @@ tab — and disappear when the tab closes, when filtering or image filtering is
 turned off or when the browser restarts. They are never written to disk.
 Downloaded picture copies exist only while being decoded.
 
+**Copy diagnostics** (Settings → Advanced → Diagnostics) builds a short text
+summary only when you click the button and puts it on the clipboard for you
+to paste into a bug report yourself: extension and Chrome major version,
+on/off switches, strictness, the number of topics, excluded sites and
+protected areas, and the status of the text and image models. It contains
+no page content, no web addresses and no site rules; topic names only if
+you tick *Include my topic names*. It is not stored or sent anywhere.
+
 ## Permissions and why they are needed
 
 | Permission | Why |
