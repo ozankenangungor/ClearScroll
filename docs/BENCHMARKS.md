@@ -184,6 +184,7 @@ Optimisations of Task 05 (same benchmark, 1 thread):
 |---|---|---|
 | Background prompt embeddings computed at build time instead of on the first picture (22 text-encoder runs ≈ 3.7 s) | first picture 6.4 s | 2.4 s |
 | Text encoder in its own worker, terminated 20 s after its last use (WebAssembly memory is only returned when a worker ends) | encoder memory permanent | released 20 s after the last new topic |
+| Image encoder unloaded after 5 minutes without an image request (Task 06; measured with a 10 s test build, extension process PSS) | 1,077 MiB while active, permanent | 349 MiB after unload (text-only 303 MiB); next picture 0.86 s |
 
 Not done: WebGPU (no WebGPU kernels for the int8 operators; fp16 files would
 double the package). Pictures stay visible until analysed.

@@ -715,3 +715,38 @@ test("VisionHost: topic embeddings persist across sessions — no text encoder f
   await fourth.host.classify(msg({ kind: "pixels", rgb: frame(true) }));
   assert.equal(fourth.text().length, 1, "a vector of the wrong dimension is ignored");
 });
+
+test("VisionHost: an idle image encoder is unloaded and reloads on the next picture; topics stay cached", async () => {
+  const { host, image, text } = harness({}, undefined, { imageIdleMs: 40 });
+  assert.ok(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched);
+  assert.equal(host.getStatus().state, "ready");
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(image()[0]!.terminated, "image worker released after the idle period");
+  assert.equal(host.getStatus().state, "idle");
+  assert.equal(host.stats.idleUnloads, 1);
+  // The next picture reloads the model; the topic embedding is still cached.
+  assert.ok(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched);
+  assert.equal(image().length, 2);
+  assert.equal(text().length, 1, "no text encoder for a cached topic");
+  assert.equal(host.getStatus().state, "ready");
+  // Requests keep it loaded; shutdown cancels the timer.
+  host.shutdown();
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(host.stats.idleUnloads, 1);
+});
+
+test("VisionHost: the idle timer never unloads the model while a picture is being analysed", async () => {
+  const { calls, impl } = (() => {
+    const calls: { signal: AbortSignal; resolve(r: Response): void }[] = [];
+    return { calls, impl: (_url: string, init?: RequestInit) => new Promise<Response>((resolve) => calls.push({ signal: init!.signal!, resolve })) };
+  })();
+  const h = harness({}, impl, { imageIdleMs: 30 });
+  await h.host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  const slow = h.host.classify(msg({ kind: "url", url: "https://cdn.example.com/slow.jpg" }));
+  await new Promise((r) => setTimeout(r, 100)); // longer than the idle period, job still running
+  assert.equal(h.image()[0]!.terminated, false);
+  calls[0]!.resolve(new Response("CAT", { headers: { "content-type": "image/jpeg" } }));
+  assert.ok(okDecision(await slow).matched);
+  assert.equal(h.host.stats.idleUnloads, 0);
+  h.host.shutdown();
+});

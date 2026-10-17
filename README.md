@@ -145,7 +145,7 @@ held-out Wikimedia Commons photos, default (precise) strictness
 Per picture ≈ 0.17 s with 4 CPU threads (Intel i7-11800H; 0.56 s on one
 thread — fewer cores, fewer threads); first picture ≈ 1.9 s after turning
 images on; +0.36 GiB memory while active, ~+0.9 GiB for a few seconds when a
-new topic is embedded ([benchmarks](docs/BENCHMARKS.md#image-filtering)).
+new topic is embedded, released after 5 minutes without pictures ([benchmarks](docs/BENCHMARKS.md#image-filtering)).
 
 ## Install (from source)
 
@@ -263,7 +263,8 @@ parity, real-model browser tests, image privacy checks).
 * **Cost:** ≈ 0.17 s per new picture on a 16-thread laptop (up to 4 CPU
   threads; ≈ 0.6 s on one), pictures appear unblurred until analysed, +217
   MiB package size (≈ 273 MiB unpacked in total) and ≈ 0.36 GiB extra memory
-  while active (~0.9 GiB briefly while a new topic is embedded).
+  while active (~0.9 GiB briefly while a new topic is embedded; the model is
+  unloaded after 5 minutes without pictures and reloads in ≈ 0.9 s).
 
 ## Troubleshooting
 

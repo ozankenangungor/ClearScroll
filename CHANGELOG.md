@@ -27,6 +27,18 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   image filtering was turned off can no longer load the image model again
   or recreate a closed offscreen document when it is delivered late
   (review fix, Task 05.2).
+- Faster image analysis (Task 06): the extension pages are cross-origin
+  isolated, so the image model runs on up to 4 WebAssembly threads
+  (0.56 → 0.17 s per picture on an 8-core laptop; results identical for any
+  thread count). While scrolling at ~3 photos/s, matching photos are now
+  blurred before they appear.
+- Topic embeddings for pictures are kept in the extension's IndexedDB, so
+  turning images back on, a restart or many topics no longer rerun the text
+  encoder (first picture 1.9 → 0.85 s).
+- The image model is unloaded after 5 minutes without pictures.
+- The popup says how many pictures were checked, hidden and still pending.
+- *Thorough* now filters pictures like *Balanced*: its looser picture rule
+  mostly hid the wrong photos (held-out: 27 → 9 false positives).
 - Image privacy checks (`npm run verify:privacy:images`), real-model browser
   tests, PyTorch parity fixtures, an image benchmark and a pre-registered
   image evaluation.

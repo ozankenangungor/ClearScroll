@@ -224,7 +224,12 @@ same runtime and files → `offscreen/vision/background.json`, validated before
 use).
 
 **6. Workers** (`src/vision/vision.worker.ts`, one bundle, two roles). The
-image worker holds the image encoder for as long as image filtering is on.
+image worker holds the image encoder while pictures keep arriving; after 5
+minutes without an image request both workers are terminated (extension
+process back to ~+45 MiB over text-only, from ~+770 MiB while a topic is
+embedded) and the next picture reloads the encoder (≈ 0.9 s; topic
+embeddings come from IndexedDB). The idle timer is cancelled while a
+picture is queued or being analysed.
 The text worker is started only when a topic has no cached embedding, embeds
 each prompt on its own (batching would change results: the int8 model
 quantises activations per tensor) and is terminated after 20 s without use,
