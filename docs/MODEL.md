@@ -411,9 +411,26 @@ football texts that name only clubs and players, one dog-breed file name,
 one basketball player headline. The veto added no match (by construction).
 **Decision: shipped.**
 
-In the browser (same build, Wikimedia Commons "Quality images of dogs",
-topic "cats"): 56 of 167 units hidden before, 21 after (9 of them Polish
-or Spanish file names, which English metrics exclude).
+In the browser: the built extension with and without the veto on the same
+live pages, minutes apart (Google Chrome stable, balanced,
+`scripts/live-capture.ts`; units hidden — a hidden card counts all its units):
+
+| Page | Topic | Without veto | With veto |
+|---|---|---|---|
+| BBC Sport rugby union | football | 92 of 230 | 37 |
+| YouTube "nba highlights" | football | 40 of 179 | 4 |
+| YouTube "gold price news today" | cryptocurrency | 60 of 131 | 3 |
+| YouTube "official movie trailer 2026" | movie spoilers | 110 of 166 | 22 |
+| Wikimedia Commons "Quality images of dogs" | cats | 56 of 167 | 21 |
+| BBC Sport front page (all sports) | football | 146 of 286 | 123 |
+| The Guardian football | football | 57 of 115 | 57 |
+| YouTube "funny cats compilation" | cats | 116 of 167 | 117 |
+| YouTube "movie ending explained" | movie spoilers | 106 of 167 | 105 |
+| YouTube "bitcoin price news" | cryptocurrency | 122 of 192 | 116 of 180 |
+
+What stays hidden on the rugby page are headlines that do not name the sport
+("England's 41-match unbeaten run ended by Canada"); on the dog gallery, 9 of
+the 21 are Polish or Spanish file names, which English metrics exclude.
 
 ## Known failure modes
 
