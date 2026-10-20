@@ -13,14 +13,23 @@
  * manifest (titles, licences, sha256) and the aggregate results only.
  * --calibrate prints thresholds chosen on the given set; it must only ever be
  * run on the development set.
+ *
+ * Sibling veto (Task 07): each topic's anchors and rivals come from the text
+ * engine's plan (src/shared/siblings.ts, MiniLM vectors from the Rust CLI as
+ * in evaluate-realworld.ts); the sibling phrases are embedded by the same
+ * worker as topics. --no-siblings scores the rules before Task 07's image
+ * veto (no plans).
  */
 import * as esbuild from "esbuild";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { chromium } from "playwright";
 
-import { decideImage, isVisualMatch, meanVector, prepareVisionTopic, topicPrompts, visionScores, VISION_BACKGROUND_PROMPTS, VISION_RULES, type PreparedVisionTopic, type VisionRule } from "../src/shared/vision.ts";
+import { decideImage, isVisualMatch, meanVector, prepareVisionTopic, rivalledImage, topicMatches, topicPrompts, visionScores, VISION_BACKGROUND_PROMPTS, VISION_RULES, VISION_SIBLING_RULES, type PreparedVisionTopic, type VisionRule } from "../src/shared/vision.ts";
+import { planSiblings, SIBLING_PHRASES } from "../src/shared/siblings.ts";
+import { modelDir } from "./lib.mjs";
 import { FILTER_MODES, type FilterMode } from "../src/shared/settings.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..");
@@ -29,6 +38,7 @@ const manifestPath = path.resolve(arg("--manifest") ?? fail("--manifest required
 const set = arg("--set", "dev")!;
 const outPath = arg("--out");
 const calibrate = process.argv.includes("--calibrate");
+const withSiblings = !process.argv.includes("--no-siblings");
 /** Reuse embeddings from an earlier run (private; never committed). */
 const cachePath = arg("--cache");
 /**
@@ -93,9 +103,11 @@ const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
 const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.goto(base + "/");
-const prompts = [...new Set([...Object.keys(EVAL_TOPICS).flatMap(topicPrompts), ...VISION_BACKGROUND_PROMPTS])];
+const prompts = [...new Set([...Object.keys(EVAL_TOPICS).flatMap(topicPrompts), ...VISION_BACKGROUND_PROMPTS, ...SIBLING_PHRASES.flatMap(topicPrompts)])];
 const cached = cachePath && fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : null;
-const usable = (cached?.transform ?? "none") === transform && cached && prompts.every((p) => cached.text[p]) && items.every((m) => cached.images[m.file]);
+const imagesCached = (cached?.transform ?? "none") === transform && cached && items.every((m) => cached.images[m.file]);
+const usable = imagesCached && prompts.every((p) => cached.text[p]);
+// Cached images but new prompts (e.g. the sibling phrases): embed only the prompts.
 const result = usable ? cached : await page.evaluate(
   async ({ files, prompts, transform }) => {
     const render = async (blob: Blob): Promise<Blob> => {
@@ -176,8 +188,9 @@ const result = usable ? cached : await page.evaluate(
     txtw.w.terminate();
     return { loadMs: init.loadMs, text, images, ms };
   },
-  { files: items.map((m) => m.file), prompts, transform }
+  { files: imagesCached ? [] : items.map((m) => m.file), prompts: imagesCached ? prompts.filter((p) => !cached.text[p]) : prompts, transform }
 );
+if (imagesCached && !usable) Object.assign(result, { images: cached.images, ms: cached.ms, loadMs: cached.loadMs, text: { ...cached.text, ...result.text } });
 await browser.close();
 srv.close();
 if (cachePath && !usable) fs.writeFileSync(cachePath, JSON.stringify({ ...result, transform }));
@@ -185,11 +198,28 @@ if (cachePath && !usable) fs.writeFileSync(cachePath, JSON.stringify({ ...result
 // ── Score ─────────────────────────────────────────────────────────────────
 const vec = (v: number[]) => Float32Array.from(v);
 const background = VISION_BACKGROUND_PROMPTS.map((p) => vec(result.text[p]!));
+const promptMean = (t: string) => {
+  const ps = topicPrompts(t);
+  return meanVector(new Float32Array(ps.flatMap((p) => result.text[p]!)), ps.length);
+};
+/** The text engine's sibling plan per topic (anchors, rivals), as the extension's EngineHost.siblingNames computes it. */
+function textPlans(): Map<string, { anchors: string[]; rivals: string[] } | null> {
+  const dir = modelDir("minilm-l6", "f16");
+  const texts = [...Object.keys(EVAL_TOPICS), ...SIBLING_PHRASES];
+  const out = JSON.parse(execFileSync(path.join(REPO, "target/release/clearscroll-embed"), ["--weights", path.join(dir, "weights.bin"), "--vocab", path.join(dir, "vocab.txt")], { input: JSON.stringify({ texts }), maxBuffer: 1 << 30 }).toString()) as { dim: number; embeddings: number[][] };
+  const v = new Map(texts.map((t, i) => [t, Float32Array.from(out.embeddings[i]!)]));
+  const table = { vectors: Float32Array.from(SIBLING_PHRASES.flatMap((p) => [...v.get(p)!])), count: SIBLING_PHRASES.length };
+  // Evaluation topics are single words (no compound parts).
+  return new Map(Object.keys(EVAL_TOPICS).map((t) => {
+    const p = planSiblings(v.get(t)!, [v.get(t)!], table, out.dim);
+    return [t, p ? { anchors: p.anchors, rivals: p.rivalNames } : null];
+  }));
+}
+const plans = withSiblings ? textPlans() : new Map<string, null>();
 const topics = new Map<string, PreparedVisionTopic>();
 for (const t of Object.keys(EVAL_TOPICS)) {
-  const ps = topicPrompts(t);
-  const flat = new Float32Array(ps.flatMap((p) => result.text[p]!));
-  topics.set(t, prepareVisionTopic(t, meanVector(flat, ps.length), background));
+  const plan = plans.get(t);
+  topics.set(t, prepareVisionTopic(t, promptMean(t), background, plan ? { own: plan.anchors.map(promptMean), rivals: plan.rivals.map(promptMean) } : null));
 }
 const failed = items.filter((m) => typeof result.images[m.file] === "string");
 const embedded = items.filter((m) => typeof result.images[m.file] !== "string");
@@ -200,18 +230,30 @@ interface Pair {
   positive: boolean;
   similarity: number;
   margin: number;
+  /** The topic has sibling rivals (its own rules) … */
+  siblings: boolean;
+  /** … and this picture is closer to one of them (vetoed). */
+  rivalled: boolean;
 }
 const pairs: Pair[] = [];
 for (const [topic, spec] of Object.entries(EVAL_TOPICS)) {
-  for (const m of embedded) pairs.push({ topic, item: m, positive: spec.positive.includes(m.label), ...visionScores(vec(result.images[m.file] as number[]), topics.get(topic)!) });
+  const t = topics.get(topic)!;
+  for (const m of embedded) {
+    const iv = vec(result.images[m.file] as number[]);
+    pairs.push({ topic, item: m, positive: spec.positive.includes(m.label), ...visionScores(iv, t), siblings: !!t.siblings, rivalled: rivalledImage(iv, t) });
+  }
 }
 
-const hits = (p: Pair, rule: VisionRule) => p.similarity >= rule.minSimilarity && p.margin >= rule.minMargin;
+/** Raw rule only (calibration grid). */
+const hitsRule = (p: Pair, rule: VisionRule) => p.similarity >= rule.minSimilarity && p.margin >= rule.minMargin;
+/** What the extension decides for this pair in `mode` (rule per topic, then the sibling veto). */
+const hits = (p: Pair, mode: FilterMode) => isVisualMatch(p, mode, p.siblings) && !p.rivalled;
 
-function metrics(ps: Pair[], rule: VisionRule) {
+function metrics(ps: Pair[], rule: VisionRule | FilterMode) {
+  const hit = (p: Pair) => (typeof rule === "string" ? hits(p, rule) : hitsRule(p, rule));
   const clear = ps.filter((p) => !p.item.ambiguous);
-  const tp = clear.filter((p) => p.positive && hits(p, rule)).length;
-  const fp = clear.filter((p) => !p.positive && hits(p, rule)).length;
+  const tp = clear.filter((p) => p.positive && hit(p)).length;
+  const fp = clear.filter((p) => !p.positive && hit(p)).length;
   const P = clear.filter((p) => p.positive).length;
   const N = clear.length - P;
   const precision = tp + fp ? tp / (tp + fp) : null;
@@ -245,13 +287,14 @@ const report = {
   images: items.length,
   decodeFailures: failed.map((m) => ({ id: m.id, error: result.images[m.file] })),
   ambiguousImages: items.filter((m) => m.ambiguous).length,
+  siblingPlans: withSiblings ? Object.fromEntries([...plans].map(([t, p]) => [t, p ? { anchors: p.anchors, rivals: p.rivals.length } : null])) : "off (--no-siblings)",
   latency: (() => {
     const s = [...result.ms].sort((a, b) => a - b);
     return { modelLoadMs: result.loadMs, imageMedianMs: Math.round(s[s.length >> 1]!), imageP95Ms: Math.round(s[Math.floor(s.length * 0.95)]!), note: "1 WebAssembly thread, headless Chromium, decode + preprocess + inference" };
   })(),
   modes: Object.fromEntries(
     FILTER_MODES.map((mode: FilterMode) => {
-      const thr = VISION_RULES[mode];
+      const thr = mode;
       const perTopic = Object.fromEntries(
         Object.entries(EVAL_TOPICS).map(([topic, spec]) => {
           const ps = pairs.filter((p) => p.topic === topic);
@@ -267,7 +310,7 @@ const report = {
       const anyTopic = clearItems.filter((m) => decideImage(vec(result.images[m.file] as number[]), [...topics.values()], mode).matched);
       const covered = new Set(Object.values(EVAL_TOPICS).flatMap((t) => t.positive));
       const allTopics = { hidden: anyTopic.length, ofImages: clearItems.length, hiddenWithoutAnyTopicLabel: anyTopic.filter((m) => !covered.has(m.label)).map((m) => m.id), unrelatedImages: clearItems.filter((m) => !covered.has(m.label)).length };
-      return [mode, { rule: thr, overall: metrics(pairs, thr), allTopicsActive: allTopics, perTopic }];
+      return [mode, { rule: VISION_RULES[mode], siblingRule: withSiblings ? VISION_SIBLING_RULES[mode] : null, overall: metrics(pairs, thr), allTopicsActive: allTopics, perTopic }];
     })
   ),
 };
@@ -275,7 +318,7 @@ const report = {
 const sample = embedded[0]!;
 const sv = vec(result.images[sample.file] as number[]);
 const d = decideImage(sv, [...topics.values()], "balanced");
-if (d.matched !== [...topics.values()].some((t) => isVisualMatch(visionScores(sv, t), "balanced"))) fail("decideImage disagrees with isVisualMatch");
+if (d.matched !== [...topics.values()].some((t) => topicMatches(sv, t, visionScores(sv, t), "balanced"))) fail("decideImage disagrees with topicMatches");
 
 for (const [mode, r] of Object.entries(report.modes)) {
   const o = r.overall;

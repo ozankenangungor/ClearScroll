@@ -323,6 +323,21 @@ export const VISION_RULES: Record<FilterMode, VisionRule> = {
   aggressive: BALANCED_RULE,
 };
 
+/**
+ * Rules for topics with sibling rivals (Task 07): the text engine's sibling
+ * plan (src/shared/siblings.ts) names the subjects a topic is confused with
+ * ("rugby", "basketball" … for "football"), and a picture closer to one of
+ * them than to the topic is never hidden for it (see decideImage). That veto
+ * makes a looser rule safe for these topics; calibrated on the development
+ * photos (F1 for balanced, F2 for thorough; precise keeps its rule).
+ * Topics without rivals keep VISION_RULES.
+ */
+export const VISION_SIBLING_RULES: Record<FilterMode, VisionRule> = {
+  precision: { minSimilarity: 0.04, minMargin: 0.0 },
+  balanced: { minSimilarity: 0.03, minMargin: -0.02 },
+  aggressive: { minSimilarity: 0.02, minMargin: -0.02 },
+};
+
 export function topicPrompts(topic: string): string[] {
   return VISION_PROMPT_TEMPLATES.map((t) => t.replace("{topic}", () => topic));
 }
@@ -349,6 +364,20 @@ export interface PrecomputedBackground {
   model: string;
   prompts: string[];
   vectors: number[][];
+  /** Sibling phrases (siblings.ts SIBLING_PHRASES), each the mean of its templated prompts. */
+  siblings?: { templates: string[]; phrases: string[]; vectors: number[][] };
+}
+
+/** The precomputed sibling-phrase vectors, if they describe exactly `phrases` with this model's templates. */
+export function usableSiblings(b: unknown, phrases: readonly string[]): Map<string, Float32Array> | null {
+  if (typeof b !== "object" || b === null) return null;
+  const { model, siblings } = b as Partial<PrecomputedBackground>;
+  if (model !== VISION_MODEL_ID || !siblings || !Array.isArray(siblings.phrases) || !Array.isArray(siblings.vectors) || !Array.isArray(siblings.templates)) return null;
+  if (siblings.templates.length !== VISION_PROMPT_TEMPLATES.length || siblings.templates.some((t, i) => t !== VISION_PROMPT_TEMPLATES[i])) return null;
+  if (siblings.phrases.length !== phrases.length || siblings.phrases.some((p, i) => p !== phrases[i])) return null;
+  const v = siblings.vectors;
+  if (v.length !== phrases.length || v.some((x) => !Array.isArray(x) || x.length !== v[0]!.length || !x.every(Number.isFinite))) return null;
+  return new Map(phrases.map((p, i) => [p, Float32Array.from(v[i]!)]));
 }
 
 /** The precomputed vectors, if they describe exactly VISION_BACKGROUND_PROMPTS for this model. */
@@ -366,10 +395,29 @@ export interface PreparedVisionTopic {
   vector: Float32Array;
   /** Background vectors this topic competes with (synonyms removed). */
   background: Float32Array[];
+  /** Sibling plan (Task 07): vectors on the topic's side (its anchors) and of its rivals; absent → no veto. */
+  siblings?: { own: Float32Array[]; rivals: Float32Array[] };
 }
 
-export function prepareVisionTopic(id: string, vector: Float32Array, background: readonly Float32Array[]): PreparedVisionTopic {
-  return { id, vector, background: background.filter((b) => dot(vector, b) < BACKGROUND_SYNONYM_COSINE) };
+export function prepareVisionTopic(
+  id: string,
+  vector: Float32Array,
+  background: readonly Float32Array[],
+  siblings: { own: Float32Array[]; rivals: Float32Array[] } | null = null
+): PreparedVisionTopic {
+  const t: PreparedVisionTopic = { id, vector, background: background.filter((b) => dot(vector, b) < BACKGROUND_SYNONYM_COSINE) };
+  if (siblings && siblings.rivals.length > 0) t.siblings = siblings;
+  return t;
+}
+
+/** The picture is closer to one of the topic's rivals than to the topic and its anchors. */
+export function rivalledImage(image: Float32Array, topic: PreparedVisionTopic): boolean {
+  if (!topic.siblings) return false;
+  let own = dot(image, topic.vector);
+  for (const o of topic.siblings.own) own = Math.max(own, dot(image, o));
+  let rival = -Infinity;
+  for (const r of topic.siblings.rivals) rival = Math.max(rival, dot(image, r));
+  return rival > own;
 }
 
 export function visionScores(image: Float32Array, topic: PreparedVisionTopic): { similarity: number; margin: number } {
@@ -379,9 +427,15 @@ export function visionScores(image: Float32Array, topic: PreparedVisionTopic): {
   return { similarity, margin: similarity - bg };
 }
 
-export function isVisualMatch(s: { similarity: number; margin: number }, mode: FilterMode): boolean {
-  const rule = VISION_RULES[mode];
+/** Scores pass the mode's rule (`withSiblings`: the topic has rivals → VISION_SIBLING_RULES). */
+export function isVisualMatch(s: { similarity: number; margin: number }, mode: FilterMode, withSiblings = false): boolean {
+  const rule = (withSiblings ? VISION_SIBLING_RULES : VISION_RULES)[mode];
   return s.similarity >= rule.minSimilarity && s.margin >= rule.minMargin;
+}
+
+/** One topic: its rule, then the sibling veto. */
+export function topicMatches(image: Float32Array, topic: PreparedVisionTopic, s: { similarity: number; margin: number }, mode: FilterMode): boolean {
+  return isVisualMatch(s, mode, !!topic.siblings) && !rivalledImage(image, topic);
 }
 
 /** Decide one image against all active topics. `score` is the best margin. */
@@ -392,7 +446,7 @@ export function decideImage(image: Float32Array, topics: readonly PreparedVision
     const s = visionScores(image, t);
     if (!Number.isFinite(s.margin)) continue;
     best = Math.max(best, s.margin);
-    if (isVisualMatch(s, mode) && (!matched || s.margin > matched.margin)) matched = { id: t.id, margin: s.margin };
+    if (topicMatches(image, t, s, mode) && (!matched || s.margin > matched.margin)) matched = { id: t.id, margin: s.margin };
   }
   return matched ? { matched: true, topicId: matched.id, score: matched.margin } : { matched: false, topicId: null, score: Number.isFinite(best) ? best : 0 };
 }

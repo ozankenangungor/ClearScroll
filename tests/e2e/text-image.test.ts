@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
-import { attr, launchExtension, setSettings, waitAttr, waitRegistered, type Env } from "../helpers/extension.ts";
+import { attr, extensionPage, launchExtension, setSettings, waitAttr, waitRegistered, type Env } from "../helpers/extension.ts";
 
 const COLD_MS = 180_000;
 let env: Env;
@@ -59,6 +59,12 @@ test("text and picture verdicts combine per card; dogs are not hidden for \"cats
   assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("#img p")!).filter), "none", "… and its text is not blurred");
   assert.equal(await attr(page, "#both-pic"), null, "no nested blur inside a hidden card");
   for (const id of ["#none", "#dog-1", "#dog-2", "#dog-3"]) assert.equal(await hiddenIn(id), 0, `${id}: nothing inside is hidden (a dog text is not hidden for "cats")`);
+
+  // The image model got the text engine's sibling plan for "cats" (image sibling veto active).
+  const statsPage = await extensionPage(env);
+  const stats = await statsPage.evaluate(() => chrome.runtime.sendMessage({ type: "off:vision-stats", target: "offscreen" }));
+  await statsPage.close();
+  assert.equal(stats.siblingTopics, 1, JSON.stringify(stats));
 
   // One click reveals the whole card, picture included.
   await page.click("#both");

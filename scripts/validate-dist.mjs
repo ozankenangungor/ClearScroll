@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { LOCK, REPO, sha256, weightsShaKey } from "./lib.mjs";
 import { VISION_LOCK } from "./setup-vision-model.mjs";
-import { usableBackground } from "../src/shared/vision.ts";
+import { usableBackground, usableSiblings } from "../src/shared/vision.ts";
+import { SIBLING_PHRASES } from "../src/shared/siblings.ts";
 
 const DIST = path.resolve(process.argv[2] ?? path.join(REPO, "dist"));
 const errors = [];
@@ -135,6 +136,7 @@ if (fs.existsSync(ortWasm)) {
 }
 const bgPath = path.join(DIST, "offscreen/vision/background.json");
 if (fs.existsSync(bgPath) && !usableBackground(JSON.parse(fs.readFileSync(bgPath, "utf8")))) err("offscreen/vision/background.json does not match VISION_BACKGROUND_PROMPTS / the model id");
+if (fs.existsSync(bgPath) && !usableSiblings(JSON.parse(fs.readFileSync(bgPath, "utf8")), SIBLING_PHRASES)) err("offscreen/vision/background.json has no sibling vectors matching src/shared/siblings.ts (image sibling veto)");
 notes.push(`image model ${VISION_LOCK.id} (${VISION_LOCK.repo}@${VISION_LOCK.revision.slice(0, 12)}, ${VISION_LOCK.license})`);
 
 // ── No development artifacts ──────────────────────────────────────────────
