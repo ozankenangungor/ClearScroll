@@ -9,6 +9,10 @@
  *
  *   npm run build && node scripts/live-capture.ts <out-dir> <label> "<topic>|<topic>|-" <url> [mode]
  *
+ * CLEARSCROLL_LIVE_IMAGES=1 also turns on image filtering and downloads of
+ * pictures from other domains (the summary then counts hidden pictures);
+ * CLEARSCROLL_DIST selects the build.
+ *
  * Manual tool: it contacts third-party sites and is not run in CI. Pages
  * that block automated browsers are reported as such; nothing is bypassed.
  */
@@ -33,6 +37,7 @@ const { ctx, sw } = await launchContext(profile, { browser: "chrome", extraArgs:
 try {
   await sw.evaluate(async (s) => chrome.storage.local.set({ clearscroll_settings: s }), {
     schema: 2, enabled: topics.length > 0, mode, engine: "auto", topics, excludedSites: [], protectedSelectors: [],
+    images: process.env.CLEARSCROLL_LIVE_IMAGES === "1", imageDownloads: process.env.CLEARSCROLL_LIVE_IMAGES === "1",
   });
   const page = await ctx.newPage();
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -98,7 +103,8 @@ try {
     return out;
   })()`) as { text: string; state: string; card: string }[];
   const firstBlurMs = await page.evaluate(() => (window as unknown as { __csFirstBlur: number | null }).__csFirstBlur);
-  const summary = { label, url, status, consent, topics: topics.map((t) => t.text), mode, firstBlurMs: firstBlurMs && Math.round(firstBlurMs), analyzed: state?.analyzed ?? null, units: units.length, hiddenUnits: units.filter((u) => u.state === "blurred").length, totalMs: Date.now() - t0 };
+  const hiddenPictures = await page.evaluate(() => document.querySelectorAll("[data-clearscroll-media]").length);
+  const summary = { label, url, status, consent, topics: topics.map((t) => t.text), mode, firstBlurMs: firstBlurMs && Math.round(firstBlurMs), analyzed: state?.analyzed ?? null, units: units.length, hiddenUnits: units.filter((u) => u.state === "blurred").length, hiddenPictures, totalMs: Date.now() - t0 };
   fs.writeFileSync(path.join(outDir, `${label}.json`), JSON.stringify({ ...summary, captured: new Date().toISOString().slice(0, 10), unitList: units }, null, 1));
   console.log(JSON.stringify(summary));
 } finally {
