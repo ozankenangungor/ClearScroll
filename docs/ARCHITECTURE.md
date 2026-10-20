@@ -254,6 +254,13 @@ would double the size).
 cos(picture, topic) − max over 22 generic background descriptions ≥
 minMargin (per strictness), background descriptions that are synonyms of the
 topic excluded. Topic = mean of 3 prompt embeddings ("a photo of {topic}." …).
+*Sibling veto* (Task 07): VisionHost asks the text engine for the topic's
+sibling plan (`EngineHost.siblingNames`, the same rivals as for text); the
+rivals' image-model vectors are precomputed in `vision/background.json`. A
+picture closer to a rival than to the topic and its anchors is not hidden for
+it, and such topics use `VISION_SIBLING_RULES` (looser for balanced and
+thorough). A picture waits at most 250 ms for the plan; until it arrives
+(right after the text engine starts), the Task 06 rule applies.
 
 **8. Applying verdicts.** Same rules as text: current generation, still
 active, still connected, **same picture identity** (a changed source drops

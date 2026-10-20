@@ -46,6 +46,12 @@ First version under the ClearScroll name (previously "IdeaBlocker").
   44.2 → 81.1 %, recall 83.4 → 82.1 %, false-positive rate 28.7 → 5.2 %;
   hidden cards 33.0 → 6.6 % false positives. Keyword matches and topics
   outside the six covered domains are unchanged.
+- **Pictures use the same sibling plan (Task 07).** A picture closer to a
+  sibling of the topic (a rugby photo for "football", a dog for "cats") is
+  never hidden for it, which lets these topics use a looser rule. Pre-
+  registered held-out run on 285 new photos, balanced: precision 0.916 →
+  0.975, recall 0.801 → 0.892, neighbouring-subject mistakes 12 → 3. Topics
+  without siblings keep the previous rules.
 - *Thorough* now filters pictures like *Balanced*: its looser picture rule
   mostly hid the wrong photos (held-out: 27 → 9 false positives).
 - Image privacy checks (`npm run verify:privacy:images`), real-model browser

@@ -432,6 +432,13 @@ What stays hidden on the rugby page are headlines that do not name the sport
 ("England's 41-match unbeaten run ended by Canada"); on the dog gallery, 9 of
 the 21 are Polish or Spanish file names, which English metrics exclude.
 
+**Pictures.** The same plan guards image filtering: the image model's own
+text space cannot tell siblings from synonyms (SigLIP: "cats"–"dogs" 0.92 =
+"cats"–"animals"), so the rivals come from the text plan and are compared in
+the image model's space. Pre-registered held-out run on 285 new photos,
+balanced: precision 0.916 → 0.975, recall 0.801 → 0.892
+([details](evaluation/vision/RESULTS.md#sibling-veto-for-pictures-task-07)).
+
 ## Known failure modes
 
 * **Texts about a topic and its sibling** can lose to the sibling ("Bitcoin

@@ -159,6 +159,11 @@ held-out Wikimedia Commons photos, default (precise) strictness
 | football (vs rugby, basketball) | 77 % | 77 % | | 1.6 % — 3 of 24 rugby/basketball photos hidden |
 | politics | 60 % | 38 % | | abstract; rarely visible in a photo |
 
+With the sibling veto (Task 07; [pre-registered held-out run](docs/evaluation/vision/RESULTS.md#sibling-veto-for-pictures-task-07),
+285 new photos, balanced): precision 0.916 → 0.975, recall 0.801 → 0.892;
+football hides 1 instead of 7 rugby or basketball photos, and cats, dogs and
+basketball are now all found.
+
 Per picture ≈ 0.17 s with 4 CPU threads (Intel i7-11800H; 0.56 s on one
 thread — fewer cores, fewer threads); first picture ≈ 1.9 s after turning
 images on; +0.36 GiB memory while active, ~+0.9 GiB for a few seconds when a

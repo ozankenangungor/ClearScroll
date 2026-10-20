@@ -153,6 +153,64 @@ positives; only topic-specific neighbours ("a photo of gold.") helped
 clearly, and adding neighbour lists for the evaluated topics would be
 tuning to this test. Not changed; listed as a limitation.
 
+## Sibling veto for pictures (Task 07)
+
+Pre-registered in [PREREGISTRATION-task07.md](PREREGISTRATION-task07.md)
+(commit `f21471b`) before any of the 285 new photos below was downloaded;
+labels fixed from contact sheets and published
+([manifest-t7.json](manifest-t7.json), commit `edf4fef`) before scoring; one
+run each. Raw outputs: [t7-no-siblings.json](t7-no-siblings.json) (Task 06
+rules) and [t7.json](t7.json) (with the veto).
+
+**What changed.** A topic whose text sibling plan has rivals ("football":
+rugby, basketball, tennis …; "cats": dogs, horses, birds …) never hides a
+picture that is closer, in the image model's space, to one of those rivals
+than to the topic — and, protected by that veto, uses a looser rule
+(balanced {0.03, −0.02}, thorough {0.02, −0.02}; precise unchanged). Topics
+without rivals (here airplanes, politics, fast food) keep the Task 06 rules.
+
+| Held-out (270 clear photos, 10 topics) | Task 06 rules | With the veto | Criterion |
+|---|---|---|---|
+| balanced: precision / recall | 0.916 / 0.801 | **0.975 / 0.892** | recall ≥ +4 points, precision ≥ −1 ✔ |
+| balanced: neighbouring-subject false positives | 12 | 3 | not more ✔ |
+| precise: precision / recall | 0.935 / 0.739 | 0.977 / 0.727 | precision not lower, recall ≥ −2 points ✔ |
+| thorough: precision / recall | 0.916 / 0.801 | 0.975 / 0.892 | recall not lower, precision ≥ −3 points ✔ |
+| worst topic recall change (balanced) | | rugby 1.00 → 0.96 | ≥ −10 points ✔ |
+| topics with more false positives (balanced) | | none | ≤ +2 each ✔ |
+| all ten topics active: unrelated photos hidden | 4 / 93 | 2 / 93 | ≤ +1 ✔ |
+| package / latency | | +0.52 MiB; A/B below | < 1 MiB, unchanged ✔ |
+
+Per topic, balanced (recall; false positives):
+
+| Topic | Task 06 rules | With the veto |
+|---|---|---|
+| cats | 0.68; 0 | **1.00**; 0 |
+| dogs | 0.75; 0 | **1.00**; 0 |
+| football | 0.95; 7 (rugby/basketball) | 0.95; **1** |
+| rugby | 1.00; 2 | 0.96; 1 |
+| basketball | 0.87; 0 | **1.00**; 0 |
+| cryptocurrency | 0.68; 2 | **0.84**; 0 |
+| cars | 0.64; 0 | **0.91**; 0 |
+| airplanes, politics, fast food (no rivals) | 0.65, 0.80, 0.86; 1, 0, 1 | unchanged |
+
+**Decision: shipped.** On the development photos (dev + val, used to choose
+the rules) the same comparison was balanced 0.926 / 0.829 → 0.967 / 0.903;
+the held-out photos confirm it.
+
+Latency, A/B on the same machine (`scripts/benchmark-vision.ts`, two
+alternating runs each, veto disconnected vs connected): first picture after
+turning images on 1,910 / 1,920 vs 1,364 / 1,904 ms; per picture 211 / 209
+vs 176 / 209 ms; images off → on 887 / 876 vs 875 / 884 ms — no difference
+beyond run-to-run noise.
+
+Deviations from the pre-registration: the query "stock ticker display"
+returned no usable photo (stocks has 9 photos from the other query). After
+the held-out run, the time a picture waits for the text engine's plan was
+cut from 3 s to 250 ms, and the request is no longer abandoned — pictures
+analysed before the plan arrives (only right after the text engine starts)
+use the Task 06 rule, later ones the veto. This changes no decision measured
+here (the evaluation always has the plan), only how soon the veto applies.
+
 ## Live sites (qualitative, not a benchmark)
 
 `node scripts/live-vision.ts [--downloads]` (Chromium, CPU, default
