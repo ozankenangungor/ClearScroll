@@ -90,8 +90,13 @@ const IMAGE_CACHE_SIZE = 1000;
 const TOPIC_CACHE_SIZE = 64;
 /** The text encoder is released this long after its last use. */
 const TEXT_IDLE_MS = 20_000;
-/** How long a picture waits for the text engine's sibling plan before going without a veto. */
-const SIBLING_PLAN_TIMEOUT_MS = 3_000;
+/**
+ * How long a picture waits for the text engine's sibling plan before it is
+ * decided without the veto (Task 06 rule). The request itself is not
+ * cancelled: later pictures use the plan once it has arrived, so a cold text
+ * engine never delays the first picture by more than this.
+ */
+const SIBLING_PLAN_TIMEOUT_MS = 250;
 /** The image encoder (≈ 0.33 GB) is released this long after the last image request. */
 const IMAGE_IDLE_MS = 5 * 60_000;
 /** Downloaded body types accepted (SVG is excluded: icons, and not decodable in workers). */
@@ -206,6 +211,8 @@ export class VisionHost {
   private siblingTable: Map<string, Float32Array> | null = null;
   /** Sibling plan per topic text, once the text engine has answered (null: no rivals). */
   private readonly siblingPlans = new Map<string, { own: Float32Array[]; rivals: Float32Array[] } | null>();
+  /** Plans being asked for (shared by the pictures that arrive meanwhile). */
+  private readonly siblingRequests = new Map<string, Promise<void>>();
   private readonly initTimeoutMs: number;
   private readonly jobTimeoutMs: number;
   private readonly textIdleMs: number;
@@ -259,6 +266,7 @@ export class VisionHost {
     this.background = null;
     this.siblingTable = null;
     this.siblingPlans.clear();
+    this.siblingRequests.clear();
     this.ready = null;
     this.failedAt = null;
     this.restarts = 0;
@@ -537,19 +545,31 @@ export class VisionHost {
   private async siblingPlan(topic: string): Promise<{ own: Float32Array[]; rivals: Float32Array[] } | null> {
     if (!this.siblingTable || !this.deps.siblingNames) return null;
     if (this.siblingPlans.has(topic)) return this.siblingPlans.get(topic)!;
-    const table = this.siblingTable;
+    let request = this.siblingRequests.get(topic);
+    if (!request) {
+      const table = this.siblingTable;
+      const epoch = this.epoch;
+      request = this.deps.siblingNames(topic).then(
+        (names) => {
+          this.siblingRequests.delete(topic);
+          // Shut down meanwhile: the table it refers to is gone.
+          if (epoch !== this.epoch) return;
+          const vec = (p: string) => table.get(p);
+          const plan = names && names.rivals.every((r) => vec(r)) && names.anchors.every((a) => vec(a))
+            ? { own: names.anchors.map((a) => vec(a)!), rivals: names.rivals.map((r) => vec(r)!) }
+            : null;
+          this.siblingPlans.set(topic, plan);
+          if (plan) this.stats.siblingTopics++;
+        },
+        // A failed request is asked again by the next picture.
+        () => void this.siblingRequests.delete(topic)
+      );
+      this.siblingRequests.set(topic, request);
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<"timeout">((resolve) => (timer = setTimeout(() => resolve("timeout"), this.deps.siblingPlanTimeoutMs ?? SIBLING_PLAN_TIMEOUT_MS)));
-    const names = await Promise.race([this.deps.siblingNames(topic).catch(() => "timeout" as const), timeout]);
+    await Promise.race([request, new Promise<void>((resolve) => (timer = setTimeout(resolve, this.deps.siblingPlanTimeoutMs ?? SIBLING_PLAN_TIMEOUT_MS)))]);
     clearTimeout(timer);
-    if (names === "timeout") return null;
-    const vec = (p: string) => table.get(p);
-    const plan = names && names.rivals.every((r) => vec(r)) && names.anchors.every((a) => vec(a))
-      ? { own: names.anchors.map((a) => vec(a)!), rivals: names.rivals.map((r) => vec(r)!) }
-      : null;
-    this.siblingPlans.set(topic, plan);
-    if (plan) this.stats.siblingTopics++;
-    return plan;
+    return this.siblingPlans.get(topic) ?? null;
   }
 
   // ── Workers ─────────────────────────────────────────────────────────────
