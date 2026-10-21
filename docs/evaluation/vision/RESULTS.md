@@ -211,13 +211,34 @@ here): Wikimedia Commons "Quality images of dogs", topic "cats": 1 → 0
 pictures hidden; "Quality images of cats": 7 → 8; BBC Sport rugby union,
 topic "football": 4 → 0.
 
+**Offline metrics versus the browser.** The figures above are computed
+offline with every topic's plan available. In the extension the plan comes
+from the text engine at run time, so:
+
+* pictures of topics with rivals get exactly the evaluated behaviour once the
+  text engine has answered — the question is asked when the image job starts
+  and a picture waits for it (at most 10 s); if it is still unanswered the
+  picture is deferred (transient skip `plan-pending`, retried by the content
+  script) rather than decided without the veto;
+* topics without rivals, a keyword-only or failed text engine, or a build
+  without sibling vectors use the Task 06 rule, as in the "Task 06 rules"
+  column — those pictures do **not** benefit from the veto.
+
+Cold start in the browser (`tests/e2e/cold-start.test.ts`): a fresh browser,
+a page with pictures only (nothing has started the text engine), topic
+"football", engine preference "auto". A public-domain rugby photo from this
+held-out set (t7/rugby-013, hidden for "football" by the Task 06 rule in
+balanced mode) stays visible; the same test fails on a build with the veto
+disconnected. Three cold-start runs of the earlier 250 ms version also kept it
+visible on this machine, but that version decided a picture with the Task 06
+rule when the plan was late (its unit test asserted so); it is replaced by
+the deferral described above.
+
 Deviations from the pre-registration: the query "stock ticker display"
-returned no usable photo (stocks has 9 photos from the other query). After
-the held-out run, the time a picture waits for the text engine's plan was
-cut from 3 s to 250 ms, and the request is no longer abandoned — pictures
-analysed before the plan arrives (only right after the text engine starts)
-use the Task 06 rule, later ones the veto. This changes no decision measured
-here (the evaluation always has the plan), only how soon the veto applies.
+returned no usable photo (stocks has 9 photos from the other query). The
+frozen candidate waited up to 3 s for the plan and then used the Task 06 rule;
+after the held-out run this became "wait up to 10 s, then defer" (above). No
+decision measured here changes (the evaluation always has the plan).
 
 ## Live sites (qualitative, not a benchmark)
 

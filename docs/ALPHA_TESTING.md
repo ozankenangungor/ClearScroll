@@ -120,6 +120,10 @@ Tick what you tried; note anything surprising.
   reveals: some reviews and trailers can still be hidden.
 * **Short texts** (under about 24 characters, such as labels and channel
   names) match only if they contain your topic's words.
+* **Pictures and neighbouring subjects:** a rugby photo is kept visible for
+  "football" (or a dog for "cats") only when the text model is running
+  (not *Keyword matching only*); right after starting, a picture may stay
+  unchecked for a moment until the text model has answered.
 * **Pictures:** abstract topics ("politics", "news") are rarely recognisable
   in a picture; pictures served through redirects and pictures in frames are
   not checked.
