@@ -26,6 +26,7 @@ export const MEDIA: Record<string, string> = {
   k8: "stock-exchange.jpg",
   k9: "burger.jpg",
   k10: "cat-2.jpg",
+  k11: "rugby-tackle.jpg",
 };
 
 /** One request for a /media/ URL, as seen by the test server. */

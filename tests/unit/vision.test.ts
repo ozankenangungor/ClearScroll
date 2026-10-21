@@ -819,14 +819,10 @@ test("VisionHost: rivals from the text engine's plan veto a picture; the plan is
   assert.equal(d.matched, false, "the cat frame is closer to the rival \"dogs\" here");
   await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
   assert.equal(asked, 1, "cached per topic");
-  // Without sibling vectors in background.json the text engine is not even asked.
-  let asked2 = 0;
-  const plain = harness({}, undefined, { loadBackground: async () => ({ ...backgroundWithSiblings(), siblings: undefined }), siblingNames: async () => (asked2++, { anchors: ["cats"], rivals: ["dogs"] }) });
-  assert.equal(okDecision(await plain.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true);
-  assert.equal(asked2, 0);
+
 });
 
-test("VisionHost: pictures never wait long for a slow text engine; its plan applies once it arrives", async () => {
+test("VisionHost: while the text engine has not answered, a picture is deferred (transient skip), never decided by the plain rule", async () => {
   let asked = 0;
   let answer: (v: { anchors: string[]; rivals: string[] }) => void = () => {};
   const { host } = harness({}, undefined, {
@@ -834,19 +830,44 @@ test("VisionHost: pictures never wait long for a slow text engine; its plan appl
     siblingPlanTimeoutMs: 20,
     siblingNames: () => (asked++, new Promise((resolve) => (answer = resolve))),
   });
-  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true, "no plan yet: Task 06 rule, no veto");
-  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true);
-  assert.equal(asked, 1, "the request in flight is shared, not repeated");
+  // The plain rule would hide this cat frame for "cats"; with the plan it is vetoed (the scripted "dogs" looks like it).
+  for (let i = 0; i < 2; i++) {
+    const r = await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+    assert.equal(r.ok, false);
+    assert.equal(!r.ok && r.reason, "plan-pending", "deferred, not decided");
+  }
+  assert.equal(asked, 1, "one request per topic, shared");
   answer({ anchors: ["cats"], rivals: ["dogs"] });
   await new Promise((r) => setTimeout(r, 0));
-  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, false, "the plan applies from now on");
+  assert.equal(okDecision(await host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, false, "decided with the veto once the plan is there");
   assert.equal(asked, 1);
+  assert.equal(host.stats.skipped["plan-pending"], 2);
 });
 
-test("VisionHost: a failed plan request is asked again by the next picture", async () => {
+test("VisionHost: the plan request starts with the job, before the image model has loaded", async () => {
+  const order: string[] = [];
+  const { host } = harness({}, undefined, {
+    loadBackground: async () => (order.push("background"), backgroundWithSiblings()),
+    siblingNames: async () => (order.push("plan"), { anchors: ["cats"], rivals: ["dogs"] }),
+  });
+  await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  assert.deepEqual(order.slice(0, 2), ["plan", "background"]);
+});
+
+test("VisionHost: a failed plan request defers the picture and is asked again", async () => {
   let asked = 0;
-  const { host } = harness({}, undefined, { loadBackground: async () => backgroundWithSiblings(), siblingNames: async () => (asked++, Promise.reject(new Error("engine gone"))) });
-  await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
-  await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+  const { host } = harness({}, undefined, { loadBackground: async () => backgroundWithSiblings(), siblingPlanTimeoutMs: 20, siblingNames: async () => (asked++, Promise.reject(new Error("engine gone"))) });
+  for (let i = 0; i < 2; i++) {
+    const r = await host.classify(msg({ kind: "pixels", rgb: frame(true) }));
+    assert.equal(!r.ok && r.reason, "plan-pending");
+  }
   assert.equal(asked, 2);
+});
+
+test("VisionHost: no semantic text engine (answer null) or no sibling vectors → the plain rule, as before Task 07", async () => {
+  const keywordOnly = harness({}, undefined, { loadBackground: async () => backgroundWithSiblings(), siblingNames: async () => null });
+  assert.equal(okDecision(await keywordOnly.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true);
+  const noVectors = harness({}, undefined, { loadBackground: async () => ({ ...backgroundWithSiblings(), siblings: undefined }), siblingNames: async () => ({ anchors: ["cats"], rivals: ["dogs"] }) });
+  assert.equal(okDecision(await noVectors.host.classify(msg({ kind: "pixels", rgb: frame(true) }))).matched, true);
+  assert.equal(noVectors.host.stats.siblingTopics, 0);
 });

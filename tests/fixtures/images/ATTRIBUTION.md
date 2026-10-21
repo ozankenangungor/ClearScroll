@@ -3,7 +3,7 @@
 Openly licensed photos from Wikimedia Commons (Commons thumbnails, unmodified),
 used by the browser tests to check that ClearScroll recognises image content
 from pixels. They are part of the image evaluation set
-(docs/evaluation/vision/manifest.json). File names deliberately describe the
+(docs/evaluation/vision/manifest.json; `rugby-tackle.jpg`: manifest-t7.json, t7/rugby-013). File names deliberately describe the
 subject for test readability; the tests serve them under neutral URLs and
 never with alt text or captions.
 
@@ -19,3 +19,4 @@ never with alt text or captions.
 | `stock-exchange.jpg` | [NY stock exchange traders floor LC-U9-10548-6.jpg](https://commons.wikimedia.org/wiki/File:NY_stock_exchange_traders_floor_LC-U9-10548-6.jpg) | Thomas J. O'Halloran | Public domain |
 | `burger.jpg` | [Big Mac hamburger.jpg](https://commons.wikimedia.org/wiki/File:Big_Mac_hamburger.jpg) | Evan-Amos | CC0 |
 | `cat-2.jpg` | [June odd-eyed-cat cropped.jpg](https://commons.wikimedia.org/wiki/File:June_odd-eyed-cat_cropped.jpg) | Keith Kissel | CC BY 2.0 |
+| `rugby-tackle.jpg` | [Making a tackle in a game of Rugby, Brisbane (4461848078).jpg](https://commons.wikimedia.org/wiki/File:Making_a_tackle_in_a_game_of_Rugby,_Brisbane_(4461848078).jpg) | State Library of Queensland, Australia | Public domain |

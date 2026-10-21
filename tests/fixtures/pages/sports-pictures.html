@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sports pictures</title>
+<style>
+  body { margin: 0; }
+  main { display: grid; grid-template-columns: repeat(2, 300px); gap: 16px; padding: 16px; }
+  img { width: 300px; height: 220px; object-fit: cover; display: block; }
+</style>
+</head>
+<body>
+<!-- Pictures only, no text: nothing on this page starts the text engine, so
+     the first picture's sibling plan comes from a text engine that is still
+     starting (cold-start test, tests/e2e/text-image.test.ts). -->
+<main>
+  <figure><img id="football" src="/media/k4?cold"></figure>
+  <figure><img id="rugby" src="/media/k11?cold"></figure>
+</main>
+</body>
+</html>

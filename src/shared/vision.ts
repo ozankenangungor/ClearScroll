@@ -70,7 +70,9 @@ export type SkipReason =
   | "too-large"
   | "overloaded"
   | "unavailable"
-  | "inference";
+  | "inference"
+  /** The text engine has not yet answered which subjects compete with a topic (transient; retried). */
+  | "plan-pending";
 
 export interface VisionDecision {
   matched: boolean;
