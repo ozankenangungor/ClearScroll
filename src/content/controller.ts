@@ -342,6 +342,7 @@ export class FilterController {
     if (this.activity !== "active") return;
     this.images.onMutations(records);
     const touched = new Set<Element>();
+    const removed = new Set<Element>();
     for (const r of records) {
       if (r.type === "attributes") continue;
       if (r.type === "characterData") {
@@ -351,6 +352,11 @@ export class FilterController {
       }
       const u = unitOf(r.target);
       if (u) touched.add(u);
+      r.removedNodes.forEach((n) => {
+        if (n.nodeType !== Node.ELEMENT_NODE) return;
+        removed.add(n as Element);
+        collectUnits(n, this.protectedSelector, removed);
+      });
       r.addedNodes.forEach((n) => {
         if (n.nodeType === Node.ELEMENT_NODE) collectUnits(n, this.protectedSelector, touched);
         else if (n.nodeType === Node.TEXT_NODE) {
@@ -358,6 +364,22 @@ export class FilterController {
           if (tu) touched.add(tu);
         }
       });
+    }
+    // A removed matching member may leave only unchanged metadata behind:
+    // touching the mutation's container cannot clear its old item membership.
+    // Release that membership before processing additions, including moves to
+    // another card in the same mutation batch. Reinserted nodes need a fresh
+    // viewport observation and verdict rather than the old done-state shortcut.
+    for (const u of removed) {
+      const st = this.states.get(u);
+      if (!st || (u.isConnected && (!st.target || st.target.contains(u)))) continue;
+      this.hide(u, st);
+      st.phase = "dirty";
+      this.queue.delete(u);
+      this.retryUnits.delete(u);
+      this.intersectionObserver?.unobserve(u);
+      this.observed.delete(u);
+      this.nearViewport.delete(u);
     }
     for (const u of touched) this.touch(u);
     this.scheduleFlush();
