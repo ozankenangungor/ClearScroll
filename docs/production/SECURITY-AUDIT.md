@@ -1,0 +1,11 @@
+# Security and privacy audit
+
+The detailed dated findings, exact command results and policy references are in build/040-production-readiness/SECURITY-PRIVACY.md. A test pass is finite evidence, not privacy certification.
+
+The extension uses Manifest V3, isolated-world dynamic top-frame content scripts and one extension-origin offscreen worker. Models, JS and WASM are packaged. CSP permits self scripts and wasm-unsafe-eval; the text build additionally limits connect-src to self. No web-accessible resources, external messaging listener, remote evaluation/eval/new Function, analytics or inference service exists. Website CSP does not need weakening. Broad HTTP/HTTPS permission is justified in PERMISSIONS-JUSTIFICATION.md.
+
+Runtime messages first check the extension sender ID; classify requests also require a tab and bounded typed payload. Feedback saves require top frame; feedback list/delete require the exact options-page URL; the picker requires the exact popup-page URL. Settings are normalized and size-bounded. Page code has no externally-connectable API. The text path uses textContent/value/DOM creation for page-derived data. The feedback panel's innerHTML is a static template, not interpolated page text. Raw exception details were removed from copied diagnostics to avoid inadvertent address/credential capture. Topic consent remains explicit. Optional image settings are clamped off and image implementations/assets are removed from the production path; external requests are also prohibited by CSP.
+
+Local raw page text and embedding caches are bounded and transient. Feedback sanitation rejects arbitrary source text, URLs and attributes; report data is bounded and expires on activity. Export is an explicit local download; deletion cannot erase already exported files. No security claim depends on perfect detection of private containers; users can exclude sensitive websites. Extension disable/removal may require a page reload to remove orphaned page styles; pause is the immediate supported control.
+
+Dependencies and exact licenses are pinned in Cargo.lock/package-lock.json and inventoried. No classifier, threshold, model, extraction ownership or Phase5B cleanup logic is changed. WebGPU numerical canaries and CPU failover remain. New onboarding and help make misses, loading, fallback and unsupported YouTube previews visible.

@@ -97,7 +97,7 @@ test("current settings win over legacy keys and unchanged data is not rewritten"
 });
 
 test("empty storage yields defaults", () => {
-  assert.deepEqual(migrateSettings({}), { settings: defaultSettings(), changed: false, from: "none", droppedSites: [] });
+  assert.deepEqual(migrateSettings({}), { settings: { ...defaultSettings(), excludedSites: ["youtube.com", "youtu.be"] }, changed: false, from: "none", droppedSites: [] });
 });
 
 test("validateTopicText", () => {

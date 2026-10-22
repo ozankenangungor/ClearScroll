@@ -167,9 +167,25 @@ export interface LaunchOptions {
   extraArgs?: string[];
 }
 
+/** Await the real first-install options page before a harness navigates another
+ * options tab. Otherwise openOptionsPage can reuse/reload that tab mid-goto.
+ * Restarts do not fire onInstalled and must not wait for a new page.
+ */
+async function installPage(ctx: BrowserContext, extId: string): Promise<Page> {
+  const url = `chrome-extension://${extId}/options/options.html`;
+  for (let i = 0; i < 100; i++) {
+    const page = ctx.pages().find(p => p.url() === url);
+    if (page) { await page.waitForLoadState(); return page; }
+    await new Promise(r => setTimeout(r, 50));
+  }
+  throw new Error("first-install onboarding did not open");
+}
+
 /** Launch a persistent browser context with the extension loaded. */
 export async function launchContext(profile: string, opts: LaunchOptions = {}): Promise<{ ctx: BrowserContext; sw: Worker }> {
   const dist = opts.dist ?? DIST;
+  const firstInstall = !fs.existsSync(path.join(profile, "Default", "Preferences"));
+  const opensOnboarding = firstInstall && fs.existsSync(path.join(dist, "help/help.html"));
   const browser = opts.browser ?? (process.env.CLEARSCROLL_BROWSER as LaunchOptions["browser"]) ?? "chromium";
   const headless = opts.headless ?? true;
   const extra = opts.extraArgs ?? [];
@@ -185,6 +201,7 @@ export async function launchContext(profile: string, opts: LaunchOptions = {}): 
     });
     let [sw] = ctx.serviceWorkers();
     sw ??= await ctx.waitForEvent("serviceworker");
+    if (opensOnboarding) await installPage(ctx, new URL(sw.url()).host);
     return { ctx, sw };
   }
   if (browser !== "chrome") throw new Error(`browser must be chromium or chrome, not ${browser}`);
@@ -198,8 +215,8 @@ export async function launchContext(profile: string, opts: LaunchOptions = {}): 
   const cdp = await ctx.browser()!.newBrowserCDPSession();
   const { id } = (await cdp.send("Extensions.loadUnpacked" as never, { path: dist } as never)) as { id: string };
   // Opening an extension page starts the service worker if it is not running yet.
-  const page = await ctx.newPage();
-  await page.goto(`chrome-extension://${id}/options/options.html`);
+  const page = opensOnboarding ? await installPage(ctx, id) : await ctx.newPage();
+  if (!opensOnboarding) await page.goto(`chrome-extension://${id}/options/options.html`);
   let sw: Worker | undefined;
   for (let i = 0; i < 100 && !sw; i++) {
     sw = ctx.serviceWorkers().find((w) => w.url().startsWith(`chrome-extension://${id}/`));
@@ -214,7 +231,14 @@ export async function launchExtension(opts: LaunchOptions = {}): Promise<Env> {
   if (!fs.existsSync(path.join(DIST, "manifest.json"))) throw new Error(`${DIST} has no build; run npm run build`);
   const server = await startServer();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "clearscroll-e2e-"));
-  const { ctx, sw } = await launchContext(profile, opts);
+  let launched;
+  try { launched = await launchContext(profile, opts); }
+  catch (error) {
+    await server.close();
+    fs.rmSync(profile, { recursive: true, force: true });
+    throw error;
+  }
+  const { ctx, sw } = launched;
   const extId = new URL(sw.url()).host;
   return {
     ctx,

@@ -27,6 +27,8 @@ import type { Decision } from "../shared/classifier.ts";
 import { feedbackTag, type FeedbackDraft } from "../shared/feedback.ts";
 import type { ClassifyReply, ClassifyRequest, EngineStatus, TabActivity, TabStateReply } from "../shared/protocol.ts";
 import type { VisionReply, VisionRequest } from "../shared/vision.ts";
+// Direct build constant lets the bundler remove the unused image implementation.
+declare const __CLEARSCROLL_IMAGES__: boolean;
 import { ImageFilter } from "./image-filter.ts";
 import { activeTopics, type Settings } from "../shared/settings.ts";
 import { isUrlExcluded } from "../shared/sites.ts";
@@ -113,17 +115,21 @@ export class FilterController {
   private readonly deps: ControllerDeps;
   /** Tags the elements this instance changes (see clearAllVisuals). */
   readonly instanceId = `cs${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  readonly images: ImageFilter;
+  readonly images: Pick<ImageFilter, "configure" | "getState" | "onMutations" | "refreshWithin" | "revealed" | "stop">;
   private observingAttributes = false;
 
   constructor(deps: ControllerDeps) {
     this.deps = deps;
-    this.images = new ImageFilter({
+    this.images = (typeof __CLEARSCROLL_IMAGES__ === "undefined" || __CLEARSCROLL_IMAGES__) ? new ImageFilter({
       doc: deps.doc,
       owner: this.instanceId,
       rootMargin: deps.imageRootMargin,
       classifyImage: deps.classifyImage ?? (() => Promise.reject(new Error("image filtering unavailable"))),
-    });
+    }) : {
+      configure() {}, stop() {}, onMutations() {}, refreshWithin() {}, revealed() {},
+      getState: () => ({ enabled: false, analyzed: 0, blurred: 0, skipped: {},
+        pipeline: { tracked: 0, waiting: 0, queued: 0, inflight: 0 }, vision: null }),
+    };
   }
 
   get currentGeneration(): number {

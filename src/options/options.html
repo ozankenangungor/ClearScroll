@@ -14,11 +14,25 @@
         <img src="../icons/icon-48.png" alt="" width="32" height="32">
         <div>
           <h1>ClearScroll</h1>
-          <p class="muted small">Blur content about topics you choose. Runs entirely on this device.</p>
+          <p class="muted small">Optional topic blurring. Text AI runs on this device.</p>
         </div>
       </div>
       <span class="status-pill" id="engine-status" data-state="idle">Checking engine…</span>
     </header>
+
+    <section class="card" aria-labelledby="h-welcome">
+      <h2 id="h-welcome">Choose what you see</h2>
+      <p>ClearScroll blurs webpage text related to topics you choose. It is best-effort: it can miss related text or hide unrelated text. It is not a guaranteed spoiler blocker, parental control or safety system.</p>
+      <ol>
+        <li><a href="#h-topics">Add a topic below</a>, then choose <strong>Save changes</strong>. Nothing is filtered until you save an enabled topic.</li>
+        <li>Start with <strong>Precise</strong>. Balanced covers more; Thorough can hide more unrelated text.</li>
+        <li>Click a blurred item, or focus it and press Enter or Space, to reveal it. Click again to follow a link.</li>
+        <li>Use the toolbar popup to pause or resume, open Settings, or exclude a site.</li>
+      </ol>
+      <p>Text inference runs locally. The model may take time to start; text can appear before it is checked. If AI is unavailable, the popup shows keyword-only fallback. Turn filtering off at any time to restore normal browsing.</p>
+      <p>YouTube video and Shorts filtering is unsupported: hover previews can escape blurring. New installs list <code>youtube.com</code> and <code>youtu.be</code> in the editable exclusions below. Removing them enables experimental behavior with no reliable preview protection. Chrome pages, the Web Store, PDFs and embedded frames are not supported. English works best.</p>
+      <p>Feedback stays local. Use <strong>Delete all local feedback</strong> below to erase reports, or export them for your own review. Exported topic names can be personal.</p>
+    </section>
 
     <section id="migration-notes" class="card notice" role="alert" hidden>
       <h2>Some old site rules could not be kept</h2>
@@ -27,15 +41,6 @@
       <button type="button" class="btn" id="dismiss-migration">Dismiss</button>
     </section>
 
-    <section class="card" aria-labelledby="h-feedback">
-      <h2 id="h-feedback">Local feedback</h2>
-      <p class="small">To report wrongly hidden or missed text, open the toolbar popup on a public page and choose “Report a text filtering mistake”. Reports contain your selected topic and item metadata, never page text or addresses. Feedback does not change filtering.</p>
-      <p class="small">Kept on this device: the latest 100 reports, up to 30 days (expired reports are removed on the next extension activity). Nothing is sent. Export only if you want to review or share it; topic names may be personal. Add a public reproduction example separately after checking it for private information. Image-only mistakes are not supported yet.</p>
-      <p id="feedback-summary" role="status" aria-live="polite">Loading local feedback…</p>
-      <button type="button" class="btn" id="export-feedback" disabled>Export local feedback (JSON)</button>
-      <button type="button" class="btn" id="delete-feedback" disabled>Delete all local feedback</button>
-      <ul id="feedback-list" aria-label="Saved feedback"></ul>
-    </section>
 
     <form id="settings-form" novalidate>
       <section class="card" aria-labelledby="h-general">
@@ -78,9 +83,9 @@
         <h2 id="h-mode">Strictness</h2>
         <fieldset class="modes">
           <legend class="visually-hidden">Strictness</legend>
-          <label><input type="radio" name="mode" value="precision"> <strong>Precise</strong> <span class="muted small">— hides only clear matches; fewest mistakes</span></label>
+          <label><input type="radio" name="mode" value="precision"> <strong>Precise</strong> <span class="muted small">— more selective; may miss related text</span></label>
           <label><input type="radio" name="mode" value="balanced"> <strong>Balanced</strong> <span class="muted small">— a middle ground</span></label>
-          <label><input type="radio" name="mode" value="aggressive"> <strong>Thorough</strong> <span class="muted small">— catches more text, but also hides more unrelated content (pictures are filtered as in Balanced: a looser picture rule mostly hid the wrong photos)</span></label>
+          <label><input type="radio" name="mode" value="aggressive"> <strong>Thorough</strong> <span class="muted small">— broader coverage; may hide more unrelated text</span></label>
         </fieldset>
       </section>
 
@@ -125,6 +130,18 @@
         <p id="save-status" class="small" role="status" aria-live="polite"></p>
       </div>
     </form>
+
+    <section class="card" aria-labelledby="h-feedback">
+      <h2 id="h-feedback">Local feedback</h2>
+      <p class="small">To report wrongly hidden or missed text, open the toolbar popup on a public page and choose “Report a text filtering mistake”. Reports contain your selected topic and item metadata, never page text or addresses. Feedback does not change filtering.</p>
+      <p class="small">Kept on this device: the latest 100 reports, up to 30 days (expired reports are removed on the next extension activity). Nothing is sent. Export only if you want to review or share it; topic names may be personal. Add a public reproduction example separately after checking it for private information. Image-only mistakes are not supported yet.</p>
+      <p id="feedback-summary" role="status" aria-live="polite">Loading local feedback…</p>
+      <button type="button" class="btn" id="export-feedback" disabled>Export local feedback (JSON)</button>
+      <button type="button" class="btn" id="delete-feedback" disabled>Delete all local feedback</button>
+      <ul id="feedback-list" aria-label="Saved feedback"></ul>
+    </section>
+
+    <p class="small"><a href="../help/help.html" target="_blank" rel="noopener">Help and privacy</a></p>
   </main>
   <script type="module" src="options.js"></script>
 </body>

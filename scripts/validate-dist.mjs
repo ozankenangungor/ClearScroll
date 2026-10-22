@@ -42,6 +42,7 @@ if (!csp.includes("'wasm-unsafe-eval'")) err("extension CSP must allow 'wasm-uns
 // image model's WebAssembly threads.
 if (manifest.cross_origin_embedder_policy?.value !== "require-corp" || manifest.cross_origin_opener_policy?.value !== "same-origin") err("manifest must declare COEP require-corp and COOP same-origin (image-model threads)");
 
+const images = fs.existsSync(path.join(DIST, "offscreen/vision.worker.js"));
 const referenced = [
   manifest.background?.service_worker,
   manifest.options_page,
@@ -57,6 +58,7 @@ const referenced = [
   "offscreen/model/weights.bin",
   "offscreen/model/vocab.txt",
   "offscreen/model/model.json",
+  ...(images ? [
   "offscreen/vision.worker.js",
   "offscreen/vision/ort-wasm-simd-threaded.wasm",
   "offscreen/vision/ort-wasm-simd-threaded.mjs",
@@ -66,6 +68,7 @@ const referenced = [
   "offscreen/vision/background.json",
   "licenses/onnxruntime-LICENSE.txt",
   "licenses/onnxruntime-ThirdPartyNotices.txt",
+  ] : []),
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
   "licenses/Apache-2.0.txt",
@@ -119,6 +122,7 @@ if (fs.existsSync(metaPath)) {
   if (!meta.selftest?.embeddings?.length) err("model.json has no self-test reference embeddings");
 }
 
+if (images) {
 // ── Image model ───────────────────────────────────────────────────────────
 for (const [file, { sha256: want }] of Object.entries(VISION_LOCK.files)) {
   if (!file.endsWith(".onnx") && file !== "tokenizer.json") continue;
@@ -139,6 +143,8 @@ if (fs.existsSync(bgPath) && !usableBackground(JSON.parse(fs.readFileSync(bgPath
 if (fs.existsSync(bgPath) && !usableSiblings(JSON.parse(fs.readFileSync(bgPath, "utf8")), SIBLING_PHRASES)) err("offscreen/vision/background.json has no sibling vectors matching src/shared/siblings.ts (image sibling veto)");
 notes.push(`image model ${VISION_LOCK.id} (${VISION_LOCK.repo}@${VISION_LOCK.revision.slice(0, 12)}, ${VISION_LOCK.license})`);
 
+}
+if (!images && files.some(f => rel(f).includes("/vision/") || rel(f).includes("vision.worker"))) err("image assets in text package");
 // ── No development artifacts ──────────────────────────────────────────────
 for (const f of files) {
   const r = rel(f);

@@ -1,3 +1,16 @@
+# 0.4.0 production candidate (local release)
+
+- Text-focused package: omit experimental image models/ONNX runtime, worker and image UI; reject legacy image opt-ins. Preserve text classifier, models, thresholds and Phase5B lifecycle fix.
+- Open concise Settings onboarding on fresh installation; visibly seed editable YouTube exclusions only for previously unconfigured stores. Preserve migrated/user settings. Avoid asynchronous startup writes that can overwrite an immediate first topic save.
+- Explain best-effort scope, loading/fallback, reveal/pause, unsupported pages and YouTube previews. Add offline Help and privacy.
+- Refresh popup status while open and avoid claiming initialized filtering during model startup. Move local feedback below setup controls.
+- Keep feedback export tied to its own completed storage snapshot, avoiding interference from concurrent UI refreshes.
+- Omit raw runtime errors from copied diagnostics; retain opt-in topic names.
+- Include explicit model/crate source-availability links in packaged notices.
+- Align CI browser/privacy checks with the text package and enforce advisories/licenses against the exact shipped WASM graph without suppressing advisory IDs.
+- Add explicit-directory deterministic packaging, two-assembly verification, source/artifact inventories, production QA fixture and submission documentation.
+- No remote publication, model/classifier research, new permissions or personal-profile changes.
+
 # Changelog
 
 ## 0.3.5 — private alpha

@@ -269,7 +269,7 @@ form.addEventListener("submit", async (e) => {
     applyToForm(next);
     const n = next.topics.filter((t) => t.enabled).length;
     setStatus(
-      !next.enabled ? "Saved. Filtering is turned off." : n === 0 ? "Saved. Add a topic to start filtering." : `Saved. Filtering ${n} topic${n === 1 ? "" : "s"}.`,
+      !next.enabled ? "Saved. Filtering is turned off." : n === 0 ? "Saved. Add a topic to start filtering." : `Saved. ${n} topic${n === 1 ? "" : "s"} configured. Pages may take time to be checked.`,
       "ok"
     );
   } catch (err) {
@@ -370,25 +370,25 @@ chrome.storage.local.get([...STORAGE_KEYS]).then((stored) => {
 setInterval(refreshStatus, 3000);
 
 // Explicit local export, without clipboard or network transmission.
-let feedback: FeedbackRecord[] = [];
-async function refreshFeedback(): Promise<void> {
-  feedback = [];
+async function refreshFeedback(): Promise<FeedbackRecord[]> {
   try {
     const reply = await chrome.runtime.sendMessage({ type: "feedback:list" });
     if (!reply?.ok) throw Error("unavailable");
-    feedback = reply.records;
+    const feedback: FeedbackRecord[] = reply.records;
     $("feedback-summary").textContent = `${feedback.length} local report${feedback.length === 1 ? "" : "s"}. Unreviewed user observations, not confirmed accuracy labels.`;
     $<HTMLButtonElement>("export-feedback").disabled = feedback.length === 0;
     $<HTMLButtonElement>("delete-feedback").disabled = feedback.length === 0;
     $("feedback-list").replaceChildren(...feedback.slice(-10).reverse().map(r => Object.assign(document.createElement("li"), {
       textContent: `${new Date(r.createdAt).toLocaleDateString()} — ${r.kind === "wrongly-hidden" ? "Wrongly hidden" : "Should be hidden"}: ${r.topic} (${r.target.tag} ${r.target.ordinal})${r.diagnostics ? "; diagnostics included" : ""}`,
     })));
+    return feedback;
   } catch {
     $("feedback-summary").textContent = "Could not read local feedback. Reload Settings to try again.";
+    return [];
   }
 }
 $("export-feedback").addEventListener("click", async () => {
-  await refreshFeedback();
+  const feedback = await refreshFeedback();
   if (!feedback.length) return;
   const blob = new Blob([JSON.stringify({ schema: 1, exportedAt: new Date().toISOString(), records: feedback }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -400,7 +400,6 @@ $("delete-feedback").addEventListener("click", async () => {
   try {
     const reply = await chrome.runtime.sendMessage({ type: "feedback:clear" });
     if (!reply?.ok) throw Error("unavailable");
-    feedback = [];
     await refreshFeedback();
   } catch { $("feedback-summary").textContent = "Could not delete feedback. Try again."; }
 });

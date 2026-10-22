@@ -41,3 +41,10 @@ test("browserMajor keeps only the Chrome major version", () => {
   assert.equal(browserMajor("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.8010.47 Safari/537.36"), "Chrome 153");
   assert.equal(browserMajor("something else"), "unknown browser");
 });
+
+test("diagnostics omit untrusted runtime exception details even with topic consent", () => {
+  const d = input({ includeTopics: true });
+  d.engine.detail = "failed https://user:password@private.example/page?token=secret source-text-sentinel";
+  d.vision!.detail = d.engine.detail;
+  assert.doesNotMatch(formatDiagnostics(d), /password|private\.example|token|sentinel|https:/);
+});

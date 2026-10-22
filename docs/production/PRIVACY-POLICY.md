@@ -1,0 +1,19 @@
+# ClearScroll privacy policy — text-focused release
+
+Prepared 15 November 2026. Publisher must host this unchanged policy at a publicly accessible URL before submission and keep it consistent with the submitted version.
+
+ClearScroll processes eligible webpage text locally to blur topics you choose. Text is passed from the page's isolated content script to a shared extension-origin worker; the packaged model runs on your device using WebAssembly CPU or supported WebGPU. There is no account, telemetry, remote AI inference, advertising or developer-operated collection endpoint. ClearScroll does not upload page text, addresses, credentials or feedback. The text package's extension CSP limits connections to its own packaged origin. Ordinary website and Chrome network activity is separate from extension activity.
+
+ClearScroll reads eligible visible text on enabled HTTP/HTTPS pages. Forms, editable areas and certain private UI containers are protected, but these heuristics do not guarantee that all sensitive webpage content is recognized. Use site exclusions for sites you do not want processed. Page text and bounded inference/embedding caches live in memory, not browsing-history storage. Pausing filtering closes the shared engine and clears its caches. It may briefly finish work already in progress; stale results are not applied to a new settings generation.
+
+Chrome local extension storage keeps topics, enabled state, mode, engine preference, site exclusions, optional literal exclusions and protected selectors. These remain across restarts; there is no Chrome Sync integration. Session storage keeps bounded operational status and registration errors. No page-text log is stored. Dormant compatibility keys may exist after an upgrade from an older private version; image settings are coerced off in this package.
+
+Optional local feedback records the chosen topic, mistake type, strictness, bounded tag/ordinal metadata, version and timestamp. Optional diagnostic fields require a separate checkbox. Page text, page URLs, attributes and typed credentials are excluded by the feedback schema. Reports are unreviewed observations and do not train or change filtering. At most 100 reports, up to 30 days, are retained; expiration is applied on the next extension activity, not by a continuously running timer.
+
+Delete reports using Settings → Delete all local feedback. Export produces a local JSON download only when requested. Exports can include personal topic names. The developer receives an export only if you separately choose to share it. Deleting reports does not erase downloaded copies; remove those files yourself. Copied diagnostics contain status/counts; topic names require explicit opt-in. Raw runtime errors are omitted from copied diagnostics.
+
+Remove topics/exclusions in Settings to delete those values. Turning filtering off keeps your settings but stops processing and restores page styles. Uninstalling removes Chrome's local extension storage; downloaded exports and browser/system backups are under your control. After uninstall/update, reload a page if old styles remain.
+
+Image classification and media downloads are not included. The protected private 0.3.5 package separately offered experimental image classification and explicit opt-in additional media requests without cookies; this policy must not be substituted for that version's disclosure.
+
+ClearScroll's use of user data is limited to the disclosed user-facing topic filtering and local controls, consistent with the Chrome Web Store User Data Policy, including Limited Use. Data is not sold, used for advertising or transferred to data brokers. No Google API user-data integration exists. Public support: https://github.com/ozankenangungor/ClearScroll/issues — do not include private browsing content or secrets in a public issue.

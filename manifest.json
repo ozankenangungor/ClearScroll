@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ClearScroll",
   "version": "0.0.0",
-  "description": "Blurs posts and articles about topics you choose, using an on-device AI model. Page text never leaves your device.",
+  "description": "Best-effort blurring of webpage text about topics you choose, with local AI. Reveal items or pause filtering anytime.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "offscreen"],
   "host_permissions": ["http://*/*", "https://*/*"],

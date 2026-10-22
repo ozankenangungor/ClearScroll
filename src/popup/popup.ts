@@ -34,7 +34,7 @@ async function render(): Promise<void> {
   enabledEl.checked = settings.enabled;
   const topics = activeTopics(settings);
   topicsEl.textContent = topics.length
-    ? `Hiding: ${topics.map((t) => t.text).join(", ")}`
+    ? `Topics: ${topics.map((t) => t.text).join(", ")}`
     : "No active topics — add one in Settings.";
 
   const rules = coveringRules();
@@ -50,8 +50,9 @@ async function render(): Promise<void> {
   else if (!settings.enabled) stateEl.textContent = "Filtering is turned off.";
   else if (!topics.length) stateEl.textContent = "Nothing to hide yet.";
   else if (!tab) stateEl.textContent = "Reload the page to start filtering here.";
+  else if (!tab.engine || tab.engine.state === "loading" || tab.engine.state === "idle") stateEl.textContent = "Starting model — page text may not be checked yet.";
   else if (tab.activity !== "active") stateEl.textContent = "Not filtering on this page.";
-  else stateEl.textContent = `${tab.blurred} item${tab.blurred === 1 ? "" : "s"} hidden${tab.revealed ? `, ${tab.revealed} revealed` : ""}.`;
+  else stateEl.textContent = `${tab.blurred} item${tab.blurred === 1 ? "" : "s"} hidden${tab.revealed ? `, ${tab.revealed} revealed` : ""}. More content may still be waiting to be checked.`;
 
   let vision: VisionStatus | null = tab?.images?.vision ?? null;
   try {
@@ -124,4 +125,5 @@ $<HTMLButtonElement>("open-options").addEventListener("click", () => void chrome
   }
   hostEl.textContent = host ?? "—";
   await render();
+  setInterval(() => void render(), 1000);
 })();

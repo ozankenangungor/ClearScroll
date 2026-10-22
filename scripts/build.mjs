@@ -12,6 +12,7 @@ import { computeBackground } from "./vision-background.ts";
 const outIdx = process.argv.indexOf("--out");
 const DIST = outIdx > 0 ? path.resolve(process.argv[outIdx + 1]) : path.join(REPO, "dist");
 const pkgJson = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8"));
+const images = process.argv.includes("--with-images");
 const dev = process.argv.includes("--dev");
 
 for (const f of ["pkg/clearscroll_engine.js", "pkg/clearscroll_engine_bg.wasm"]) {
@@ -27,19 +28,21 @@ if (!lock[weightsShaKey(DTYPE)]) fail(`no pinned ${weightsShaKey(DTYPE)} for ${M
 if (sha256(path.join(MODEL_DIR, "weights.bin")) !== lock[weightsShaKey(DTYPE)]) fail("weights.bin sha256 does not match the lock file — re-run npm run setup:model");
 if (sha256(path.join(MODEL_DIR, "vocab.txt")) !== lock.files["vocab.txt"]) fail("vocab.txt sha256 does not match the lock file");
 
+if (images) {
 step(`Verifying image model ${VISION_LOCK.id} against tools/vision_model_lock.json`);
 if (verifyVisionModel().length) run("node", ["scripts/setup-vision-model.mjs"]);
 const visionProblems = verifyVisionModel();
 if (visionProblems.length) fail(`image model not verified:\n  ${visionProblems.join("\n  ")}`);
+}
 const ORT_WASM = "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm";
 const ORT_GLUE = "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs";
-for (const f of [ORT_WASM, ORT_GLUE]) if (!fs.existsSync(path.join(REPO, f))) fail(`${f} missing — run: npm ci`);
+for (const f of images ? [ORT_WASM, ORT_GLUE] : []) if (!fs.existsSync(path.join(REPO, f))) fail(`${f} missing — run: npm ci`);
 
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 
 step("Bundling TypeScript (esbuild)");
-const common = { bundle: true, target: "chrome116", minify: !dev, sourcemap: dev ? "inline" : false, legalComments: "none", logLevel: "warning" };
+const common = { define: { __CLEARSCROLL_IMAGES__: String(images) }, bundle: true, target: "chrome116", minify: !dev, sourcemap: dev ? "inline" : false, legalComments: "none", logLevel: "warning" };
 const entries = [
   { in: "src/background/background.ts", out: "background/background.js", format: "esm" },
   // Content scripts are classic scripts, not modules.
@@ -51,7 +54,7 @@ const entries = [
   { in: "src/popup/popup.ts", out: "popup/popup.js", format: "esm" },
 ];
 await Promise.all(
-  entries.map((e) =>
+  entries.filter(e => images || !e.in.includes("vision.worker")).map((e) =>
     esbuild.build({
       ...common,
       entryPoints: [path.join(REPO, e.in)],
@@ -80,19 +83,21 @@ for (const page of ["options", "popup"]) {
   copy(`src/${page}/${page}.css`, `${page}/${page}.css`);
 }
 copy("src/ui/common.css", "ui/common.css");
+copy("src/help/help.html", "help/help.html");
 // Licence obligations: our licence, model/crate attributions, Apache-2.0 text.
 copy("LICENSE", "LICENSE");
 copy("THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md");
 copy("licenses/Apache-2.0.txt", "licenses/Apache-2.0.txt");
 copy("licenses/THIRD_PARTY_LICENSES.txt", "licenses/THIRD_PARTY_LICENSES.txt");
-copy("licenses/onnxruntime-LICENSE.txt", "licenses/onnxruntime-LICENSE.txt");
-copy("licenses/onnxruntime-ThirdPartyNotices.txt", "licenses/onnxruntime-ThirdPartyNotices.txt");
+if (images) copy("licenses/onnxruntime-LICENSE.txt", "licenses/onnxruntime-LICENSE.txt");
+if (images) copy("licenses/onnxruntime-ThirdPartyNotices.txt", "licenses/onnxruntime-ThirdPartyNotices.txt");
 for (const f of fs.readdirSync(path.join(REPO, "assets/icons"))) {
   if (f.endsWith(".png")) copy(`assets/icons/${f}`, `icons/${f}`);
 }
 // The worker and model live next to offscreen.html so relative URLs resolve.
 copy("pkg/clearscroll_engine_bg.wasm", "offscreen/pkg/clearscroll_engine_bg.wasm");
 for (const f of ["weights.bin", "vocab.txt", "model.json"]) copy(path.relative(REPO, path.join(MODEL_DIR, f)), `offscreen/model/${f}`);
+if (images) {
 // Image model (loaded only when image filtering is on) and the ONNX Runtime WebAssembly binary.
 copy(ORT_WASM, "offscreen/vision/ort-wasm-simd-threaded.wasm");
 copy(ORT_GLUE, "offscreen/vision/ort-wasm-simd-threaded.mjs");
@@ -100,5 +105,23 @@ for (const f of ["onnx/vision_model_quantized.onnx", "onnx/text_model_quantized.
 step("Embedding the image filter's background prompts (ONNX Runtime WebAssembly, pinned text encoder)");
 fs.writeFileSync(path.join(DIST, "offscreen/vision/background.json"), JSON.stringify(await computeBackground(VISION_DIR)));
 
+}
+if (!images) {
+  // Deny external connections even if dormant compatibility code is reached.
+  const manifestPath = path.join(DIST, "manifest.json");
+  const textManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  textManifest.content_security_policy.extension_pages += " connect-src 'self';";
+  fs.writeFileSync(manifestPath, JSON.stringify(textManifest, null, 2) + "\n");
+  const html = path.join(DIST, "options/options.html");
+  let text = fs.readFileSync(html, "utf8");
+  text = text.replace(/      <section class="card" aria-labelledby="h-images">[\s\S]*?<\/section>/, '      <input type="hidden" id="images"><input type="hidden" id="image-downloads">');
+  text = text.replace(" This setting is for text; the image model always runs on the CPU.", "").replace("Image-only mistakes are not supported yet.", "Image classification is not included in this text release.");
+  fs.writeFileSync(html, text);
+  const notice = path.join(DIST, "THIRD_PARTY_NOTICES.md");
+  let notices = fs.readFileSync(notice, "utf8").replace(/## Image model[\s\S]*?(?=## Rust)/, "");
+  notices = notices.replace(/\*\*ONNX Runtime Web[\s\S]*?(?=No other npm)/, "");
+  notices += "\nThis text-focused package omits SigLIP and ONNX Runtime. Source notices may additionally list development-only components.\n";
+  fs.writeFileSync(notice, notices);
+}
 const total = (dir) => fs.readdirSync(dir, { withFileTypes: true }).reduce((n, d) => n + (d.isDirectory() ? total(path.join(dir, d.name)) : fs.statSync(path.join(dir, d.name)).size), 0);
 step(`dist/ assembled (${(total(DIST) / 1048576).toFixed(1)} MiB, model ${MODEL}, ${DTYPE} weights). Load it via chrome://extensions → Load unpacked.`);

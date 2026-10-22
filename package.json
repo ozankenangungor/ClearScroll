@@ -1,6 +1,6 @@
 {
   "name": "clearscroll",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "private": true,
   "description": "Local-first Chrome extension that blurs content about topics you choose, using an on-device Rust/WebAssembly sentence encoder.",
   "type": "module",
@@ -28,7 +28,7 @@
     "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/**/*.test.ts\"",
     "evaluate": "cargo build --release --no-default-features --features cli && node scripts/evaluate.ts",
     "check": "npm run typecheck && npm test && npm run test:rust",
-    "release:prepare": "npm run check && npm run build && npm run validate && npm run test:dom && npm run test:e2e && npm run verify:privacy && npm run verify:privacy:feedback && npm run verify:privacy:images && node scripts/package.mjs",
+    "release:prepare": "npm run check && node scripts/assemble-production.mjs build/production-assembly && CLEARSCROLL_DIST=$PWD/build/production-assembly/a npm run test:e2e:text && npm run test:dom && CLEARSCROLL_DIST=$PWD/build/production-assembly/a npm run verify:privacy && CLEARSCROLL_DIST=$PWD/build/production-assembly/a npm run verify:privacy:feedback",
     "test:dom": "node --test --test-concurrency=1 \"tests/dom/**/*.test.ts\"",
     "verify:privacy": "node scripts/verify-no-egress.ts",
     "benchmark": "node scripts/benchmark.ts",
@@ -37,7 +37,8 @@
     "evaluate:vision": "node scripts/evaluate-vision.ts",
     "verify:privacy:images": "node scripts/verify-no-egress.ts --images && node scripts/verify-no-egress.ts --images --downloads",
     "benchmark:vision": "node scripts/benchmark-vision.ts",
-    "verify:privacy:feedback": "node scripts/verify-no-egress.ts --feedback"
+    "verify:privacy:feedback": "node scripts/verify-no-egress.ts --feedback",
+    "test:e2e:text": "node --test --test-concurrency=1 tests/e2e/a11y.test.ts tests/e2e/card-removal.test.ts tests/e2e/extension.test.ts tests/e2e/feedback.test.ts tests/e2e/text-boundaries.test.ts tests/e2e/topic-exclusions.test.ts tests/e2e/production.test.ts"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.37",

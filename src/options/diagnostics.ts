@@ -36,12 +36,12 @@ export function formatDiagnostics(d: DiagnosticsInput): string {
     `Filtering: ${s.enabled ? "on" : "off"} · strictness ${s.mode} · text engine preference ${s.engine}`,
     `Topics: ${active.length} active of ${s.topics.length}${d.includeTopics && active.length ? ` — ${active.map((t) => JSON.stringify(t.text)).join(", ")}` : ""}`,
     `Excluded sites: ${s.excludedSites.length} · protected areas: ${s.protectedSelectors.length}`,
-    `Text engine: ${d.engine.state} · backend ${d.engine.backend ?? "—"} · model ${d.engine.model} · load ${d.engine.loadMs ?? "—"} ms${d.engine.detail ? ` · ${d.engine.detail}` : ""}`,
+    `Text engine: ${d.engine.state} · backend ${d.engine.backend ?? "—"} · model ${d.engine.model} · load ${d.engine.loadMs ?? "—"} ms`,
     `Content script: ${d.registered ? "registered" : "not registered"}`,
     `Pictures: ${s.images ? "on" : "off"} · other domains ${s.imageDownloads ? "on" : "off"}`,
   ];
   if (s.images && d.vision) {
-    lines.push(`Image model: ${d.vision.state} · ${d.vision.model} · threads ${d.vision.threads ?? "—"} · load ${d.vision.loadMs ?? "—"} ms${d.vision.detail ? ` · ${d.vision.detail}` : ""}`);
+    lines.push(`Image model: ${d.vision.state} · ${d.vision.model} · threads ${d.vision.threads ?? "—"} · load ${d.vision.loadMs ?? "—"} ms`);
   }
   return lines.join("\n") + "\n";
 }

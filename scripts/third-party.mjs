@@ -118,6 +118,7 @@ lines.push(
     : "Every crate package contains a licence file.",
   ""
 );
+lines.push("\n## Source availability\n\nSource Code Form for every listed Rust crate is available at `https://crates.io/crates/NAME/VERSION` using its exact name and version in the table above. This includes the unmodified MPL-2.0 component **colored 3.1.1**: https://crates.io/crates/colored/3.1.1 . ClearScroll makes no modifications to these crate sources.\n\nThe text model's Apache-2.0 declaration and origin are available in its exact upstream model card: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/README.md . The modifications to the redistributed model are described above.\n".replace("https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/README.md", `https://huggingface.co/${lock.repo}/blob/${lock.revision}/README.md`));
 fs.writeFileSync(path.join(REPO, "THIRD_PARTY_NOTICES.md"), lines.join("\n"));
 console.log(`licenses/THIRD_PARTY_LICENSES.txt: ${sorted.length} distinct texts, ${without.length} crates without licence files, ${(fs.statSync(path.join(REPO, "licenses/THIRD_PARTY_LICENSES.txt")).size / 1024).toFixed(0)} KiB`);
 console.log(`THIRD_PARTY_NOTICES.md: ${crates.length} crates`);

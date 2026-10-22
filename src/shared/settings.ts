@@ -9,6 +9,7 @@
  * dropped silently.
  */
 
+import { IMAGES_AVAILABLE } from "./product.ts";
 import { parseSiteRules } from "./sites.ts";
 
 export type FilterMode = "precision" | "balanced" | "aggressive";
@@ -207,8 +208,8 @@ export function normalizeSettings(raw: unknown): Settings {
       .filter((s) => s.length <= LIMITS.maxSelectorChars)
       .slice(0, LIMITS.maxSelectors),
     // Strictly `true`: anything else (missing in older settings, corrupted) is off.
-    images: raw.images === true,
-    imageDownloads: raw.imageDownloads === true,
+    images: IMAGES_AVAILABLE && raw.images === true,
+    imageDownloads: IMAGES_AVAILABLE && raw.imageDownloads === true,
   };
 }
 
@@ -246,7 +247,9 @@ export function migrateSettings(stored: Record<string, unknown>): MigrationResul
     return { settings, changed: true, from: isRecord(v1) ? "v1" : "legacy-target", droppedSites };
   }
 
-  return { settings: defaultSettings(), changed: false, from: "none", droppedSites: [] };
+  // First-run defaults are returned, never asynchronously written over a user's
+  // first save. Existing/migrated settings above retain their chosen rules.
+  return { settings: { ...defaultSettings(), excludedSites: ["youtube.com", "youtu.be"] }, changed: false, from: "none", droppedSites: [] };
 }
 
 export function parseLines(text: string): string[] {

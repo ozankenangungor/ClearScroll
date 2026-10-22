@@ -1,0 +1,13 @@
+# Using and troubleshooting ClearScroll
+
+Open Settings from the toolbar popup. Add a topic in a few English words and Save changes. No topics are preloaded. Start with Precise; try Balanced for broader coverage. Thorough may hide more unrelated text. Filtering takes time and is best-effort. A topic is a subject, not a promise to detect spoilers or harmful content.
+
+Click a blurred item once to reveal; a second click can follow its link. Keyboard users can focus it and press Enter or Space. Pause in the popup, or turn Filtering enabled off in Settings, to restore browsing. Exclude the current site in the popup, or enter a domain per line in Settings. Site rules cover subdomains; they do not revoke Chrome's host permission. Topic “Text exclusions” are literal whole phrases ignoring case and accents; mixed text containing one is also left visible for that topic, but a parent card or another topic can still blur it.
+
+No topics: add one and save. Loading: content may appear before it is checked. Semantic CPU: local CPU inference, including fallback when a supported GPU is unavailable. Semantic WebGPU: supported local acceleration; GPU is not guaranteed faster for one item. Keyword only: AI is unavailable or disabled; literal mentions may still blur. Engine error/status unavailable: pause, reload the page, reopen Settings; select CPU only if graphics drivers misbehave. Do not rely on incomplete filtering. Restricted page: use an ordinary HTTP/HTTPS page; Chrome/Web Store pages, PDFs and embedded frames are unsupported. Chrome site-access restrictions may require granting access and reloading.
+
+YouTube video/Shorts previews are unsupported. Keep youtube.com and youtu.be in the visible exclusions. Removing them enables experimental behavior and does not make previews safe. This release has no image, audio or video classifier. It can blur a thumbnail as part of a text-matched card.
+
+Use “Report a text filtering mistake” in the popup on an active page. Select the item and topic, then save. Reports stay on this device and do not change the classifier. Settings lets you delete all feedback or explicitly export JSON. Topic names may be personal. Copy diagnostics excludes page text, addresses and raw errors; include topics only deliberately.
+
+Support: https://github.com/ozankenangungor/ClearScroll/issues . Include extension/Chrome versions, OS, mode and a checked public reproduction. Do not paste credentials, private page text or browsing history. Nothing is submitted automatically. Offline Help and privacy is linked in Settings/popup. After disable/enable, update or uninstall, reload a page if styles remain. Reinstall only after exporting wanted settings/feedback manually; there is no settings-import feature or cloud account.

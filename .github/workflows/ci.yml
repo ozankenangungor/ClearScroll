@@ -4,7 +4,7 @@ on:
   # Feature and fix branches are validated on every push, so no pull request
   # is needed to get a result for a commit; checkout uses that exact commit.
   push:
-    branches: [main, "feat/**", "fix/**"]
+    branches: [main, "feat/**", "fix/**", "release/**"]
   pull_request:
   workflow_dispatch:
 
@@ -50,12 +50,14 @@ jobs:
       - run: cargo test --locked --no-default-features --features cpu
 
   dependencies:
-    name: Dependency licences and advisories
+    name: Shipped WASM dependency licences and advisories
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
+          # No advisory IDs are suppressed. Check the graph actually shipped.
+          arguments: --config deny-production.toml --locked --exclude-dev
           command: check advisories bans licenses sources
       - uses: actions/setup-node@v4
         with:
@@ -113,7 +115,7 @@ jobs:
 
   build:
     name: Build, validate, parity + quality gate
-    needs: [typescript, rust, model]
+    needs: [typescript, rust, model, dependencies]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -173,19 +175,19 @@ jobs:
           name: dist
           path: dist
       - run: npm run test:dom
-      - run: npm run test:e2e
+      - run: npm run test:e2e:text
       - name: Privacy check (no network requests caused by the extension)
         run: npm run verify:privacy
-      - name: Privacy check, image filtering on (still no requests; downloads on → only displayed pictures)
-        run: npm run verify:privacy:images
+      - name: Privacy check, local feedback (no text/address uploads)
+        run: npm run verify:privacy:feedback
       # Branded Google Chrome (preinstalled on GitHub's Ubuntu images) loads
       # unpacked extensions only through the DevTools protocol since v137.
       - name: End-to-end + accessibility tests on Google Chrome stable
-        run: google-chrome --version && npm run test:e2e
+        run: google-chrome --version && npm run test:e2e:text
         env:
           CLEARSCROLL_BROWSER: chrome
           CHROME_PATH: /usr/bin/google-chrome
       - name: Privacy check on Google Chrome stable
-        run: node scripts/verify-no-egress.ts --browser chrome && node scripts/verify-no-egress.ts --browser chrome --images
+        run: node scripts/verify-no-egress.ts --browser chrome && node scripts/verify-no-egress.ts --browser chrome --feedback
         env:
           CHROME_PATH: /usr/bin/google-chrome

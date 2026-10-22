@@ -15,6 +15,8 @@
  *   allowFallbackAdapter=1    test-only: also try software WebGPU adapters
  */
 
+// Direct build constant lets the bundler remove the unused image implementation.
+declare const __CLEARSCROLL_IMAGES__: boolean;
 import { EngineHost, type ModelMeta } from "./engine-host.ts";
 import { VisionHost } from "./vision-host.ts";
 import { indexedDbTopicStore } from "./topic-store.ts";
@@ -84,7 +86,7 @@ const host = new EngineHost({
 // the text engine. Used only where the worker is cross-origin isolated.
 const MODEL_THREADS = Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2)));
 
-const vision = new VisionHost({
+const vision = (typeof __CLEARSCROLL_IMAGES__ === "undefined" || __CLEARSCROLL_IMAGES__) ? new VisionHost({
   createWorker: () => new Worker(new URL("vision.worker.js", location.href), { type: "module" }),
   threads: MODEL_THREADS,
   // The text encoder is short-lived; threads shorten the first-picture path.
@@ -109,7 +111,7 @@ const vision = new VisionHost({
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
     return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
   },
-});
+}) : null;
 
 // Exposed for the benchmark harness and debugging from DevTools.
 (globalThis as Record<string, unknown>).clearscrollEngine = host;
@@ -117,7 +119,7 @@ const vision = new VisionHost({
 
 chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
-  if (isOffscreenVisionMessage(msg)) {
+  if (vision && isOffscreenVisionMessage(msg)) {
     if (msg.type === "off:vision") {
       void vision.classify(msg).then(sendResponse);
       return true;

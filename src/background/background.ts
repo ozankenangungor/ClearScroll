@@ -209,7 +209,7 @@ function ensureOffscreen(settings: Settings, stillAllowed: () => boolean = () =>
     await chrome.offscreen.createDocument({
       url,
       reasons: [chrome.offscreen.Reason.WORKERS],
-      justification: "Runs the on-device text and image classification models in Web Workers. Page text and images are analysed on this device only.",
+      justification: "Runs the packaged on-device classification engine in a Web Worker. Inference stays on this device.",
     });
     return true;
   });
@@ -341,7 +341,10 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener((details) => {
-  void scheduleSync(`installed:${details.reason}`, true);
+  void (async () => {
+    await scheduleSync(`installed:${details.reason}`, true);
+    if (details.reason === "install") await chrome.runtime.openOptionsPage();
+  })().catch(() => setRegistrationError("Setup unavailable. Open Settings and reload the extension."));
 });
 
 chrome.runtime.onStartup.addListener(() => {
