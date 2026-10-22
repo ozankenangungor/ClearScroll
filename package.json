@@ -1,6 +1,6 @@
 {
   "name": "clearscroll",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Local-first Chrome extension that blurs content about topics you choose, using an on-device Rust/WebAssembly sentence encoder.",
   "type": "module",

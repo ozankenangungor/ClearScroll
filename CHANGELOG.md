@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5 — private alpha
+
+- Release obsolete text-card ownership when matching units are removed or
+  moved. Reinserted units receive a current verdict; same-card reordering
+  preserves existing filtering without unnecessary reclassification.
+- Includes the verified Phase 5B lifecycle fix. Classifier models, thresholds,
+  topic rules and privacy defaults are unchanged.
+
 ## 0.3.4 — local alpha
 
 - Optional per-topic literal text exclusions in Settings, applied to semantic
