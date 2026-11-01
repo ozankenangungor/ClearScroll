@@ -1,34 +1,193 @@
 name: ci
 
 on:
+  # Feature and fix branches are validated on every push, so no pull request
+  # is needed to get a result for a commit; checkout uses that exact commit.
   push:
-    branches: ["main", "master"]
+    branches: [main, "feat/**", "fix/**", "release/**"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CLEARSCROLL_MODEL: minilm-l6
+  CLEARSCROLL_DTYPE: f16
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
+  typescript:
+    name: TypeScript (typecheck + unit tests)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
 
-      - name: Install Node dependencies
-        run: npm ci
+  rust:
+    name: Rust (fmt, clippy, unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the version, components and wasm target.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --no-default-features --features cli --all-targets -- -D warnings
+      - run: cargo clippy --locked --lib --target wasm32-unknown-unknown --release -- -D warnings
+      # Model-dependent parity tests skip here (no artifacts); they run, and
+      # are required, in the build job.
+      - run: cargo test --locked --no-default-features --features cpu
 
-      - name: Typecheck TS
-        run: npm run typecheck
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+  dependencies:
+    name: Shipped WASM dependency licences and advisories
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          targets: wasm32-unknown-unknown
+          # No advisory IDs are suppressed. Check the graph actually shipped.
+          arguments: --config deny-production.toml --locked --exclude-dev
+          command: check advisories bans licenses sources
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
 
-      - name: Cargo check (wasm release profile)
-        run: cargo check --target wasm32-unknown-unknown --release
+  model:
+    name: Model artifacts (pinned download + export + sha256)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          # model.json embeds the background-topic and sibling vectors, so their lists are part of the key.
+          key: model-${{ env.CLEARSCROLL_MODEL }}-f16-f32-${{ hashFiles('tools/model_lock.json', 'tools/prepare_model.py', 'tools/requirements.lock', 'src/shared/background-topics.json', 'src/shared/topic-siblings.json') }}
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.13"
+      - name: Prepare model (fails on any hash mismatch)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --require-hashes -r tools/requirements.lock
+          # Shipped f16 artifacts plus f32 (still supported; its parity test is required too).
+          .venv/bin/python tools/prepare_model.py --model "$CLEARSCROLL_MODEL" --dtype f16
+          .venv/bin/python tools/prepare_model.py --model "$CLEARSCROLL_MODEL" --dtype f32
+      - name: Verify artifacts (also on cache hit)
+        run: node scripts/verify-model.mjs "$CLEARSCROLL_MODEL:f16" "$CLEARSCROLL_MODEL:f32"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Image model: pinned ONNX files, downloaded by Node and verified
+      # (size + sha256 from tools/vision_model_lock.json) on every run.
+      - id: vision-cache
+        uses: actions/cache@v4
+        with:
+          path: build/vision
+          key: vision-${{ hashFiles('tools/vision_model_lock.json') }}
+      - name: Prepare image model (fails on any hash mismatch)
+        run: node scripts/setup-vision-model.mjs
+      - name: Verify image model (also on cache hit)
+        run: node scripts/setup-vision-model.mjs --verify-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: |
+            build/models
+            build/vision
+          retention-days: 3
 
-      - name: Build extension dist
-        run: bash build.sh
+  build:
+    name: Build, validate, parity + quality gate
+    needs: [typescript, rust, model, dependencies]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: model
+          path: build
+      - name: Install wasm-bindgen CLI (version from Cargo.lock)
+        run: |
+          v=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/,""); print; exit}' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$v" --locked
+      - run: npm ci
+      - run: npm run build
+      - run: npm run validate
+      - name: Image model tokenizer and text-encoder parity (model required)
+        run: node --test tests/unit/vision-model.test.ts
+        env:
+          CLEARSCROLL_REQUIRE_VISION_MODEL: "1"
+      - name: Sibling-veto plans on the real model vectors (model required)
+        run: node --test tests/unit/siblings.test.ts
+        env:
+          CLEARSCROLL_REQUIRE_MODEL: "1"
+      - name: Rust parity against PyTorch fixtures (model required)
+        run: cargo test --locked --no-default-features --features cpu --test parity
+        env:
+          CLEARSCROLL_REQUIRE_MODEL: ${{ env.CLEARSCROLL_MODEL }}-f16,${{ env.CLEARSCROLL_MODEL }}
+      - name: Semantic quality gate
+        run: |
+          cargo build --locked --release --no-default-features --features cli
+          node scripts/evaluate.ts --models "$CLEARSCROLL_MODEL" --dtype "$CLEARSCROLL_DTYPE" --out build/eval/ci --min-en-f1 0.60 --max-ui-fpr 0.05
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  browser:
+    name: Browser tests (DOM integration + extension E2E)
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: npm run test:dom
+      - run: npm run test:e2e:text
+      - name: Privacy check (no network requests caused by the extension)
+        run: npm run verify:privacy
+      - name: Privacy check, local feedback (no text/address uploads)
+        run: npm run verify:privacy:feedback
+      # Branded Google Chrome (preinstalled on GitHub's Ubuntu images) loads
+      # unpacked extensions only through the DevTools protocol since v137.
+      - name: End-to-end + accessibility tests on Google Chrome stable
+        run: google-chrome --version && npm run test:e2e:text
+        env:
+          CLEARSCROLL_BROWSER: chrome
+          CHROME_PATH: /usr/bin/google-chrome
+      - name: Privacy check on Google Chrome stable
+        run: node scripts/verify-no-egress.ts --browser chrome && node scripts/verify-no-egress.ts --browser chrome --feedback
+        env:
+          CHROME_PATH: /usr/bin/google-chrome

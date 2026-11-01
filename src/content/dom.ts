@@ -1,0 +1,308 @@
+/**
+ * DOM helpers for the content script: which elements are classified ("units")
+ * and how their visual state is changed.
+ *
+ * Units: text is attributed to its nearest non-inline ancestor (a <p>, <li>,
+ * <h2>, a tweet's text <div>, …), so the spans/links inside one paragraph are
+ * classified together and cannot produce conflicting verdicts. Elements that
+ * contain block-level descendants are containers, not units, and are never
+ * blurred as a whole.
+ *
+ * Items: a matched unit is shown hidden through its feed item when it has one
+ * (itemOf), so a card's thumbnail goes with its headline.
+ *
+ * Visual state is expressed only through extension-owned attributes styled by
+ * content.css. Page inline styles, classes, listeners and child nodes are
+ * never modified; the only other attributes touched (tabindex, title) are
+ * added solely when absent and are removed again on unblur, which makes every
+ * operation reversible and idempotent.
+ */
+
+export const STATE_ATTR = "data-clearscroll";
+/** Which controller instance applied the state (see clearAllVisuals). */
+export const OWNER_ATTR = "data-clearscroll-owner";
+/** Marks a media element hidden by image analysis (stronger blur, see content.css). */
+export const MEDIA_ATTR = "data-clearscroll-media";
+const ADDED_TABINDEX_ATTR = "data-clearscroll-tabindex";
+const ADDED_TITLE_ATTR = "data-clearscroll-title";
+export const REVEAL_HINT = "Hidden by ClearScroll — click or press Enter to reveal";
+
+export const MIN_TEXT_CHARS = 8;
+export const MAX_UNIT_CHARS = 5000;
+export const MAX_SENT_CHARS = 1000;
+
+const INLINE_TAGS = new Set([
+  "A", "ABBR", "B", "BDI", "BDO", "CITE", "DATA", "DEL", "DFN", "EM", "FONT", "I", "INS",
+  "KBD", "MARK", "Q", "RUBY", "S", "SAMP", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "TIME",
+  "U", "VAR", "WBR", "BR",
+]);
+
+/** Subtrees that are never analysed: non-content or user-input elements. */
+const SKIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "IFRAME", "OBJECT", "EMBED", "CANVAS", "SVG",
+  "MATH", "VIDEO", "AUDIO", "CODE", "PRE", "KBD", "SAMP", "TEXTAREA", "INPUT", "SELECT",
+  "OPTION", "BUTTON", "HEAD", "TITLE",
+]);
+
+/** Never treat these as a unit (blurring them would hide the whole page). */
+const CONTAINER_TAGS = new Set(["HTML", "BODY", "MAIN", "SECTION", "ARTICLE", "ASIDE", "NAV", "HEADER", "FOOTER", "FORM"]);
+
+const BLOCK_DESCENDANTS =
+  "p,div,li,ul,ol,dl,table,section,article,aside,nav,header,footer,main,form,h1,h2,h3,h4,h5,h6,blockquote,pre,figure,fieldset,details,hr";
+
+export const DEFAULT_PROTECTED_SELECTORS = [
+  "nav",
+  "aside",
+  "body > header",
+  "body > footer",
+  "form",
+  "button",
+  "[role='button']",
+  "[role='navigation']",
+  "[role='banner']",
+  "[role='contentinfo']",
+  "[role='search']",
+  "[role='menu']",
+  "[role='menubar']",
+  "[role='tablist']",
+  "[role='toolbar']",
+  "[role='listbox']",
+  "[role='combobox']",
+  "[role='dialog'][aria-modal='true']",
+  "[contenteditable]:not([contenteditable='false'])",
+  "[aria-hidden='true']",
+];
+
+/**
+ * Default protections that do not apply to pictures. `aria-hidden` marks
+ * content as hidden from assistive technology, not from view; sites use it on
+ * visible thumbnails whose title link is the accessible copy (every YouTube
+ * thumbnail). Small decorative graphics are excluded by size instead.
+ */
+const NOT_PROTECTING_MEDIA = new Set(["[aria-hidden='true']"]);
+
+/** Combine selectors into one string, dropping any that do not parse. */
+export function compileProtectedSelector(custom: readonly string[], doc: Document = document, forMedia = false): string {
+  const valid: string[] = [];
+  const defaults = forMedia ? DEFAULT_PROTECTED_SELECTORS.filter((s) => !NOT_PROTECTING_MEDIA.has(s)) : DEFAULT_PROTECTED_SELECTORS;
+  for (const sel of [...defaults, ...custom]) {
+    try {
+      doc.createDocumentFragment().querySelector(sel);
+      valid.push(sel);
+    } catch {
+      /* invalid custom selector: ignored here, reported by the options page */
+    }
+  }
+  return valid.join(",");
+}
+
+export function isSkippedSubtree(el: Element): boolean {
+  return SKIP_TAGS.has(el.tagName.toUpperCase());
+}
+
+/** Nearest non-inline ancestor of a text node or element. */
+export function unitOf(node: Node): Element | null {
+  let el: Element | null = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  while (el && INLINE_TAGS.has(el.tagName.toUpperCase()) && el.parentElement) {
+    el = el.parentElement;
+  }
+  return el;
+}
+
+export function normalizeText(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/** BR is a rendered word boundary; inline formatting and WBR are not. */
+function textWithLineBreaks(unit: Element): string {
+  if (!unit.querySelector("br")) return unit.textContent ?? "";
+  const walker = unit.ownerDocument.createTreeWalker(unit, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.nodeType === Node.TEXT_NODE || (node as Element).tagName === "BR"
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  const parts: string[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    parts.push(node.nodeType === Node.TEXT_NODE ? (node as Text).data : " ");
+  }
+  return parts.join("");
+}
+
+/**
+ * Returns the unit's text if it should be classified, or null with no side
+ * effects. `protectedSelector` comes from compileProtectedSelector().
+ */
+export function unitText(unit: Element, protectedSelector: string): string | null {
+  const tag = unit.tagName.toUpperCase();
+  if (CONTAINER_TAGS.has(tag) || SKIP_TAGS.has(tag)) return null;
+  if (!unit.isConnected) return null;
+  if (protectedSelector && unit.closest(protectedSelector)) return null;
+  for (let p: Element | null = unit; p; p = p.parentElement) {
+    if (SKIP_TAGS.has(p.tagName.toUpperCase())) return null;
+  }
+  if ((unit as HTMLElement).isContentEditable) return null;
+  if (unit.querySelector(BLOCK_DESCENDANTS)) return null;
+  const text = normalizeText(textWithLineBreaks(unit));
+  if (text.length < MIN_TEXT_CHARS || text.length > MAX_UNIT_CHARS) return null;
+  return text.slice(0, MAX_SENT_CHARS);
+}
+
+/** All candidate units below `root` (including root itself). */
+export function collectUnits(root: Node, protectedSelector: string, out: Set<Element>): void {
+  const doc = root.ownerDocument ?? (root as Document);
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element;
+        if (isSkippedSubtree(el) || el.hasAttribute("hidden")) return NodeFilter.FILTER_REJECT;
+        if (protectedSelector && el.matches(protectedSelector)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_SKIP;
+      }
+      return (node as Text).data.trim().length > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const u = unitOf(n);
+    if (u) out.add(u);
+  }
+}
+
+// ── Feed items ─────────────────────────────────────────────────────────────
+
+/** Text units at least this long are separate pieces of content (stories). */
+const ITEM_SUBSTANTIAL_CHARS = 24;
+/** More than this many substantial units → a list of items, not one item. */
+const ITEM_MAX_SUBSTANTIAL_UNITS = 3;
+const ITEM_MAX_DEPTH = 8;
+/** Smaller images are avatars or icons, not a picture of the story. */
+const ITEM_MIN_MEDIA_WIDTH = 64;
+const ITEM_MIN_MEDIA_HEIGHT = 48;
+const ITEM_STOP_TAGS = new Set(["HTML", "BODY", "MAIN", "NAV", "HEADER", "FOOTER", "ASIDE", "FORM"]);
+
+/**
+ * The feed item a unit belongs to — a video card, a news promo — so that a
+ * match also hides its thumbnail and metadata, not only the text. It is the
+ * nearest ancestor (at most ITEM_MAX_DEPTH levels up) that contains a
+ * content-sized image or video, provided it holds at most
+ * ITEM_MAX_SUBSTANTIAL_UNITS substantial text units (so it is never a list or
+ * a box of several stories) and is not a landmark or protected region.
+ * Null: the unit has no such item and is hidden on its own.
+ */
+export function itemOf(unit: Element, protectedSelector: string): Element | null {
+  let depth = 0;
+  for (let a = unit.parentElement; a && depth < ITEM_MAX_DEPTH; a = a.parentElement, depth++) {
+    if (ITEM_STOP_TAGS.has(a.tagName.toUpperCase())) return null;
+    if (protectedSelector && a.matches(protectedSelector)) return null;
+    if (substantialUnits(a, protectedSelector) > ITEM_MAX_SUBSTANTIAL_UNITS) return null;
+    if (hasContentMedia(a)) return a;
+  }
+  return null;
+}
+
+function substantialUnits(root: Element, protectedSelector: string): number {
+  const units = new Set<Element>();
+  collectUnits(root, protectedSelector, units);
+  let n = 0;
+  for (const u of units) if ((unitText(u, protectedSelector)?.length ?? 0) >= ITEM_SUBSTANTIAL_CHARS) n++;
+  return n;
+}
+
+function hasContentMedia(root: Element): boolean {
+  for (const m of root.querySelectorAll("img, picture, video")) {
+    const r = m.getBoundingClientRect();
+    if (r.width >= ITEM_MIN_MEDIA_WIDTH && r.height >= ITEM_MIN_MEDIA_HEIGHT) return true;
+  }
+  return false;
+}
+
+// ── Visual state ───────────────────────────────────────────────────────────
+
+export type VisualState = "blurred" | "revealed" | null;
+
+export function visualState(el: Element): VisualState {
+  const v = el.getAttribute(STATE_ATTR);
+  return v === "blurred" || v === "revealed" ? v : null;
+}
+
+function isNativelyFocusable(el: Element): boolean {
+  return el.hasAttribute("tabindex") || /^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(el.tagName.toUpperCase());
+}
+
+export function applyBlur(el: Element, owner: string): void {
+  el.setAttribute(OWNER_ATTR, owner);
+  if (visualState(el) === "blurred") return;
+  el.setAttribute(STATE_ATTR, "blurred");
+  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) {
+    el.setAttribute("tabindex", "0"); // ours, left at -1 by a previous reveal
+  } else if (!isNativelyFocusable(el)) {
+    el.setAttribute("tabindex", "0");
+    el.setAttribute(ADDED_TABINDEX_ATTR, "");
+  }
+  if (!el.hasAttribute("title")) {
+    el.setAttribute("title", REVEAL_HINT);
+    el.setAttribute(ADDED_TITLE_ATTR, "");
+  }
+}
+
+function removeAddedTitle(el: Element): void {
+  if (el.hasAttribute(ADDED_TITLE_ATTR)) {
+    if (el.getAttribute("title") === REVEAL_HINT) el.removeAttribute("title");
+    el.removeAttribute(ADDED_TITLE_ATTR);
+  }
+}
+
+/**
+ * Remove only what we added; leaves the element exactly as the page had it.
+ * Removing tabindex from the focused element would make Chrome move focus to
+ * <body>, so in that case it becomes -1 and is removed when focus leaves.
+ */
+function removeAdditions(el: Element): void {
+  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) {
+    if (el === el.ownerDocument.activeElement) {
+      el.setAttribute("tabindex", "-1");
+      el.addEventListener(
+        "blur",
+        () => {
+          // Still ours and no longer blurred/revealed → restore the page's markup.
+          if (el.hasAttribute(ADDED_TABINDEX_ATTR) && !el.hasAttribute(STATE_ATTR)) {
+            el.removeAttribute("tabindex");
+            el.removeAttribute(ADDED_TABINDEX_ATTR);
+          }
+        },
+        { once: true }
+      );
+    } else {
+      el.removeAttribute("tabindex");
+      el.removeAttribute(ADDED_TABINDEX_ATTR);
+    }
+  }
+  removeAddedTitle(el);
+}
+
+export function markRevealed(el: Element, owner: string): void {
+  // Turn an added tabindex into -1 *in place*: the element leaves the tab
+  // order but stays focusable, so a keyboard user who revealed it keeps their
+  // place. (Removing the attribute, even briefly, makes Chrome move focus to
+  // <body> immediately.) clearVisual() removes it completely.
+  if (el.hasAttribute(ADDED_TABINDEX_ATTR)) el.setAttribute("tabindex", "-1");
+  removeAddedTitle(el);
+  el.setAttribute(STATE_ATTR, "revealed");
+  el.setAttribute(OWNER_ATTR, owner);
+}
+
+export function clearVisual(el: Element): void {
+  removeAdditions(el);
+  el.removeAttribute(STATE_ATTR);
+  el.removeAttribute(OWNER_ATTR);
+  el.removeAttribute(MEDIA_ATTR);
+}
+
+/**
+ * Remove the visual state applied by `owner`. Scoped by owner because after
+ * an extension update the orphaned old content script and the newly injected
+ * one share the page: the old one tearing down must not undo the new one.
+ */
+export function clearAllVisuals(doc: Document, owner: string): void {
+  doc.querySelectorAll(`[${OWNER_ATTR}="${CSS.escape(owner)}"]`).forEach(clearVisual);
+}

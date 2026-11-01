@@ -1,43 +1,76 @@
-# ClearScroll
+<p align="center">
+  <img src="assets/icons/icon.svg" width="56" height="56" alt="ClearScroll icon">
+</p>
 
-ClearScroll is a Chrome extension for blurring text about a topic you’d rather skip. Pick one topic and matching snippets blur as you browse. The extension checks both the words on the page and how closely the text relates to your topic, right in your browser.
+<h1 align="center">ClearScroll</h1>
 
-The build on `main` still appears as **IdeaBlocker** in Chrome. You can try it by building from source and loading it as an unpacked extension.
+<p align="center">
+  A Chrome extension that blurs webpage text and images about topics you'd rather skip — powered by local LLM &amp; vision models running right in your browser.
+</p>
 
-![Sample news feed where the transfer story is blurred and the market and library stories remain readable](.github/filtering-demo.png)
+<p align="center">
+  <a href="#build-and-load-in-chrome">Install</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#what-to-expect">Privacy &amp; limits</a> ·
+  <a href="#development">Development</a>
+</p>
 
-*“Transfer rumours” as the block target on a sample page, captured in Chromium. This run used word and phrase matching.*
+<p align="center">
+  <img src="assets/demo.png" alt="ClearScroll blurring matching headlines and uncaptioned images locally, then revealing one on click" width="880">
+</p>
 
-## Build and load it in Chrome
+Keyword blockers miss posts that never mention your exact word, and sending every page you read to a remote API isn't a trade-off worth making. ClearScroll runs an [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) sentence encoder directly inside Chrome using Rust and WebAssembly (WebGPU when available, SIMD CPU fallback otherwise) — plus an optional on-device [SigLIP](https://huggingface.co/google/siglip-base-patch16-224) image filter that checks uncaptioned pictures from their pixels. Page content never leaves your device.
 
-You’ll need Chrome 113 or later, Node.js 20 or later, Python 3.12, and a current stable Rust toolchain installed through rustup. Install the [wasm-pack CLI](https://github.com/wasm-bindgen/wasm-pack#-prerequisites) before building.
+## What you can do with it
 
-Run these commands from the repository root in Bash.
+- Add one or more topics in plain English (like `cryptocurrency` or `cats`) and toggle each one independently.
+- Choose between *Precise*, *Balanced*, and *Thorough* strictness, or add per-topic literal exclusions (for example, exclude `NFL` under `football`).
+- When text inside a feed card or news promo matches, the whole card blurs together with its thumbnail.
+- In full builds (`--with-images`), turn on local image filtering to blur matching photos even without captions or alt text.
+- Click any blurred item — or focus it and press `Enter` or `Space` — to reveal it without following nested links on the first click.
+- Pause filtering globally or exclude the current site straight from the toolbar popup.
+
+## Build and load in Chrome
+
+You'll need Chrome 116+, Node.js 22.18+, the Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml), `wasm-bindgen-cli` matching [`Cargo.lock`](Cargo.lock), and Python 3.13 for the one-time model export.
 
 ```sh
 npm ci
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install torch transformers numpy
-python export_weights.py
-wasm-pack build --target web --release
-npm run build
+npm run setup:model   # downloads and verifies the pinned MiniLM weights
+npm run build         # builds the Rust/WASM engine and bundles dist/
 ```
 
-The export script downloads [BERT Tiny](https://huggingface.co/prajjwal1/bert-tiny) and writes `model/weights.bin`. The Rust build embeds those weights in the WASM file. The final build command bundles the extension into `dist/`.
+Then load the unpacked extension:
 
-1. Open `chrome://extensions`, turn on **Developer mode**, and choose **Load unpacked**. Select the `dist/` folder.
-2. On the IdeaBlocker card, open **Details → Extension options**. Enter one topic in **Block Target**, leave the mode on **Precision**, and click **Save**.
-3. Reload the page you want to filter. Try **Balanced** or **Aggressive** if too much relevant text stays visible. Broader modes can blur unrelated text too.
+1. Open `chrome://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked** and select `dist/`.
+3. Settings opens on first install — add a topic, pick a strictness level, and click **Save changes**.
 
-Use **Excluded Sites** to skip a site, or **Protected Selectors** to keep parts of a page visible. Enter one hostname or CSS selector per line. Clear **Block Target** and save to turn off filtering.
+The default build is text-focused (~55 MiB). If you want to test the experimental on-device image filter (SigLIP via ONNX Runtime Web), build with `node scripts/build.mjs --with-images`.
+
+## How it works
+
+The content script groups visible page text into paragraph-sized units near the viewport and sends small batches to an offscreen document running the Rust/WASM encoder in a dedicated Web Worker. Running inference in an offscreen document keeps all tabs sharing one loaded model and avoids strict page CSPs.
+
+Rather than relying on raw cosine similarity — which tends to blur navigation menus and page metadata — ClearScroll scores each paragraph by its margin over a set of generic background topics, then applies a sibling veto to cut down false positives on neighbouring subjects (such as rugby for `football` or dogs for `cats`). Verdicts are applied with a reversible `data-clearscroll` attribute so existing page styles stay intact.
 
 ## What to expect
 
-Some matches will slip through and unrelated text can get blurred by mistake. Text can also appear before the filter has finished checking it. The original text remains in the page under the blur.
+- Filtering is best-effort: some matching items will get through and unrelated text can occasionally blur. It isn't meant to be a guaranteed spoiler blocker or parental-control tool.
+- The bundled model is English-only; other languages fall back to literal word and phrase matching.
+- Text can appear briefly before a batch finishes checking, especially on a cold start.
+- YouTube video/Shorts hover previews can escape blurring, so fresh installs exclude `youtube.com` and `youtu.be` by default (editable in Settings). Chrome internal pages, the Web Store, PDFs, and embedded frames aren't filtered.
+- No accounts, telemetry, or runtime network requests. Settings and optional mistake reports stay in Chrome's local extension storage and can be exported or deleted in Settings.
 
-The topic and settings are stored in Chrome’s local extension storage. Chrome asks for access to HTTP and HTTPS pages so the content script can read and blur text. The worker compares text embeddings using Rust, WebAssembly and WebGPU. If the semantic engine fails to start, it falls back to word and phrase matching. That happened in the Chromium run shown above because the worker couldn’t load its WASM module. The [content script](src/extractor.ts) collects page text and applies the blur. The [worker](src/brain.worker.ts) decides what matches.
+## Development
 
-## Report a problem
+```sh
+npm run check          # TypeScript typecheck, unit tests, and Rust tests
+npm run build
+npm run validate       # checks manifest, CSP, assets, and model hashes in dist/
+npm run test:dom       # DOM controller tests in Chromium
+npm run test:e2e:text  # end-to-end and accessibility tests
+npm run verify:privacy # differential network-capture check (zero egress)
+```
 
-If a page blurs the wrong thing, a public URL, the topic and mode you used, and what you expected to stay visible are enough to start. For build trouble, include your OS and the first error from the build. [Open an issue](https://github.com/ozankenangungor/ClearScroll/issues).
+Licensed under [ISC](LICENSE). Bundled model and crate attributions are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,334 @@
+/**
+ * Image-filtering evaluation in real Chromium with the production code path:
+ * the bundled vision worker (ONNX Runtime Web, WebAssembly CPU) decodes each
+ * image with createImageBitmap, preprocesses it exactly as the extension does
+ * and embeds it; topics are embedded by the same worker; decisions use
+ * src/shared/vision.ts unchanged.
+ *
+ *   node scripts/evaluate-vision.ts --manifest <dir>/manifest.json --set dev --calibrate
+ *   node scripts/evaluate-vision.ts --manifest <dir>/manifest.json --set val --out docs/evaluation/vision/val.json
+ *
+ * The labelled images are third-party photos (Wikimedia Commons, openly
+ * licensed) kept outside the repository; docs/evaluation/vision/ publishes the
+ * manifest (titles, licences, sha256) and the aggregate results only.
+ * --calibrate prints thresholds chosen on the given set; it must only ever be
+ * run on the development set.
+ *
+ * Sibling veto: each topic's anchors and rivals come from the text
+ * engine's plan (src/shared/siblings.ts, MiniLM vectors from the Rust CLI as
+ * in evaluate-realworld.ts); the sibling phrases are embedded by the same
+ * worker as topics. --no-siblings scores the baseline rules without the image
+ * veto (no plans).
+ */
+import * as esbuild from "esbuild";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
+import { chromium } from "playwright";
+
+import { decideImage, isVisualMatch, meanVector, prepareVisionTopic, rivalledImage, topicMatches, topicPrompts, visionScores, VISION_BACKGROUND_PROMPTS, VISION_RULES, VISION_SIBLING_RULES, type PreparedVisionTopic, type VisionRule } from "../src/shared/vision.ts";
+import { planSiblings, SIBLING_PHRASES } from "../src/shared/siblings.ts";
+import { modelDir } from "./lib.mjs";
+import { FILTER_MODES, type FilterMode } from "../src/shared/settings.ts";
+
+const REPO = path.resolve(import.meta.dirname, "..");
+const arg = (k: string, d?: string) => (process.argv.includes(k) ? process.argv[process.argv.indexOf(k) + 1]! : d);
+const manifestPath = path.resolve(arg("--manifest") ?? fail("--manifest required"));
+const set = arg("--set", "dev")!;
+const outPath = arg("--out");
+const calibrate = process.argv.includes("--calibrate");
+const withSiblings = !process.argv.includes("--no-siblings");
+/** Reuse embeddings from an earlier run (private; never committed). */
+const cachePath = arg("--cache");
+/**
+ * Robustness check (labels unchanged): re-render every photo the way real
+ * pages show pictures before analysing it — "thumb": a 168×94 16:9 thumbnail
+ * (YouTube sidebar size); "crop169": a 16:9 centre crop; "overlay": a caption
+ * bar and a badge drawn over the photo. Measurement only.
+ */
+const transform = arg("--transform", "none")!;
+if (!["none", "thumb", "crop169", "overlay"].includes(transform)) fail(`unknown --transform ${transform}`);
+const MODEL_DIR = path.join(REPO, "build/vision/siglip-base-p16-224-int8");
+
+function fail(msg: string): never {
+  console.error(msg);
+  process.exit(1);
+}
+
+/** Topic → labels that count as positive. Every other non-ambiguous image is a negative. */
+export const EVAL_TOPICS: Record<string, { positive: string[]; neighbours: string[] }> = {
+  cats: { positive: ["cat"], neighbours: ["dog", "animal"] },
+  dogs: { positive: ["dog"], neighbours: ["cat", "animal"] },
+  football: { positive: ["football"], neighbours: ["rugby", "basketball"] },
+  rugby: { positive: ["rugby"], neighbours: ["football", "basketball"] },
+  basketball: { positive: ["basketball"], neighbours: ["football", "rugby"] },
+  cryptocurrency: { positive: ["crypto"], neighbours: ["gold", "stocks"] },
+  cars: { positive: ["car"], neighbours: ["airplane"] },
+  airplanes: { positive: ["airplane"], neighbours: ["car"] },
+  politics: { positive: ["protest"], neighbours: ["portrait"] },
+  "fast food": { positive: ["food"], neighbours: ["objects"] },
+};
+
+interface Item {
+  id: string;
+  file: string;
+  label: string;
+  ambiguous: boolean;
+  set: string;
+}
+
+const items = (JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Item[]).filter((m) => m.set === set);
+if (!items.length) fail(`no items for set ${set}`);
+const imageRoot = path.dirname(manifestPath);
+
+// ── Embed in Chromium with the production worker ─────────────────────────
+const worker = (await esbuild.build({ entryPoints: [path.join(REPO, "src/vision/vision.worker.ts")], bundle: true, write: false, format: "esm", target: "chrome116" })).outputFiles[0]!.text;
+const srv = http.createServer((req, res) => {
+  const u = decodeURIComponent(new URL(req.url!, "http://x").pathname);
+  if (u === "/") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>vision eval</title>");
+  if (u === "/worker.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(worker);
+  const file = u.startsWith("/ort/")
+    ? path.join(REPO, "node_modules/onnxruntime-web/dist", path.basename(u))
+    : u.startsWith("/model/")
+      ? path.join(MODEL_DIR, u.slice(7))
+      : u.startsWith("/img/")
+        ? path.join(imageRoot, u.slice(5))
+        : null;
+  if (!file || !fs.existsSync(file)) return void res.writeHead(404).end();
+  res.writeHead(200, { "content-type": file.endsWith(".wasm") ? "application/wasm" : file.endsWith(".mjs") ? "text/javascript" : "application/octet-stream" }).end(fs.readFileSync(file));
+});
+await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+const browser = await chromium.launch();
+const page = await browser.newPage();
+await page.goto(base + "/");
+const prompts = [...new Set([...Object.keys(EVAL_TOPICS).flatMap(topicPrompts), ...VISION_BACKGROUND_PROMPTS, ...SIBLING_PHRASES.flatMap(topicPrompts)])];
+const cached = cachePath && fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : null;
+const imagesCached = (cached?.transform ?? "none") === transform && cached && items.every((m) => cached.images[m.file]);
+const usable = imagesCached && prompts.every((p) => cached.text[p]);
+// Cached images but new prompts (e.g. the sibling phrases): embed only the prompts.
+const result = usable ? cached : await page.evaluate(
+  async ({ files, prompts, transform }) => {
+    const render = async (blob: Blob): Promise<Blob> => {
+      if (transform === "none") return blob;
+      const bmp = await createImageBitmap(blob);
+      const { width: w, height: h } = bmp;
+      // 16:9 centre crop of the source.
+      const cw = Math.min(w, (h * 16) / 9);
+      const ch = Math.min(h, (w * 9) / 16);
+      const sx = (w - cw) / 2;
+      const sy = (h - ch) / 2;
+      let c: OffscreenCanvas;
+      if (transform === "overlay") {
+        c = new OffscreenCanvas(w, h);
+        const g = c.getContext("2d")!;
+        g.drawImage(bmp, 0, 0);
+        g.fillStyle = "rgba(0,0,0,0.7)";
+        g.fillRect(0, h * 0.78, w, h * 0.22);
+        g.fillStyle = "#fff";
+        g.font = `bold ${Math.round(h * 0.09)}px sans-serif`;
+        g.fillText("You won't believe what happened next", w * 0.03, h * 0.93, w * 0.94);
+        g.fillStyle = "#d00";
+        g.fillRect(w * 0.03, h * 0.04, w * 0.16, h * 0.1);
+        g.fillStyle = "#fff";
+        g.font = `bold ${Math.round(h * 0.07)}px sans-serif`;
+        g.fillText("LIVE", w * 0.05, h * 0.12);
+      } else {
+        const [tw, th] = transform === "thumb" ? [168, 94] : [Math.round(cw), Math.round(ch)];
+        c = new OffscreenCanvas(tw, th);
+        const g = c.getContext("2d")!;
+        g.imageSmoothingQuality = "high";
+        g.drawImage(bmp, sx, sy, cw, ch, 0, 0, tw, th);
+      }
+      bmp.close();
+      return c.convertToBlob({ type: "image/jpeg", quality: 0.85 });
+    };
+    const spawn = async (role: "image" | "text") => {
+      const w = new Worker("/worker.js", { type: "module" });
+      let next = 1;
+      const call = (msg: Record<string, unknown>, transfer: Transferable[] = []) =>
+        new Promise<any>((resolve) => {
+          const id = next++;
+          const onMsg = (e: MessageEvent) => {
+            if (e.data.id === id || (msg.type === "init" && !("id" in e.data))) {
+              w.removeEventListener("message", onMsg);
+              resolve(e.data);
+            }
+          };
+          w.addEventListener("message", onMsg);
+          w.postMessage({ ...msg, id }, transfer);
+        });
+      const init = await call({ type: "init", role, ortPrefix: "/ort/", threads: 1, modelUrl: role === "image" ? "/model/onnx/vision_model_quantized.onnx" : "/model/onnx/text_model_quantized.onnx", tokenizerUrl: role === "text" ? "/model/tokenizer.json" : undefined });
+      if (init.type !== "ready") throw new Error(init.error);
+      return { w, call, loadMs: init.loadMs as number };
+    };
+    const img = await spawn("image");
+    const txtw = await spawn("text");
+    const init = { loadMs: img.loadMs };
+    const text: Record<string, number[]> = {};
+    for (let i = 0; i < prompts.length; i += 16) {
+      const batch = prompts.slice(i, i + 16);
+      const r = await txtw.call({ type: "text", prompts: batch });
+      if (r.type !== "text-done") throw new Error(r.error);
+      const dim = r.vectors.length / batch.length;
+      batch.forEach((p: string, k: number) => (text[p] = Array.from(r.vectors.subarray(k * dim, (k + 1) * dim))));
+    }
+    const images: Record<string, number[] | string> = {};
+    const ms: number[] = [];
+    for (const f of files) {
+      const blob = await render(await (await fetch("/img/" + f)).blob());
+      const r = await img.call({ type: "image", blob, maxPixels: 24_000_000 });
+      if (r.type === "image-done") {
+        images[f] = Array.from(r.vector);
+        ms.push(r.ms);
+      } else images[f] = `${r.reason}: ${r.error}`;
+    }
+    img.w.terminate();
+    txtw.w.terminate();
+    return { loadMs: init.loadMs, text, images, ms };
+  },
+  { files: imagesCached ? [] : items.map((m) => m.file), prompts: imagesCached ? prompts.filter((p) => !cached.text[p]) : prompts, transform }
+);
+if (imagesCached && !usable) Object.assign(result, { images: cached.images, ms: cached.ms, loadMs: cached.loadMs, text: { ...cached.text, ...result.text } });
+await browser.close();
+srv.close();
+if (cachePath && !usable) fs.writeFileSync(cachePath, JSON.stringify({ ...result, transform }));
+
+// ── Score ─────────────────────────────────────────────────────────────────
+const vec = (v: number[]) => Float32Array.from(v);
+const background = VISION_BACKGROUND_PROMPTS.map((p) => vec(result.text[p]!));
+const promptMean = (t: string) => {
+  const ps = topicPrompts(t);
+  return meanVector(new Float32Array(ps.flatMap((p) => result.text[p]!)), ps.length);
+};
+/** The text engine's sibling plan per topic (anchors, rivals), as the extension's EngineHost.siblingNames computes it. */
+function textPlans(): Map<string, { anchors: string[]; rivals: string[] } | null> {
+  const dir = modelDir("minilm-l6", "f16");
+  const texts = [...Object.keys(EVAL_TOPICS), ...SIBLING_PHRASES];
+  const out = JSON.parse(execFileSync(path.join(REPO, "target/release/clearscroll-embed"), ["--weights", path.join(dir, "weights.bin"), "--vocab", path.join(dir, "vocab.txt")], { input: JSON.stringify({ texts }), maxBuffer: 1 << 30 }).toString()) as { dim: number; embeddings: number[][] };
+  const v = new Map(texts.map((t, i) => [t, Float32Array.from(out.embeddings[i]!)]));
+  const table = { vectors: Float32Array.from(SIBLING_PHRASES.flatMap((p) => [...v.get(p)!])), count: SIBLING_PHRASES.length };
+  // Evaluation topics are single words (no compound parts).
+  return new Map(Object.keys(EVAL_TOPICS).map((t) => {
+    const p = planSiblings(v.get(t)!, [v.get(t)!], table, out.dim);
+    return [t, p ? { anchors: p.anchors, rivals: p.rivalNames } : null];
+  }));
+}
+const plans = withSiblings ? textPlans() : new Map<string, null>();
+const topics = new Map<string, PreparedVisionTopic>();
+for (const t of Object.keys(EVAL_TOPICS)) {
+  const plan = plans.get(t);
+  topics.set(t, prepareVisionTopic(t, promptMean(t), background, plan ? { own: plan.anchors.map(promptMean), rivals: plan.rivals.map(promptMean) } : null));
+}
+const failed = items.filter((m) => typeof result.images[m.file] === "string");
+const embedded = items.filter((m) => typeof result.images[m.file] !== "string");
+
+interface Pair {
+  topic: string;
+  item: Item;
+  positive: boolean;
+  similarity: number;
+  margin: number;
+  /** The topic has sibling rivals (its own rules) … */
+  siblings: boolean;
+  /** … and this picture is closer to one of them (vetoed). */
+  rivalled: boolean;
+}
+const pairs: Pair[] = [];
+for (const [topic, spec] of Object.entries(EVAL_TOPICS)) {
+  const t = topics.get(topic)!;
+  for (const m of embedded) {
+    const iv = vec(result.images[m.file] as number[]);
+    pairs.push({ topic, item: m, positive: spec.positive.includes(m.label), ...visionScores(iv, t), siblings: !!t.siblings, rivalled: rivalledImage(iv, t) });
+  }
+}
+
+/** Raw rule only (calibration grid). */
+const hitsRule = (p: Pair, rule: VisionRule) => p.similarity >= rule.minSimilarity && p.margin >= rule.minMargin;
+/** What the extension decides for this pair in `mode` (rule per topic, then the sibling veto). */
+const hits = (p: Pair, mode: FilterMode) => isVisualMatch(p, mode, p.siblings) && !p.rivalled;
+
+function metrics(ps: Pair[], rule: VisionRule | FilterMode) {
+  const hit = (p: Pair) => (typeof rule === "string" ? hits(p, rule) : hitsRule(p, rule));
+  const clear = ps.filter((p) => !p.item.ambiguous);
+  const tp = clear.filter((p) => p.positive && hit(p)).length;
+  const fp = clear.filter((p) => !p.positive && hit(p)).length;
+  const P = clear.filter((p) => p.positive).length;
+  const N = clear.length - P;
+  const precision = tp + fp ? tp / (tp + fp) : null;
+  const recall = P ? tp / P : null;
+  const f1 = precision !== null && recall !== null && precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : null;
+  return { tp, fp, fn: P - tp, positives: P, negatives: N, precision, recall, f1, fpr: N ? fp / N : null };
+}
+
+if (calibrate) {
+  if (set !== "dev") fail("--calibrate is only allowed on the development set");
+  // Grid over both conditions; report the best F-beta per FPR cap. Used to
+  // choose VISION_RULES; the chosen values are then fixed in the source.
+  const grid: VisionRule[] = [];
+  for (let s = 0; s <= 0.08001; s += 0.01) for (let m = -0.03; m <= 0.02001; m += 0.005) grid.push({ minSimilarity: +s.toFixed(3), minMargin: +m.toFixed(3) });
+  for (const [mode, beta, maxFpr] of [["precision", 0.5, 0.005], ["balanced", 0.5, 0.01], ["aggressive", 1, 0.02]] as const) {
+    let best: { f: number; rule: VisionRule } = { f: -1, rule: grid[0]! };
+    for (const rule of grid) {
+      const m = metrics(pairs, rule);
+      if (m.precision === null || m.recall === null || (m.fpr ?? 0) > maxFpr) continue;
+      const b2 = beta * beta;
+      const f = ((1 + b2) * m.precision * m.recall) / (b2 * m.precision + m.recall || 1);
+      if (f > best.f) best = { f, rule };
+    }
+    console.log(`${mode}: best F${beta} ${best.f.toFixed(3)} with FPR ≤ ${maxFpr}:`, best.rule, metrics(pairs, best.rule));
+  }
+}
+
+const report = {
+  set,
+  model: "siglip-base-p16-224-int8",
+  images: items.length,
+  decodeFailures: failed.map((m) => ({ id: m.id, error: result.images[m.file] })),
+  ambiguousImages: items.filter((m) => m.ambiguous).length,
+  siblingPlans: withSiblings ? Object.fromEntries([...plans].map(([t, p]) => [t, p ? { anchors: p.anchors, rivals: p.rivals.length } : null])) : "off (--no-siblings)",
+  latency: (() => {
+    const s = [...result.ms].sort((a, b) => a - b);
+    return { modelLoadMs: result.loadMs, imageMedianMs: Math.round(s[s.length >> 1]!), imageP95Ms: Math.round(s[Math.floor(s.length * 0.95)]!), note: "1 WebAssembly thread, headless Chromium, decode + preprocess + inference" };
+  })(),
+  modes: Object.fromEntries(
+    FILTER_MODES.map((mode: FilterMode) => {
+      const thr = mode;
+      const perTopic = Object.fromEntries(
+        Object.entries(EVAL_TOPICS).map(([topic, spec]) => {
+          const ps = pairs.filter((p) => p.topic === topic);
+          const m = metrics(ps, thr);
+          const neighbours = ps.filter((p) => !p.item.ambiguous && spec.neighbours.includes(p.item.label));
+          const amb = ps.filter((p) => p.item.ambiguous && spec.positive.includes(p.item.label));
+          const ambOther = ps.filter((p) => p.item.ambiguous && !spec.positive.includes(p.item.label));
+          return [topic, { ...m, neighbourFalsePositives: `${neighbours.filter((p) => hits(p, thr)).length}/${neighbours.length}`, ambiguousSameClassHidden: `${amb.filter((p) => hits(p, thr)).length}/${amb.length}`, ambiguousOtherClassHidden: `${ambOther.filter((p) => hits(p, thr)).length}/${ambOther.length}`, falsePositives: ps.filter((p) => !p.item.ambiguous && !p.positive && hits(p, thr)).map((p) => p.item.id) }];
+        })
+      );
+      // All ten topics active at once (as a user with many topics): any match hides the image.
+      const clearItems = embedded.filter((m) => !m.ambiguous);
+      const anyTopic = clearItems.filter((m) => decideImage(vec(result.images[m.file] as number[]), [...topics.values()], mode).matched);
+      const covered = new Set(Object.values(EVAL_TOPICS).flatMap((t) => t.positive));
+      const allTopics = { hidden: anyTopic.length, ofImages: clearItems.length, hiddenWithoutAnyTopicLabel: anyTopic.filter((m) => !covered.has(m.label)).map((m) => m.id), unrelatedImages: clearItems.filter((m) => !covered.has(m.label)).length };
+      return [mode, { rule: VISION_RULES[mode], siblingRule: withSiblings ? VISION_SIBLING_RULES[mode] : null, overall: metrics(pairs, thr), allTopicsActive: allTopics, perTopic }];
+    })
+  ),
+};
+// Sanity check: decideImage (used by the extension) agrees with the pairwise scores.
+const sample = embedded[0]!;
+const sv = vec(result.images[sample.file] as number[]);
+const d = decideImage(sv, [...topics.values()], "balanced");
+if (d.matched !== [...topics.values()].some((t) => topicMatches(sv, t, visionScores(sv, t), "balanced"))) fail("decideImage disagrees with topicMatches");
+
+for (const [mode, r] of Object.entries(report.modes)) {
+  const o = r.overall;
+  console.log(`\n[${set}] ${mode} (${JSON.stringify(r.rule)}): all topics active → ${r.allTopicsActive.hiddenWithoutAnyTopicLabel.length}/${r.allTopicsActive.unrelatedImages} unrelated images hidden; precision ${o.precision?.toFixed(3)} recall ${o.recall?.toFixed(3)} F1 ${o.f1?.toFixed(3)} FPR ${o.fpr?.toFixed(4)} (tp ${o.tp}, fp ${o.fp}, fn ${o.fn})`);
+  for (const [t, m] of Object.entries(r.perTopic)) {
+    console.log(`  ${t.padEnd(15)} P ${m.precision?.toFixed(2) ?? " — "} R ${m.recall?.toFixed(2)} FPR ${m.fpr?.toFixed(3)} neighbours ${m.neighbourFalsePositives} ambiguous(same) ${m.ambiguousSameClassHidden} ${m.falsePositives.length ? "fp: " + m.falsePositives.join(" ") : ""}`);
+  }
+}
+console.log(`\nlatency: ${JSON.stringify(report.latency)}; decode failures: ${failed.length}`);
+if (outPath) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(report, null, 2) + "\n");
+}
