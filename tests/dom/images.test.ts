@@ -681,3 +681,457 @@ test("pictures that are hidden or not laid out when loaded (lazy layouts) are an
   await page.waitForFunction(() => document.getElementById("late-shown")!.getAttribute("data-clearscroll") === "blurred", null, { timeout: 5000 });
   await page.close();
 });
+
+// Detached-media lifecycle regressions use overlapping images so every batch
+// is eligible in the real viewport, and distinct pixel identities across rounds.
+const LIFECYCLE_PAGE = `${STYLE}<style>img, video, .bg { position:absolute; top:10px; left:10px; }</style><main id="feed"></main>`;
+
+async function insertBatch(page: Page, round: number, count = 20): Promise<void> {
+  await page.evaluate(async ({ round, count }) => {
+    const feed = document.getElementById("feed")!;
+    const loads: Promise<void>[] = [];
+    for (let i = 0; i < count; i++) {
+      const img = document.createElement("img");
+      img.id = `r${round}i${i}`;
+      img.src = (window as any).harness.solid(`rgb(${round % 256},${i},100)`, 320 + round, 240);
+      feed.append(img);
+      loads.push(img.decode());
+    }
+    await Promise.all(loads);
+  }, { round, count });
+}
+
+/** Deliver the current mutation batch and any cleanup-induced mutations. */
+async function mutationBatch(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((resolve) => queueMicrotask(() => queueMicrotask(resolve))));
+}
+
+test("detached lifecycle: ten rounds of 20 analysed images return tracking to zero", async (t) => {
+  const page = await harnessPage(browser, LIFECYCLE_PAGE);
+  t.after(() => page.close());
+  await H(page).apply();
+  const counts: number[] = [];
+  for (let round = 1; round <= 10; round++) {
+    await insertBatch(page, round);
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: round * 20 });
+    await page.evaluate(() => document.getElementById("feed")!.replaceChildren());
+    await mutationBatch(page);
+    counts.push((await H(page).imgState()).pipeline.tracked);
+  }
+  t.diagnostic(`tracked after removal: ${counts.join(" → ")}`);
+  assert.deepEqual(counts, Array(10).fill(0), "tracking must follow connected media, not historical insertions");
+  assert.equal(await page.locator("img").count(), 0);
+  await assertImageIdle(page, 200);
+});
+
+/** Observe actual browser registrations without replacing IntersectionObserver. */
+async function probeLifecycle(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const targets = new Set<Element>();
+    const listeners = new Set<string>();
+    const probe = { targets, listeners, duplicateListeners: 0, duplicateObserves: 0, observes: 0, unobserves: 0, disconnects: 0 };
+    const add = document.addEventListener.bind(document);
+    const remove = document.removeEventListener.bind(document);
+    const imageListener = (type: string, listener: unknown) => {
+      const f = (window as any).harness.controller.images;
+      return type === "load" && listener === f.onLoad || ["transitionend", "animationend"].includes(type) && listener === f.onTransitionEnd;
+    };
+    document.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+      if (imageListener(type, listener)) {
+        if (listeners.has(type)) probe.duplicateListeners++;
+        listeners.add(type);
+      }
+      add(type, listener, options);
+    }) as typeof document.addEventListener;
+    document.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+      if (imageListener(type, listener)) listeners.delete(type);
+      remove(type, listener, options);
+    }) as typeof document.removeEventListener;
+    (window as any).lifecycleProbe = probe;
+    const proto = IntersectionObserver.prototype;
+    const observe = proto.observe;
+    const unobserve = proto.unobserve;
+    const disconnect = proto.disconnect;
+    const ours = (io: IntersectionObserver) => io === (window as any).harness.controller.images.observer;
+    proto.observe = function (el) {
+      if (ours(this)) {
+        if (targets.has(el)) probe.duplicateObserves++;
+        targets.add(el);
+        probe.observes++;
+      }
+      return observe.call(this, el);
+    };
+    proto.unobserve = function (el) {
+      if (ours(this)) {
+        targets.delete(el);
+        probe.unobserves++;
+      }
+      return unobserve.call(this, el);
+    };
+    proto.disconnect = function () {
+      if (ours(this)) {
+        targets.clear();
+        probe.disconnects++;
+      }
+      return disconnect.call(this);
+    };
+  });
+}
+
+async function lifecycleCounts(page: Page) {
+  return page.evaluate(() => {
+    const h = (window as any).harness;
+    const f = h.controller.images;
+    const groups = [...f.waiting.values()] as Map<Element, any>[];
+    const strong = [f.tracked, f.queue, f.retry, f.pendingImages, ...groups] as (Set<Element> | Map<Element, any>)[];
+    const retained = (window as any).retained ?? [];
+    return {
+      tracked: f.tracked.size as number,
+      queued: f.queue.size as number,
+      retry: f.retry.size as number,
+      pending: f.pendingImages.size as number,
+      groups: groups.length,
+      waiters: groups.reduce((n, g) => n + g.size, 0),
+      disconnected: strong.reduce((n, set) => n + [...set.keys()].filter((el) => !el.isConnected || el.ownerDocument !== document).length, 0),
+      inconsistent: groups.reduce((n, g) => n + [...g].filter(([el, st]) => f.states.get(el) !== st || st.phase !== "inflight" || st.generation !== h.controller.currentGeneration).length, 0),
+      staleWeakEntries: retained.filter((el: Element) => !el.isConnected && (f.states.has(el) || f.near.has(el) || f.observed.has(el))).length as number,
+      observed: (window as any).lifecycleProbe?.targets.size as number | undefined,
+      duplicateObserves: (window as any).lifecycleProbe?.duplicateObserves as number | undefined,
+      duplicateListeners: (window as any).lifecycleProbe?.duplicateListeners as number | undefined,
+      listeners: (window as any).lifecycleProbe?.listeners.size as number | undefined,
+      active: f.active as boolean,
+      waitingTimer: f.waitingTimer !== null,
+      retryTimer: f.retryTimer !== null,
+      inflight: f.inflight as number,
+      maxPhysical: h.imageInflightMax() as number,
+    };
+  });
+}
+
+async function assertLifecycleClean(page: Page, tracked = 0): Promise<void> {
+  await mutationBatch(page);
+  const c = await lifecycleCounts(page);
+  assert.equal(c.tracked, tracked);
+  assert.equal(c.disconnected, 0, "no disconnected strong collection entries");
+  assert.equal(c.inconsistent, 0, "waiters own the exact current state and generation");
+  assert.equal(c.staleWeakEntries, 0, "detached states and observer flags are deleted");
+  assert.equal(c.observed, tracked, "browser observation follows tracking");
+  assert.equal(c.duplicateObserves, 0);
+  assert.equal(c.duplicateListeners, 0);
+  assert.equal(c.listeners, c.active ? 3 : 0, "one set of image event listeners while active");
+  assert.ok(c.queued <= 200);
+  assert.ok(c.maxPhysical <= 2);
+  if (tracked === 0) {
+    assert.equal(c.queued + c.retry + c.pending + c.waiters, 0);
+    assert.equal(c.waitingTimer, false);
+    assert.equal(c.retryTimer, false);
+  }
+}
+
+// Tests intentionally retain removed nodes to verify weak-state deletion and
+// detached markup restoration independently of garbage collection timing.
+test("detached lifecycle: one large removed subtree releases done, queued, inflight, retry and pending media", async (t) => {
+  const page = await harnessPage(browser, LIFECYCLE_PAGE);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await insertBatch(page, 1, 240);
+  await page.evaluate(() => {
+    // Include poster/background discovery, then remove their discovery
+    // attributes before delivery: cleanup must use membership, not selectors.
+    const feed = document.getElementById("feed")!;
+    const url = (window as any).harness.solid("red");
+    feed.insertAdjacentHTML("beforeend", '<video id="poster"></video><div class="bg" role="img" id="background"></div>');
+    (document.getElementById("poster") as HTMLVideoElement).poster = url;
+    (document.getElementById("background") as HTMLElement).style.backgroundImage = `url("${url}")`;
+    (document.getElementById("r1i239") as HTMLElement).style.opacity = "0";
+  });
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 2);
+  // A callback can admit 200 then immediately start two physical requests.
+  await page.waitForFunction(() => {
+    const p = (window as any).harness.state().images.pipeline;
+    return p.inflight === 2 && p.queued >= 198 && p.queued <= 200;
+  }, null, { timeout: 5000 });
+  assert.equal((await lifecycleCounts(page)).tracked, 242);
+  await h.respond(0, true);
+  await waitImages(page, 3);
+  await h.fail(0, "unavailable");
+  await waitImages(page, 4);
+  assert.equal((await lifecycleCounts(page)).retry, 1);
+  assert.ok((await lifecycleCounts(page)).queued <= 200);
+  assert.equal((await lifecycleCounts(page)).pending, 1);
+  await page.evaluate(() => {
+    const bg = document.getElementById("background")!;
+    bg.removeAttribute("role");
+    bg.removeAttribute("style");
+    document.getElementById("poster")!.removeAttribute("poster");
+    (window as any).retained = [...document.querySelectorAll("#feed img, #feed video, #feed .bg")];
+    document.getElementById("feed")!.remove();
+  });
+  await assertLifecycleClean(page);
+  assert.equal((await lifecycleCounts(page)).inflight, 2, "removal does not release physical slots");
+  assert.equal(await page.evaluate(() => (window as any).retained.some((el: Element) => el.hasAttribute("data-clearscroll-media"))), false);
+  await h.respond(0, true);
+  await h.respond(0, true);
+  await assertImageIdle(page, 4);
+  await assertLifecycleClean(page);
+});
+
+test("detached lifecycle: removed queued images are never sent and connected work progresses", async (t) => {
+  const page = await harnessPage(browser, LIFECYCLE_PAGE);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await insertBatch(page, 2, 8);
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 2);
+  await waitPipeline(page, { inflight: 2, queued: 6 });
+  await page.evaluate(() => {
+    const f = (window as any).harness.controller.images;
+    const removed = [...f.queue].slice(0, 3) as Element[];
+    (window as any).retained = removed;
+    for (const el of removed) el.remove();
+  });
+  await mutationBatch(page);
+  await waitPipeline(page, { inflight: 2, queued: 3 });
+  await assertLifecycleClean(page, 5);
+  for (let n = 0; n < 5; n++) {
+    await page.waitForFunction(() => (window as any).harness.imagePendingCount() > 0, null, { timeout: 5000 });
+    await h.respond(0, false);
+  }
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 5 });
+  assert.equal(await page.evaluate(() => (window as any).retained.some((el: Element) => (window as any).harness.controller.images.states.has(el))), false);
+  await assertImageIdle(page, 5);
+  await assertLifecycleClean(page, 5);
+});
+
+for (const outcome of ["match", "unavailable", "decode"]) {
+  test(`detached lifecycle: inflight removal followed by ${outcome} releases capacity once`, async (t) => {
+    const page = await harnessPage(browser, LIFECYCLE_PAGE);
+    t.after(() => page.close());
+    const h = H(page);
+    await probeLifecycle(page);
+    await insertBatch(page, 3, 4);
+    await h.mode("manual");
+    await h.apply();
+    await waitImages(page, 2);
+    await page.evaluate(() => {
+      const f = (window as any).harness.controller.images;
+      const firstGroup = [...f.waiting.values()][0] as Map<Element, unknown>;
+      (window as any).removedGroup = firstGroup;
+      (window as any).retained = [...firstGroup.keys()];
+      for (const el of firstGroup.keys()) el.remove();
+    });
+    await mutationBatch(page);
+    await assertLifecycleClean(page, 3);
+    assert.equal(await page.evaluate(() => (window as any).removedGroup.size), 0);
+    assert.equal((await lifecycleCounts(page)).inflight, 2);
+    if (outcome === "match") await h.respond(0, true);
+    else await h.fail(0, outcome);
+    await waitImages(page, 3);
+    assert.equal((await h.imgState()).analyzed, 0);
+    assert.equal(await page.evaluate(() => (window as any).retained[0].hasAttribute("data-clearscroll")), false);
+    await h.respond(0, false);
+    await waitImages(page, 4);
+    await h.respond(0, false);
+    await h.respond(0, false);
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 3 });
+    await assertImageIdle(page, 4);
+    await assertLifecycleClean(page, 3);
+  });
+}
+
+test("detached lifecycle: shared request keeps connected waiters when its initiating image is removed", async (t) => {
+  const page = await harnessPage(browser, `${STYLE}<main id="feed"><img id="a" data-color="red"><img id="b" data-color="red"><img id="c" data-color="red"></main>`);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await paint(page);
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 1);
+  await waitPipeline(page, { inflight: 1, queued: 0 });
+  assert.equal((await lifecycleCounts(page)).waiters, 3);
+  await page.evaluate(() => {
+    const el = document.getElementById("a")!;
+    (window as any).retained = [el];
+    el.remove();
+  });
+  await assertLifecycleClean(page, 2);
+  assert.equal((await lifecycleCounts(page)).waiters, 2);
+  await h.respond(0, true);
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 2 });
+  assert.deepEqual(await Promise.all(["b", "c"].map(h.state)), ["blurred", "blurred"]);
+  await assertImageIdle(page, 1);
+  await assertLifecycleClean(page, 2);
+});
+
+test("detached lifecycle: DOM moves, parent replacement and synchronous subtree reinsertion preserve state", async (t) => {
+  const page = await harnessPage(browser, `${STYLE}<main id="feed"><div id="left"><img id="a" data-color="red"></div><div id="right"></div></main>`);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await paint(page);
+  await h.apply();
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 1 });
+  await page.evaluate(() => {
+    const a = document.getElementById("a")!;
+    (window as any).savedState = (window as any).harness.controller.images.states.get(a);
+    const right = document.getElementById("right")!;
+    right.append(a);
+    const replacement = document.createElement("div");
+    replacement.append(a);
+    right.replaceWith(replacement);
+    replacement.remove();
+    document.getElementById("feed")!.append(replacement);
+  });
+  await assertLifecycleClean(page, 1);
+  assert.equal(await page.evaluate(() => (window as any).savedState === (window as any).harness.controller.images.states.get(document.getElementById("a"))), true);
+  assert.equal((await lifecycleCounts(page)).observed, 1);
+  assert.equal(await h.state("a"), "blurred");
+  await assertImageIdle(page, 1);
+});
+
+for (const beforeReply of [true, false]) {
+  test(`detached lifecycle: reattachment ${beforeReply ? "before" : "after"} the old reply safely reuses its request or verdict`, async (t) => {
+    const page = await harnessPage(browser, `${STYLE}<main id="feed"><img id="a" data-color="red"></main>`);
+    t.after(() => page.close());
+    const h = H(page);
+    await probeLifecycle(page);
+    await paint(page);
+    await h.mode("manual");
+    await h.apply();
+    await waitImages(page, 1);
+    await page.evaluate(() => {
+      const a = document.getElementById("a")!;
+      (window as any).retained = [a];
+      a.remove();
+    });
+    await assertLifecycleClean(page);
+    if (!beforeReply) {
+      await h.respond(0, true);
+      await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 0 });
+    }
+    await page.evaluate(() => document.getElementById("feed")!.append((window as any).retained[0]));
+    if (beforeReply) {
+      await page.waitForFunction(() => [...(window as any).harness.controller.images.waiting.values()].some((g: any) => g.size === 1), null, { timeout: 5000 });
+      await h.respond(0, true);
+    }
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 1 });
+    assert.equal(await h.state("a"), "blurred");
+    await assertImageIdle(page, 1);
+    await assertLifecycleClean(page, 1);
+    // A recycled element with a different identity must not reuse the red verdict.
+    await page.evaluate(() => (window as any).retained[0].remove());
+    await assertLifecycleClean(page);
+    await page.evaluate(async () => {
+      const a = (window as any).retained[0] as HTMLImageElement;
+      a.src = (window as any).harness.solid("blue");
+      await a.decode();
+      document.getElementById("feed")!.append(a);
+    });
+    await waitImages(page, 2);
+    await h.respond(0, false);
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 2 });
+    assert.equal(await h.state("a"), null);
+    await assertImageIdle(page, 2);
+  });
+}
+
+test("detached lifecycle: removal, stop, restart and new generation preserve physical slots", async (t) => {
+  const page = await harnessPage(browser, LIFECYCLE_PAGE);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await insertBatch(page, 4, 3);
+  await h.mode("manual");
+  await h.apply();
+  await waitImages(page, 2);
+  await page.evaluate(() => {
+    const f = (window as any).harness.controller.images;
+    (window as any).oldGroups = [...f.waiting.values()];
+    const a = document.getElementById("r4i0")!;
+    (window as any).retained = [a];
+    a.remove();
+  });
+  await mutationBatch(page);
+  await page.evaluate(() => (window as any).harness.controller.stop());
+  await assertLifecycleClean(page);
+  assert.equal((await lifecycleCounts(page)).inflight, 2);
+  assert.equal(await page.evaluate(() => (window as any).oldGroups.every((g: Map<Element, unknown>) => g.size === 0)), true);
+  await h.apply({ mode: "aggressive" });
+  await insertBatch(page, 5, 1);
+  await waitPipeline(page, { inflight: 2, queued: 3 });
+  await h.respond(0, true);
+  await waitImages(page, 3);
+  await h.respond(0, true);
+  await waitImages(page, 4);
+  assert.equal((await h.imgState()).analyzed, 0, "old replies cannot resurrect tracking or effects");
+  await h.respond(0, false);
+  await waitImages(page, 5);
+  await h.respond(0, false);
+  await h.respond(0, false);
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 3 });
+  await assertLifecycleClean(page, 3);
+  await assertImageIdle(page, 5);
+  await page.evaluate(() => (window as any).harness.controller.stop());
+  await assertLifecycleClean(page);
+});
+
+test("detached lifecycle: cleanup preserves another instance's markers and ignores stale intersection entries", async (t) => {
+  const page = await harnessPage(browser, `${STYLE}<main id="feed"><img id="a" data-color="red"></main>`);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await paint(page);
+  await h.apply();
+  await waitPipeline(page, { inflight: 0, queued: 0, analyzed: 1 });
+  const original = await page.evaluate(() => {
+    const a = document.getElementById("a")!;
+    a.setAttribute("data-clearscroll-owner", "another-instance");
+    const original = a.outerHTML;
+    (window as any).retained = [a];
+    a.remove();
+    return original;
+  });
+  await assertLifecycleClean(page);
+  await page.evaluate(() => {
+    const f = (window as any).harness.controller.images;
+    f.onIntersect([{ target: (window as any).retained[0], isIntersecting: true }]);
+  });
+  await assertLifecycleClean(page);
+  await page.evaluate(() => (window as any).harness.controller.stop());
+  assert.equal(await page.evaluate(() => (window as any).retained[0].outerHTML), original);
+  await assertLifecycleClean(page);
+});
+
+test("detached lifecycle: 100 infinite-scroll batches keep retention proportional to connected media", async (t) => {
+  const page = await harnessPage(browser, LIFECYCLE_PAGE);
+  t.after(() => page.close());
+  const h = H(page);
+  await probeLifecycle(page);
+  await h.apply();
+  const samples: { cycle: number; connected: number; tracked: number; queued: number; inflight: number; observed: number | undefined; disconnected: number }[] = [];
+  for (let cycle = 1; cycle <= 100; cycle++) {
+    await insertBatch(page, cycle, 5);
+    await waitPipeline(page, { inflight: 0, queued: 0, analyzed: cycle * 5 });
+    await assertLifecycleClean(page, 5);
+    const c = await lifecycleCounts(page);
+    samples.push({ cycle, connected: await page.locator("img").count(), tracked: c.tracked, queued: c.queued, inflight: c.inflight, observed: c.observed, disconnected: c.disconnected });
+    await page.evaluate(() => {
+      (window as any).retained = [...document.querySelectorAll("#feed img")];
+      document.getElementById("feed")!.replaceChildren();
+    });
+    await assertLifecycleClean(page);
+    const removed = await lifecycleCounts(page);
+    samples.push({ cycle, connected: 0, tracked: removed.tracked, queued: removed.queued, inflight: removed.inflight, observed: removed.observed, disconnected: removed.disconnected });
+  }
+  t.diagnostic(`cycle counters: ${JSON.stringify(samples)}`);
+  assert.equal(Math.max(...samples.map((s) => s.tracked)), 5);
+  assert.ok(samples.every((s) => s.tracked === s.connected && s.observed === s.connected && s.disconnected === 0));
+  await assertImageIdle(page, 500);
+  t.diagnostic(`final lifecycle counters: ${JSON.stringify(await lifecycleCounts(page))}`);
+});

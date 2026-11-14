@@ -83,6 +83,8 @@ export class ImageFilter {
   private waitingTimer: ReturnType<typeof setInterval> | null = null;
   private retryDelay = RETRY_MIN_MS;
   private readonly retry = new Set<Element>();
+  /** Only unloaded/hidden media need periodic layout checks. */
+  private readonly pendingImages = new Set<Element>();
   private lastVision: VisionStatus | null = null;
   private analyzed = 0;
   private skipped: Partial<Record<SkipReason, number>> = {};
@@ -122,6 +124,8 @@ export class ImageFilter {
     this.settings = settings;
     this.protectedSelector = protectedSelector;
     this.verdicts = new LruCache(VERDICT_CACHE);
+    // Obsolete requests keep their physical slots, but no longer need DOM waiters.
+    for (const group of this.waiting.values()) group.clear();
     this.waiting = new Map();
     this.skipped = {};
     this.retry.clear();
@@ -142,10 +146,13 @@ export class ImageFilter {
     this.retryTimer = null;
     if (this.waitingTimer !== null) clearInterval(this.waitingTimer);
     this.waitingTimer = null;
+    for (const el of this.tracked) this.dispose(el);
+    this.pendingImages.clear();
     this.retry.clear();
     this.queue.clear();
+    for (const group of this.waiting.values()) group.clear();
     this.waiting = new Map();
-    this.deps.doc.querySelectorAll(`[${MEDIA_ATTR}][${OWNER_ATTR}="${CSS.escape(this.deps.owner)}"]`).forEach(clearMedia);
+    this.deps.doc.querySelectorAll(`[${MEDIA_ATTR}][${OWNER_ATTR}="${CSS.escape(this.deps.owner)}"]`).forEach((el) => this.clearMedia(el));
     this.states = new WeakMap();
     this.tracked = new Set();
     this.near = new WeakSet();
@@ -185,10 +192,53 @@ export class ImageFilter {
     this.flush();
   }
 
-  /** New nodes and changed image attributes (from the controller's MutationObserver). */
+  /** True only in the document managed by this filter (not an adopted node). */
+  private inDocument(el: Element): boolean {
+    return el.isConnected && el.ownerDocument === this.deps.doc;
+  }
+
+  /** Drop an element's membership, but keep the request group until settlement
+   * so a reattached/shared identity can still join that physical request. */
+  private releaseWaiter(el: Element): void {
+    const st = this.states.get(el);
+    if (st) this.waiting.get(st.identity)?.delete(el);
+  }
+
+  private unwatchWaiting(el: Element): void {
+    this.pendingImages.delete(el);
+    if (this.pendingImages.size === 0 && this.waitingTimer !== null) {
+      clearInterval(this.waitingTimer);
+      this.waitingTimer = null;
+    }
+  }
+
+  /** Idempotent teardown; it never cancels a transport or frees its slot. */
+  private dispose(el: Element): void {
+    this.releaseWaiter(el);
+    this.states.delete(el);
+    this.tracked.delete(el);
+    this.queue.delete(el);
+    this.retry.delete(el);
+    if (this.retry.size === 0 && this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.unwatchWaiting(el);
+    this.near.delete(el);
+    if (this.observed.delete(el)) this.observer?.unobserve(el);
+    this.clearMedia(el);
+  }
+
+  /** Only undo this instance's image effects, including on detached nodes. */
+  private clearMedia(el: Element): void {
+    if (el.hasAttribute(MEDIA_ATTR) && el.getAttribute(OWNER_ATTR) === this.deps.owner) clearVisual(el);
+  }
+
+  /** Added, removed and changed media, from the controller's MutationObserver. */
   onMutations(records: MutationRecord[]): void {
     if (!this.active) return;
     const touched = new Set<Element>();
+    const removed = new Set<Element>();
     for (const r of records) {
       if (r.type === "attributes") {
         const el = r.target as Element;
@@ -197,6 +247,25 @@ export class ImageFilter {
         if (el.tagName === "SOURCE" && el.parentElement?.tagName === "PICTURE") el.parentElement.querySelectorAll("img").forEach((i) => touched.add(i));
       } else {
         r.addedNodes.forEach((n) => collectMedia(n, touched));
+        r.removedNodes.forEach((n) => {
+          if (n.nodeType === Node.ELEMENT_NODE) removed.add(n as Element);
+        });
+      }
+    }
+    // Connectivity is checked after the entire synchronous mutation batch:
+    // remove+insert/moves keep their state and observer registration. Traverse
+    // only detached roots, once per subtree, including media whose candidate
+    // attributes were removed before delivery. Never scan historical tracking.
+    for (const root of removed) {
+      if (this.inDocument(root)) continue;
+      let parent = root.parentElement;
+      while (parent && !removed.has(parent)) parent = parent.parentElement;
+      if (parent) continue;
+      if (this.tracked.has(root)) this.dispose(root);
+      const walker = this.deps.doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n as Element;
+        if (this.tracked.has(el)) this.dispose(el);
       }
     }
     for (const el of touched) this.touch(el);
@@ -206,25 +275,35 @@ export class ImageFilter {
   /** (Re)evaluate one element. */
   touch(el: Element): void {
     if (!this.active) return;
+    if (!this.inDocument(el)) {
+      this.dispose(el);
+      return;
+    }
     const info = mediaInfo(el, this.protectedSelector);
     const st = this.states.get(el);
     if (!info.ok) {
       if (info.reason === "pending") {
         // Not loaded yet, or transparent (fading in): the capture-phase load /
         // transitionend / animationend listeners or the observer bring it back.
+        this.releaseWaiter(el);
+        this.queue.delete(el);
+        this.retry.delete(el);
         this.track(el);
+        this.pendingImages.add(el);
         this.states.set(el, { identity: "", generation: this.generation, phase: "waiting", matched: false, revealedIdentity: st?.revealedIdentity ?? null, attempts: 0 });
         this.watchWaiting();
       } else if (st) {
-        this.states.delete(el);
-        this.tracked.delete(el);
-        clearMedia(el);
+        this.dispose(el);
       }
       return;
     }
     if (st && st.identity === info.identity && st.generation === this.generation && st.phase !== "dirty" && st.phase !== "waiting") return;
+    this.releaseWaiter(el);
+    this.unwatchWaiting(el);
+    this.queue.delete(el);
+    this.retry.delete(el);
     const changed = !st || st.identity !== info.identity;
-    if (changed && st?.matched) clearMedia(el);
+    if (changed && st?.matched) this.clearMedia(el);
     this.track(el);
     const next: MediaState = { identity: info.identity, generation: this.generation, phase: "dirty", matched: false, revealedIdentity: st?.revealedIdentity === info.identity ? info.identity : null, attempts: 0 };
     this.states.set(el, next);
@@ -254,10 +333,9 @@ export class ImageFilter {
     this.waitingTimer = setInterval(() => {
       let left = 0;
       const h = this.deps.doc.defaultView!.innerHeight;
-      for (const el of this.tracked) {
-        if (this.states.get(el)?.phase !== "waiting") continue;
-        if (!el.isConnected) {
-          this.tracked.delete(el);
+      for (const el of this.pendingImages) {
+        if (!this.inDocument(el)) {
+          this.dispose(el);
           continue;
         }
         if (++left > WAITING_RECHECK_MAX) break;
@@ -270,8 +348,8 @@ export class ImageFilter {
         }
       }
       this.flush();
-      if (left === 0 || !this.active) {
-        clearInterval(this.waitingTimer!);
+      if (this.pendingImages.size === 0 || !this.active) {
+        if (this.waitingTimer !== null) clearInterval(this.waitingTimer);
         this.waitingTimer = null;
       }
     }, WAITING_RECHECK_MS);
@@ -294,7 +372,14 @@ export class ImageFilter {
   }
 
   private onIntersect(entries: IntersectionObserverEntry[]): void {
+    if (!this.active) return;
     for (const e of entries) {
+      // Entries already queued before unobserve/stop must not resurrect nodes.
+      if (!this.tracked.has(e.target)) continue;
+      if (!this.inDocument(e.target)) {
+        this.dispose(e.target);
+        continue;
+      }
       if (e.isIntersecting) {
         this.near.add(e.target);
         const st = this.states.get(e.target);
@@ -327,9 +412,12 @@ export class ImageFilter {
     let bestDist = Infinity;
     for (const el of this.queue) {
       const st = this.states.get(el);
-      if (!st || st.phase !== "queued" || !el.isConnected) {
+      if (!this.inDocument(el)) {
+        this.dispose(el);
+        continue;
+      }
+      if (!st || st.phase !== "queued") {
         this.queue.delete(el);
-        if (st && st.phase === "queued") st.phase = "dirty";
         continue;
       }
       const r = el.getBoundingClientRect();
@@ -376,6 +464,9 @@ export class ImageFilter {
     try {
       let reply: VisionReply;
       try {
+        // Payload preparation/transport cannot be cancelled safely. The async
+        // frame may retain its initiating element until settlement; disposal
+        // removes collection memberships without altering physical capacity.
         const image = await this.imagePayload(el);
         const req: VisionRequest = {
           type: "cs:vision",
@@ -399,7 +490,7 @@ export class ImageFilter {
       }
       if (reply.vision) this.lastVision = reply.vision;
       // A source/load change can replace a state even within one generation.
-      const current = [...group].filter(([m, s]) => this.states.get(m) === s && s.identity === identity && s.generation === generation && s.phase === "inflight" && m.isConnected);
+      const current = [...group].filter(([m, s]) => this.states.get(m) === s && s.identity === identity && s.generation === generation && s.phase === "inflight" && this.inDocument(m));
       if (reply.ok) {
         this.verdicts.set(identity, reply.decision);
         this.retryDelay = RETRY_MIN_MS;
@@ -425,6 +516,7 @@ export class ImageFilter {
         }
       }
     } finally {
+      group.clear();
       if (waiting.get(identity) === group) waiting.delete(identity);
       // Physical requests survive generation changes. Every completion frees
       // exactly one slot and wakes the active queue, including obsolete replies.
@@ -454,7 +546,10 @@ export class ImageFilter {
     if (this.retryTimer !== null || this.retry.size === 0) return;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      for (const el of this.retry) if (this.near.has(el) && el.isConnected) this.enqueue(el);
+      for (const el of this.retry) {
+        if (!this.inDocument(el)) this.dispose(el);
+        else if (this.near.has(el)) this.enqueue(el);
+      }
       this.retry.clear();
       this.flush();
     }, delay);
@@ -474,9 +569,9 @@ export class ImageFilter {
    * visible.
    */
   render(el: Element, st = this.states.get(el)): void {
-    if (!st || !this.active) return;
+    if (!st || !this.active || !this.inDocument(el)) return;
     if (!st.matched || st.revealedIdentity === st.identity || this.coveredByAncestor(el)) {
-      if (visualState(el) && el.hasAttribute(MEDIA_ATTR)) clearMedia(el);
+      if (visualState(el) && el.hasAttribute(MEDIA_ATTR)) this.clearMedia(el);
       return;
     }
     el.setAttribute(MEDIA_ATTR, "");
@@ -497,7 +592,7 @@ export class ImageFilter {
       const st = this.states.get(m);
       if (st) st.revealedIdentity = st.identity;
       if (m === el) markRevealed(m, this.deps.owner);
-      else if (m.hasAttribute(MEDIA_ATTR)) clearMedia(m);
+      else if (m.hasAttribute(MEDIA_ATTR)) this.clearMedia(m);
     }
   }
 
@@ -514,9 +609,4 @@ class Skipped extends Error {
     super(message);
     this.reason = reason;
   }
-}
-
-function clearMedia(el: Element): void {
-  el.removeAttribute(MEDIA_ATTR);
-  clearVisual(el);
 }
