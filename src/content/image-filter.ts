@@ -76,8 +76,8 @@ export class ImageFilter {
   private inflight = 0;
   /** identity → verdict for the current generation (shared images). */
   private verdicts = new LruCache<string, VisionDecision>(VERDICT_CACHE);
-  /** identity → elements waiting for an in-flight request. */
-  private waiting = new Map<string, Set<Element>>();
+  /** Current generation: identity → exact element states owned by a request. */
+  private waiting = new Map<string, Map<Element, MediaState>>();
   private observer: IntersectionObserver | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private waitingTimer: ReturnType<typeof setInterval> | null = null;
@@ -357,71 +357,66 @@ export class ImageFilter {
       const group = this.waiting.get(st.identity);
       st.phase = "inflight";
       if (group) {
-        group.add(el); // the same image is already being analysed
+        group.set(el, st); // the same image is already being analysed
         continue;
       }
-      this.waiting.set(st.identity, new Set([el]));
-      void this.send(el, st);
+      const waiters = new Map([[el, st]]);
+      this.waiting.set(st.identity, waiters);
+      void this.send(el, st, waiters);
     }
   }
 
-  private async send(el: Element, st: MediaState): Promise<void> {
+  private async send(el: Element, st: MediaState, group: Map<Element, MediaState>): Promise<void> {
     const generation = this.generation;
     const settings = this.settings!;
     const identity = st.identity;
+    // Keep ownership of this lifecycle's map and group across configure/stop.
+    const waiting = this.waiting;
     this.inflight++;
-    let reply: VisionReply;
     try {
-      const image = await this.imagePayload(el);
-      const req: VisionRequest = {
-        type: "cs:vision",
-        generation,
-        mode: settings.mode,
-        topics: activeTopics(settings).map((t): TopicSnapshot => ({ id: t.id, text: t.text })),
-        image,
-      };
-      reply = await this.deps.classifyImage(req);
-    } catch (err) {
-      if (/context invalidated/i.test(String(err))) {
-        this.inflight--;
-        this.stop();
-        return;
+      let reply: VisionReply;
+      try {
+        const image = await this.imagePayload(el);
+        const req: VisionRequest = {
+          type: "cs:vision",
+          generation,
+          mode: settings.mode,
+          topics: activeTopics(settings).map((t): TopicSnapshot => ({ id: t.id, text: t.text })),
+          image,
+        };
+        reply = await this.deps.classifyImage(req);
+      } catch (err) {
+        if (/context invalidated/i.test(String(err))) {
+          this.stop();
+          return;
+        }
+        const reason: SkipReason = err instanceof Skipped ? err.reason : err instanceof PixelsUnavailable ? "cross-origin" : "unavailable";
+        reply = { ok: false, generation, reason, error: String(err), vision: null };
       }
-      const reason: SkipReason = err instanceof Skipped ? err.reason : err instanceof PixelsUnavailable ? "cross-origin" : "unavailable";
-      reply = { ok: false, generation, reason, error: String(err), vision: null };
-    }
-    this.inflight--;
-    if (reply.vision) this.lastVision = reply.vision;
-    const group = this.waiting.get(identity) ?? new Set([el]);
-    this.waiting.delete(identity);
-    if (generation !== this.generation || !this.active) return;
-
-    if (reply.ok) {
-      this.verdicts.set(identity, reply.decision);
-      this.retryDelay = RETRY_MIN_MS;
-      for (const m of group) {
-        const s = this.states.get(m);
-        if (s && s.identity === identity && s.generation === generation && s.phase === "inflight" && m.isConnected) this.finish(m, s, reply.decision);
-        else if (s && s.phase === "inflight") s.phase = "dirty";
+      if (generation !== this.generation || waiting !== this.waiting || !this.active) return;
+      if (reply.generation !== generation) {
+        reply = { ok: false, generation, reason: "stale", error: "reply generation mismatch", vision: null };
       }
-    } else if (reply.reason === "stale" || !PERMANENT.has(reply.reason)) {
-      // Transient (stale, overloaded, model loading/unavailable, inference error): retry with backoff.
-      for (const m of group) {
-        const s = this.states.get(m);
-        if (s && s.identity === identity && s.phase === "inflight") {
+      if (reply.vision) this.lastVision = reply.vision;
+      // A source/load change can replace a state even within one generation.
+      const current = [...group].filter(([m, s]) => this.states.get(m) === s && s.identity === identity && s.generation === generation && s.phase === "inflight" && m.isConnected);
+      if (reply.ok) {
+        this.verdicts.set(identity, reply.decision);
+        this.retryDelay = RETRY_MIN_MS;
+        for (const [m, s] of current) this.finish(m, s, reply.decision);
+      } else if (reply.reason === "stale" || !PERMANENT.has(reply.reason)) {
+        // Transient (stale, overloaded, model loading/unavailable, inference error): retry with backoff.
+        for (const [m, s] of current) {
           s.phase = "dirty";
           if (++s.attempts <= 5 || reply.reason === "stale") this.retry.add(m);
         }
-      }
-      if (reply.reason !== "stale") this.count(reply.reason);
-      this.scheduleRetry(reply.reason === "stale" ? 0 : this.retryDelay);
-      if (reply.reason !== "stale") this.retryDelay = Math.min(this.retryDelay * 2, RETRY_MAX_MS);
-    } else {
-      // Cannot be analysed with the current settings: left visible, counted once per identity.
-      this.count(reply.reason);
-      for (const m of group) {
-        const s = this.states.get(m);
-        if (s && s.identity === identity && s.phase === "inflight") {
+        if (reply.reason !== "stale") this.count(reply.reason);
+        this.scheduleRetry(reply.reason === "stale" ? 0 : this.retryDelay);
+        if (reply.reason !== "stale") this.retryDelay = Math.min(this.retryDelay * 2, RETRY_MAX_MS);
+      } else {
+        // Cannot be analysed with the current settings: left visible, counted once per identity.
+        this.count(reply.reason);
+        for (const [m, s] of current) {
           s.phase = "skipped";
           if (s.matched) {
             s.matched = false;
@@ -429,8 +424,13 @@ export class ImageFilter {
           }
         }
       }
+    } finally {
+      if (waiting.get(identity) === group) waiting.delete(identity);
+      // Physical requests survive generation changes. Every completion frees
+      // exactly one slot and wakes the active queue, including obsolete replies.
+      this.inflight--;
+      this.flush();
     }
-    this.flush();
   }
 
   private async imagePayload(el: Element): Promise<VisionRequest["image"]> {
